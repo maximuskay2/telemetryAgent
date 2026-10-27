@@ -22,7 +22,12 @@ class LogEvent(BaseModel):
 
 class SimEvent(BaseModel):
     kind: Literal[
-        "shop_order", "shop_metrics", "fridge_reading", "watcher_trigger", "fix_applied"
+        "shop_order",
+        "shop_metrics",
+        "fridge_reading",
+        "watcher_trigger",
+        "fix_applied",
+        "scenario_step",
     ]
     payload: Dict[str, Any] = Field(default_factory=dict)
 

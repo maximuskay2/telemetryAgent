@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
 import ServiceMap, { type OrderDot } from "./components/ServiceMap";
 import PipelineLane from "./components/PipelineLane";
+import VirtualFridge, { type FridgeState } from "./components/VirtualFridge";
 
 type AgentStepEvent = {
   step: string;
@@ -200,6 +201,14 @@ export default function Home() {
   const [trimNotice, setTrimNotice] = useState("");
   const [events, setEvents] = useState<LogEvent[]>([]);
   const [orders, setOrders] = useState<OrderDot[]>([]);
+  const [fridgeTemps, setFridgeTemps] = useState<number[]>([]);
+  const [fridge, setFridge] = useState<FridgeState | null>(null);
+  const [scenario, setScenario] = useState({
+    playing: false,
+    done: 0,
+    total: 0,
+    current: "",
+  });
   const [connection, setConnection] = useState("connecting");
   const [error, setError] = useState("");
 
@@ -252,6 +261,71 @@ export default function Home() {
             setOrders((current) =>
               [...current.filter((o) => Date.now() - o.born < 6000), order].slice(-24),
             );
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "fridge_reading"
+        ) {
+          const payload = (
+            data as unknown as {
+              payload?: {
+                reading?: {
+                  temperature_c?: unknown;
+                  current_a?: unknown;
+                  vibration_g?: unknown;
+                };
+                state?: {
+                  temp_c?: unknown;
+                  door_open?: unknown;
+                  compressor_on?: unknown;
+                  condenser_dirty?: unknown;
+                  surge_active?: unknown;
+                  short_cycling?: unknown;
+                };
+              };
+            }
+          ).payload;
+          const reading = payload?.reading;
+          const st = payload?.state;
+          if (
+            reading &&
+            typeof reading.temperature_c === "number" &&
+            typeof reading.current_a === "number" &&
+            typeof reading.vibration_g === "number"
+          ) {
+            setFridgeTemps((current) =>
+              [...current, reading.temperature_c as number].slice(-60),
+            );
+            setFridge({
+              temp_c: reading.temperature_c,
+              current_a: reading.current_a,
+              vibration_g: reading.vibration_g,
+              door_open: st?.door_open === true,
+              compressor_on: st?.compressor_on === true,
+              condenser_dirty: st?.condenser_dirty === true,
+              surge_active: st?.surge_active === true,
+              short_cycling: st?.short_cycling === true,
+            });
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "scenario_step"
+        ) {
+          const payload = (
+            data as unknown as {
+              payload?: { done?: unknown; total?: unknown; action?: unknown };
+            }
+          ).payload;
+          if (
+            payload &&
+            typeof payload.done === "number" &&
+            typeof payload.total === "number"
+          ) {
+            setScenario({
+              playing: payload.done < payload.total,
+              done: payload.done,
+              total: payload.total,
+              current:
+                typeof payload.action === "string" ? payload.action : "",
+            });
           }
         } else if (typeof data.message === "string") {
           setEvents((current) => [...current.slice(-49), data]);
@@ -389,6 +463,123 @@ export default function Home() {
     }
   }
 
+  async function playScenario() {
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/scenario/play`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      const body = (await response.json()) as { steps?: unknown };
+      setScenario({
+        playing: true,
+        done: 0,
+        total: typeof body.steps === "number" ? body.steps : 0,
+        current: "starting",
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not play scenario.");
+    }
+  }
+
+  async function resetWorld() {
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/reset`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset.");
+      return;
+    }
+    setSoftware(emptyIncident());
+    setAppliance(emptyIncident());
+    setOrders([]);
+    setFridgeTemps([]);
+    setFridge(null);
+    setScenario({ playing: false, done: 0, total: 0, current: "" });
+  }
+
+  async function deployFix() {
+    if (!software.runId) return;
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/shop/apply-fix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: software.runId }),
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      setSoftware((prev) => ({
+        ...prev,
+        final: `${prev.final}\nDeployed to shop; watch the error rate fall.`,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Deploy failed.");
+    }
+  }
+
+  async function applyRunbook() {
+    if (!appliance.runId) return;
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/fridge/apply-runbook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run_id: appliance.runId }),
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      const body = (await response.json()) as {
+        applied?: unknown[];
+        skipped?: unknown[];
+      };
+      const done = Array.isArray(body.applied) ? body.applied.length : 0;
+      const skipped = Array.isArray(body.skipped) ? body.skipped.length : 0;
+      setAppliance((prev) => ({
+        ...prev,
+        final: `${prev.final}\nRunbook applied (${done} steps, ${skipped} skipped); temperature recovering.`,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Runbook apply failed.");
+    }
+  }
+
+  async function fridgeControl(
+    path: "fault" | "action",
+    body: { fault: string } | { action: string },
+  ) {
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/fridge/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      const snap = (await response.json()) as {
+        temp_c?: unknown;
+        door_open?: unknown;
+        compressor_on?: unknown;
+        condenser_dirty?: unknown;
+        surge_active?: unknown;
+        short_cycling?: unknown;
+      };
+      setFridge((prev) => ({
+        temp_c: typeof snap.temp_c === "number" ? snap.temp_c : (prev?.temp_c ?? 0),
+        current_a: prev?.current_a ?? 0,
+        vibration_g: prev?.vibration_g ?? 0,
+        door_open: snap.door_open === true,
+        compressor_on: snap.compressor_on === true,
+        condenser_dirty: snap.condenser_dirty === true,
+        surge_active: snap.surge_active === true,
+        short_cycling: snap.short_cycling === true,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Fridge control failed.");
+    }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -405,6 +596,34 @@ export default function Home() {
       <section className="panel map-panel">
         <div className="panel-heading">
           <div>
+            <p className="eyebrow">SCENARIO</p>
+            <h2>One-click demo</h2>
+          </div>
+          <span className="counter">
+            {scenario.playing
+              ? `step ${scenario.done}/${scenario.total} · ${scenario.current}`
+              : scenario.total > 0
+                ? `done ${scenario.done}/${scenario.total}`
+                : "idle"}
+          </span>
+        </div>
+        <div className="controls scenario-controls">
+          <button
+            type="button"
+            onClick={playScenario}
+            disabled={scenario.playing}
+          >
+            Play scenario
+          </button>
+          <button type="button" className="ghost" onClick={resetWorld}>
+            Reset
+          </button>
+        </div>
+      </section>
+
+      <section className="panel map-panel">
+        <div className="panel-heading">
+          <div>
             <p className="eyebrow">WORLD</p>
             <h2>Service map</h2>
           </div>
@@ -415,6 +634,24 @@ export default function Home() {
         ) : (
           <ServiceMap orders={orders} />
         )}
+      </section>
+
+      <section className="panel map-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">WORLD</p>
+            <h2>Virtual fridge</h2>
+          </div>
+          <span className="counter">
+            {fridge ? `${fridge.temp_c.toFixed(1)}°C` : "stream idle"}
+          </span>
+        </div>
+        <VirtualFridge
+          temps={fridgeTemps}
+          state={fridge}
+          onFault={(fault) => void fridgeControl("fault", { fault })}
+          onAction={(action) => void fridgeControl("action", { action })}
+        />
       </section>
 
       <div className="grid">
@@ -477,6 +714,16 @@ export default function Home() {
                   </span>
                 )}
               </div>
+            </div>
+            <div className="controls">
+              <button
+                type="button"
+                onClick={deployFix}
+                disabled={software.status !== "PASS" || !software.runId}
+                title="Deploy the verified patch to the demo shop"
+              >
+                Deploy verified fix
+              </button>
             </div>
             <PipelineLane
               labels={["Crash", "Grab", "Suggest", "Verify", "Fix"]}
@@ -564,6 +811,16 @@ export default function Home() {
                   warning → verified fix: {(appliance.elapsedMs / 1000).toFixed(1)}s
                 </span>
               )}
+            </div>
+            <div className="controls">
+              <button
+                type="button"
+                onClick={applyRunbook}
+                disabled={appliance.status !== "PASS" || !appliance.runId}
+                title="Technician applies the validated runbook to the fridge"
+              >
+                Technician applies runbook
+              </button>
             </div>
             <PipelineLane
               labels={["Crash", "Grab", "Suggest", "Safety", "Fix"]}

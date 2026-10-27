@@ -33,6 +33,9 @@ class ExecutionResult(BaseModel):
         default=None, description="GitHub PR URL when a fix PR was opened"
     )
     run_id: str = Field(default="", description="Incident run identifier")
+    patch_code: Optional[str] = Field(
+        default=None, description="Verified fix module on PASS (Sim 5 deploy)"
+    )
 
 
 class ApplianceAlert(BaseModel):

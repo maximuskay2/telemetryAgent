@@ -1,0 +1,14 @@
+# Demo scenario: seconds from Play. The shop breaks under load, the log
+# watcher grabs the deadlock, then the fridge door opens and the sensor
+# watcher grabs that too. Both lanes recover after their verified fixes.
+- at: 5
+  action: shop_load
+  shoppers: 8
+  rate: 30
+  duration: 120
+- at: 50
+  action: fridge_fault
+  fault: door_open
+- at: 110
+  action: fridge_action
+  name: close_door

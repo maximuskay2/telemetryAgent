@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 
 # Modal retired sandbox.open() server-side, and its replacement (sandbox.filesystem)
 # needs a Modal release that no longer supports Python 3.9, so files go in via exec.
@@ -30,10 +31,13 @@ def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
 
     Generated code is untrusted and only ever runs inside a sandbox. When Modal
     is unavailable (not installed, or no credentials), this falls back to the
-    local Docker runner instead of failing.
+    local Docker runner instead of failing. `TA_VERIFY=local` forces Docker
+    (fast, offline) without touching Modal.
     """
     if not patch_code or not test_code:
         raise ValueError("patch_code and test_code must be non-empty strings")
+    if os.environ.get("TA_VERIFY", "").lower() == "local":
+        return _local_fallback(patch_code, test_code, timeout)
     try:
         import modal
     except ImportError:

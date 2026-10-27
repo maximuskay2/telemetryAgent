@@ -12,3 +12,4 @@ __pycache__/
 !.env.example
 demo/target-service/logs/
 demo/shop/logs/
+demo/shop/.runtime/

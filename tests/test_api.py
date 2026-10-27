@@ -132,6 +132,19 @@ class CorsTests(unittest.TestCase):
             )
         self.assertNotIn("access-control-allow-origin", response.headers)
 
+    def test_cors_regex_override_for_deploys(self) -> None:
+        from apps.api.main import cors_origin_regex
+
+        with patch.dict(
+            os.environ, {"CORS_ORIGIN_REGEX": r"https://.*\.up\.railway\.app$"}
+        ):
+            self.assertEqual(
+                cors_origin_regex(), r"https://.*\.up\.railway\.app$"
+            )
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CORS_ORIGIN_REGEX", None)
+            self.assertIn("localhost", cors_origin_regex())
+
 
 class RunFailureTests(unittest.TestCase):
     def test_run_without_keys_returns_503(self) -> None:

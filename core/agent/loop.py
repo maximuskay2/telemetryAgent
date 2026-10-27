@@ -208,6 +208,7 @@ def run_software_loop(
             model_used=state["model"],
             pr_url=pr_url,
             run_id=run_id,
+            patch_code=patch.patch_code,
         )
 
     outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,

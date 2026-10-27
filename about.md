@@ -230,7 +230,10 @@ def generate(system_prompt: str, user_content: str) -> str:
 
 ### 4. Software verification in a Modal Sandbox (`core/verify/sandbox.py`)
 
-Generated code is untrusted and only ever runs inside a Modal Sandbox.
+Generated code is untrusted and only ever runs inside a sandbox: Modal by
+default, with a network-isolated local Docker runner as fallback
+(`core/verify/local_runner.py`, image from `./scripts/build-sandbox-image.sh`;
+`TA_VERIFY=local` forces it).
 
 ```python
 import modal

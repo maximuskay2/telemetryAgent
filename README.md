@@ -96,7 +96,8 @@ Credentials live in `.env`, which is git-ignored. Never commit keys.
 | --- | --- |
 | `MODEL_API_KEY` | Meta Model API (Muse Spark, Muse Wonder) |
 | `BASETEN_API_KEY` | Muse Spark Open on Baseten |
-| `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | Modal Sandboxes |
+| `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | Modal Sandboxes (or `modal setup` once) |
+| `TA_VERIFY=local` | Force local Docker verification instead of Modal |
 | `GITHUB_TOKEN` | Opening pull requests on the demo target repo |
 | `FIREWORKS_API_KEY`, `FIREWORKS_PATCH_MODEL` | Optional backup generation provider |
 

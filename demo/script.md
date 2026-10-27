@@ -7,8 +7,9 @@ hallucination" or "predicts failure".
 
 ## Pre-flight (before recording)
 
-- API + dashboard running on the public demo URL; `.env` has `MODEL_API_KEY`,
-  `BASETEN_API_KEY`, `MODAL_TOKEN_ID/SECRET`, `GITHUB_TOKEN`.
+- From a clean clone with `.env` (`MODEL_API_KEY`, `BASETEN_API_KEY`,
+  `MODAL_TOKEN_ID/SECRET`, `GITHUB_TOKEN`): run `./scripts/demo.sh`
+  (or `npm run demo` from `apps/web`), open http://localhost:3000.
 - Demo-target repo clean; previous `telemetry-agent/fix-*` branches deleted so
   the new PR is obviously the agent's.
 - Warm the Modal Sandbox once (cold-start can take tens of seconds); note the
@@ -17,35 +18,44 @@ hallucination" or "predicts failure".
 - Pre-capture backup footage of a known-good run (Day 7); the edit can cut to
   it if the live take stalls.
 
-## Shots
+## Shots (one command + one click)
 
-### 0:00–0:25 — The problem (dashboard, both panels idle)
+### 0:00–0:25 — The problem (dashboard: scenario bar, service map, fridge)
 
 - "Outages take hours to diagnose and fix. TelemetryAgent does it in minutes —
   for software and for physical equipment, with the same reasoning core."
-- Point at the two panels: crash-log incident, fridge incident.
+- Point at the world: the service map, the virtual fridge, the two incident
+  lanes. Click **Play scenario** — everything after this is autonomous.
 
-### 0:25–1:35 — Software incident (left panel + GitHub)
+### 0:25–1:35 — Software incident (service map + left lane + GitHub)
 
-1. Click **Inject deadlock**. Narrate each streamed step as it lands:
+1. Shop load starts; orders visibly fail on the map and the red deadlock
+   cycle appears between the two lock nodes.
+2. The log watcher grabs the crash lines — no clicks — and the lane advances:
    - Diagnosis by **Muse Spark** (`muse-spark-1.3`, Meta Model API).
    - Patch + pytest by the open-weight **Muse Spark Open** on **Baseten**
      (note the model/provider tag on the step).
    - Verification: the test fails on the original, passes on the patch —
      run by pytest in a **Modal Sandbox**, never locally.
-2. If a retry happens, call it out: "failure output feeds back in; the final
+3. If a retry happens, call it out: "failure output feeds back in; the final
    attempt escalates to **Muse Wonder**."
-3. Switch to GitHub: the real PR, with diagnosis, test output, and attempt
+4. Switch to GitHub: the real PR, with diagnosis, test output, and attempt
    count in the body. "A verified fix, ready to review."
+5. Click **Deploy verified fix**: the shop hot-swaps to the patched module
+   and the map dots turn green. "Merge and deploy — the outage is over."
 
-### 1:35–2:25 — Appliance incident (right panel)
+### 1:35–2:25 — Appliance incident (fridge + right lane)
 
-1. Select fridge + door-open fault, click **Inject fault**.
+1. The scenario opens the fridge door: the door swings, the temperature curve
+   climbs past the warn line, and the sensor watcher triggers — "Detected by
+   watcher", no other clicks.
 2. Same core: Muse Spark classifies the sensor window, Muse Spark Open writes
    the runbook, deterministic safety rules validate it — "no simulator, just
    hard bounds: holding temperature, restart delay, power-off window."
 3. Final action: owner SMS alert + technician work order shown in the panel.
    "Abnormal behavior detected early, before stock spoils."
+4. Click **Technician applies runbook**: the door closes and the temperature
+   curve falls back to ~3.5 °C.
 
 ### 2:25–3:00 — Close (architecture diagram or README)
 
@@ -53,26 +63,14 @@ hallucination" or "predicts failure".
 - Callouts: Muse Spark, Muse Spark Open, Muse Wonder, Modal, built with
   **Muse Code**. End on the repo + demo URL.
 
-## Autonomous variant (watcher-first take)
+## Manual variant (button-first take)
 
-Same 3-minute structure, but nobody clicks. From the repo root:
-
-```bash
-./demo/live.sh        # API + log watcher + load service
-npm run dev           # dashboard in a second terminal
-```
-
-1. The load service writes retries, then a deadlock, to
-   `demo/target-service/logs/service.log`.
-2. The watcher catches the early `WARNING retry` lines and POSTs the context
-   window with `target_path=inventory.py`, so verification is fail-to-pass
-   against the real file.
-3. The dashboard adopts the run live: "Detected by watcher" badge, per-stage
-   model tags, and the warning → verified-fix timer.
-4. The software incident ends in a real PR whose diff touches `inventory.py`.
-
-For the edit, this take can replace the 0:25–1:35 click-through, or open the
-video as the hook ("no one clicked anything") before the narrated replay.
+Same beats without the scenario player: use the shop page + load generator
+for the software incident (`venv/bin/python demo/shop/load.py --shoppers 8
+--rate 30 --duration 60`), the fridge **fault buttons** for the appliance
+incident, and the per-panel **Inject** buttons to replay either incident as a
+manual upload. The lanes, badges, and timers behave identically; only the
+"Detected by" source tag differs.
 
 ## Backup plan
 

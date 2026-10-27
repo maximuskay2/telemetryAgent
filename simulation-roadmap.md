@@ -113,57 +113,59 @@ A real app that really fails because of the real bug.
 
 Simple state model, not a physics simulator (keeps the Scope Rules).
 
-- [ ] `core/simulate/fridge_stream.py`: `VirtualFridge` stepping every tick (1 s real = 1 simulated min), reusing `BASE_TEMP_C`, `BASE_CURRENT_A`, `BASE_VIBRATION_G` and the same fault names as `appliance.py`.
-- [ ] State: `door_open`, `condenser_dirty`, `surge`, `short_cycling`, compressor on/off; faults and repairs change state, readings follow.
-- [ ] Run inside the API as an asyncio background task; controls:
+- [x] `core/simulate/fridge_stream.py`: `VirtualFridge` stepping every tick (1 s real = 1 simulated min), reusing `BASE_TEMP_C`, `BASE_CURRENT_A`, `BASE_VIBRATION_G` and the same fault names as `appliance.py`.
+- [x] State: `door_open`, `condenser_dirty`, `surge`, `short_cycling`, compressor on/off; faults and repairs change state, readings follow.
+- [x] Run inside the API as an asyncio background task; controls:
   - `POST /api/sim/fridge/fault` (`door_open`, `condenser_fouling`, `power_surge`, `rapid_restart`)
   - `POST /api/sim/fridge/action` (`close_door`, `clean_condenser`, `reset`)
   - Each tick broadcasts `fridge_reading`.
-- [ ] `core/watch/sensor_watcher.py` (uses `rules.py`), evaluated on every reading:
+- [x] `core/watch/sensor_watcher.py` (uses `rules.py`), evaluated on every reading:
   - Warning: temp > 5 °C for 3 readings (fridge) / > −15 °C (freezer), or current > 130 % baseline.
-  - Error: temp > 8 °C, or current spike > 3× baseline.
+  - Error: temp > 8 °C (fridge; −12 °C freezer), or current spike > 3× baseline.
   - On trigger: last 30 readings → `ApplianceTelemetry` → same path as `/api/run/appliance/readings`, `source="watcher"`. The fault name is **never** sent to the model.
-- [ ] `apps/web/app/components/VirtualFridge.tsx` (SVG): door swing, interior light, compressor vibration when running, frost on a dirty condenser, flicker on surge; gauges for °C / A / g; live temperature chart; fault buttons.
-- [ ] Hardware lane: CRASH → GRAB → SUGGEST → SAFETY (`validate_runbook` result) → FIX (alert + work order).
-- [ ] Tests: each fault moves readings in the expected direction; watcher fires once per fault; the model payload contains no fault label.
-- Exit: click **Open door** → temperature climbs on the chart → watcher triggers → runbook + work order appear, no other clicks.
+- [x] `apps/web/app/components/VirtualFridge.tsx` (SVG): door swing, interior light, compressor vibration when running, frost on a dirty condenser, flicker on surge; gauges for °C / A / g; live temperature chart; fault buttons.
+- [x] Hardware lane: CRASH → GRAB → SUGGEST → SAFETY (`validate_runbook` result) → FIX (alert + work order).
+- [x] Tests: each fault moves readings in the expected direction; watcher fires once per fault; the model payload contains no fault label.
+- Exit: click **Open door** → temperature climbs on the chart → watcher triggers → runbook + work order appear, no other clicks. ✅ Live probe 2026-10-27: door → 3.9→5.3 °C over 8 ticks → `temp-warning` trigger (`domain=appliance`) on `/api/ws`. (Runbook + work order need `MODEL_API_KEY`; without keys the lane shows the error step.)
 
 ## Sim 5 — "Proof it's fixed" *(Fri, Oct 31 · ~3 h)*
 
-- [ ] Software: `POST /api/sim/shop/apply-fix` writes the **verified** `patch_code` to `demo/shop/.runtime/inventory_active.py` (gitignored) and tells the shop to reload its active module. Only allowed when the run status is `PASS`.
-- [ ] The shop error rate falls to 0 and the service-map dots turn green; publish `fix_applied`.
-- [ ] Mirror reality: the PR on GitHub is the durable fix; apply-fix stands in for "merge and deploy".
-- [ ] Hardware: "Technician applies runbook" button maps safe steps to `/api/sim/fridge/action` (close door, clean condenser); the temperature curve returns to ~3.5 °C.
-- [ ] Never auto-execute a step that `validate_runbook` would reject.
-- [ ] Tests: apply-fix rejected for FAIL runs; reload uses the patched module; the buggy original is unchanged.
-- Exit: both lanes end visibly healthy.
+- [x] Software: `POST /api/sim/shop/apply-fix` writes the **verified** `patch_code` to `demo/shop/.runtime/inventory_active.py` (gitignored) and tells the shop to reload its active module. Only allowed when the run status is `PASS`.
+- [x] The shop error rate falls to 0 and the service-map dots turn green; publish `fix_applied`.
+- [x] Mirror reality: the PR on GitHub is the durable fix; apply-fix stands in for "merge and deploy".
+- [x] Hardware: "Technician applies runbook" button maps safe steps to `/api/sim/fridge/action` (close door, clean condenser); the temperature curve returns to ~3.5 °C.
+- [x] Never auto-execute a step that `validate_runbook` would reject.
+- [x] Tests: apply-fix rejected for FAIL runs; reload uses the patched module; the buggy original is unchanged.
+- Exit: both lanes end visibly healthy. ✅ Live probe 2026-10-27: hot-swapped shop served 281/281 ok (0 failed) under load; fridge peaked 4.4 °C then fell below 4.0 °C after close_door (drifts to 3.5 °C); gating live (404/409/502). PASS-run deploy path unit-tested (needs model keys live).
 
 ## Sim 6 — One-command demo *(Sat, Nov 1 · ~3 h)*
 
-- [ ] `scripts/demo.sh` (or `npm run demo`): API `:8001`, web `:3000`, shop `:8002`, log watcher; the fridge runs inside the API.
-- [ ] `demo/timeline.yaml`: e.g. 0:20 start shop load → 0:50 open fridge door; a "Play scenario" button in the dashboard.
-- [ ] Reset button: clear runtime patch, reset fridge, clear the dashboard.
-- [ ] Update `demo/script.md` shots to the new flow: shop failing → watcher → PR → shop green; fridge door → chart → work order → recovery.
-- [ ] Pre-capture backup footage of a known-good run.
-- Exit: from a clean clone with `.env`, one command plus one click plays the full scenario.
+- [x] `scripts/demo.sh` (or `npm run demo`): API `:8001`, web `:3000`, shop `:8002`, log watcher; the fridge runs inside the API.
+- [x] `demo/timeline.yaml`: e.g. 0:20 start shop load → 0:50 open fridge door; a "Play scenario" button in the dashboard.
+- [x] Reset button: clear runtime patch, reset fridge, clear the dashboard.
+- [x] Update `demo/script.md` shots to the new flow: shop failing → watcher → PR → shop green; fridge door → chart → work order → recovery.
+- [ ] Pre-capture backup footage of a known-good run. *(manual: record with keys set)*
+- Exit: from a clean clone with `.env`, one command plus one click plays the full scenario. ✅ Verified 2026-10-27: `demo.sh` booted API+shop+web+watcher (test ports), fridge ticking, play → 3 steps/110 s, load spawned, reset cleared world + reloaded buggy shop.
 
 ## Sim 7 — Wokwi ESP32 bonus (H2) *(Nov 1–2 · ~4 h, only if Sim 0–6 done)*
 
-- [ ] `hardware/wokwi/`: `diagram.json` (ESP32, DS18B20 or DHT22 temperature sensor, push button = door switch, potentiometer = current sensor) + `sketch.ino`.
-- [ ] Firmware posts readings as JSON to `POST /api/telemetry/appliance` (single reading → fed into the same `sensor_watcher` buffer as the virtual fridge).
-- [ ] Networking: needs the public demo API URL, or Wokwi for VS Code with the private gateway for localhost.
-- [ ] 15-second clip: press the "door" button on the virtual circuit → the hardware lane triggers. Line for the video: "the same firmware runs on a real ESP32."
-- Exit: a reading from Wokwi reaches the dashboard and can trigger the watcher.
+- [x] `hardware/wokwi/`: `diagram.json` (ESP32, DS18B20 or DHT22 temperature sensor, push button = door switch, potentiometer = current sensor) + `sketch.ino`.
+- [x] Firmware posts readings as JSON to `POST /api/telemetry/appliance` (single reading → fed into the same `sensor_watcher` buffer as the virtual fridge).
+- [x] Networking: needs the public demo API URL, or Wokwi for VS Code with the private gateway for localhost.
+- [ ] 15-second clip: press the "door" button on the virtual circuit → the hardware lane triggers. Line for the video: "the same firmware runs on a real ESP32." *(manual: open `hardware/wokwi/` in Wokwi.com, hold DOOR, record)*
+- Exit: a reading from Wokwi reaches the dashboard and can trigger the watcher. ✅ Endpoint + rules path verified 2026-10-27 (firmware-shaped door-hold → `temp-warning`, unit + live). Note: external sources get their own watcher instances sharing the rules engine — interleaving them in one buffer would break streak detection. The actual Wokwi click-through is manual.
 
 ---
 
 ## ✅ Definition of done
 
-- [ ] No manual "Inject" click needed: both incidents are grabbed by watchers.
-- [ ] Software fix is verified **fail-to-pass against the real `inventory.py`** and opens a PR that changes it.
-- [ ] Both systems visibly recover after the fix.
-- [ ] Existing panels, endpoints, and the 79 tests still work.
-- [ ] Every new module has unit tests that run without network or model keys.
+- [x] No manual "Inject" click needed: both incidents are grabbed by watchers.
+- [x] Software fix is verified **fail-to-pass against the real `inventory.py`** and opens a PR that changes it.
+- [x] Both systems visibly recover after the fix.
+- [x] Existing panels, endpoints, and the 79 tests still work.
+- [x] Every new module has unit tests that run without network or model keys.
+
+*(All five hold as of 2026-10-27: 207 tests green, both watchers live-probed, both recoveries live-probed. Sim 7 Wokwi remains optional.)*
 
 ## ⚠️ Risks and fallbacks
 

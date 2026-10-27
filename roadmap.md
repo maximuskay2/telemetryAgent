@@ -137,8 +137,8 @@
 - [x] Next.js dashboard with two incident panels (software, appliance) on the Day 2 skeleton, each showing: incoming telemetry, diagnosis, generated fix, verification result, final action.
 - [x] FastAPI WebSocket streaming of every loop step, including which model and provider served it.
 - [x] "Inject incident" buttons for both domains.
-- [ ] Deploy API + web to the public demo URL.
-- Exit: inject → both panels update live over the socket on the public URL.
+- [x] Deploy API + web to the public demo URL.
+- Exit: inject → both panels update live over the socket on the public URL. ✅ Live on Railway 2026-10-27: API `https://api-production-0c9a.up.railway.app` (health 200, fridge ticking), web `https://web-production-926b3.up.railway.app` (serves, baked API URL verified in bundle, CORS open).
 
 #### **Day 6: Sun, Nov 1 — Appliance path** *(20% scope starts)*
 - [x] Build `core/simulate/appliance.py`: synthetic fridge/freezer readings (temperature, current, vibration, door events) with injectable faults: door left open, condenser fouling (longer runs, higher current), power-back surge, rapid restart.
@@ -352,15 +352,9 @@ Layout: `World` column (live systems) + `Incidents` column (pipeline lanes + det
 
 ---
 
-## 📱 Next Version: Mobile Extras
+## 📱 Mobile: On-Call Companion (Flutter)
 
-Start only after every Day 1–7 task above is done and the software loop opens a real PR end to end. If time runs out, these move to after the hackathon; they are not required for submission.
-
-- [ ] **Phone-friendly alert page:** make the appliance alert and work-order view responsive, so a shop owner who receives the SMS link can open it on a phone.
-- [ ] **Mobile alert screen:** a small owner-facing screen showing the appliance status, what the agent found, the safety-checked runbook steps, and a button to request a technician.
-- [ ] **Demo cut:** if built, add a short phone shot of the alert arriving to the demo video.
-
-The web dashboard remains the main product; mobile is an extra for the appliance owner.
+Planned in [`mobile-roadmap.md`](mobile-roadmap.md): a Flutter app for **alerts and reports**. Verified incidents trigger a full-screen alarm (loud sound, strong vibration) with a **20-second server-side countdown**: tap Disapprove to cancel, otherwise the verified fix is applied automatically. Only verified fixes and safety-passed runbooks can auto-apply. Built in parallel (M0–M6, Oct 28 – Nov 3) on the existing `WS /api/ws` stream and Sim 5 endpoints; it must not delay the web Command Center or the simulation. The web dashboard remains the main product.
 
 ---
 

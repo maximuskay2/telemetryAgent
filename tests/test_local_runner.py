@@ -1,11 +1,12 @@
 """Local Docker runner: same verify contract, host never executes code."""
 
+import os
 import subprocess
 import sys
 import unittest
 from unittest.mock import patch
 
-from core.verify.local_runner import verify_patch_local
+from core.verify.local_runner import resolve_docker, verify_patch_local
 from core.verify.sandbox import verify_patch
 
 
@@ -24,9 +25,12 @@ class LocalRunnerTests(unittest.TestCase):
                 verify_patch_local("p", "")
 
     def test_missing_docker_raises_instead_of_running(self) -> None:
-        with patch("shutil.which", return_value=None), patch(
+        with patch.dict(os.environ, {}, clear=False), patch(
+            "shutil.which", return_value=None
+        ), patch("os.path.isfile", return_value=False), patch(
             "subprocess.run", side_effect=AssertionError("must not run")
         ):
+            os.environ.pop("DOCKER_BIN", None)
             with self.assertRaises(RuntimeError) as ctx:
                 verify_patch_local("p", "t")
         self.assertIn("Docker is not installed", str(ctx.exception))
@@ -40,8 +44,10 @@ class LocalRunnerTests(unittest.TestCase):
         self.assertIn("[local docker]", result["feedback"])
         self.assertIn("1 passed", result["feedback"])
         argv = run.call_args.args[0]
-        self.assertEqual(argv[:3], ["docker", "run", "--rm"])
-        self.assertIn("pytest -q test_solution.py", argv[-1])
+        self.assertTrue(argv[0].endswith("docker"))
+        self.assertEqual(argv[1:3], ["run", "--rm"])
+        self.assertIn("pytest", argv)
+        self.assertIn("test_solution.py", argv)
 
         with patch("shutil.which", return_value="/usr/bin/docker"), patch(
             "subprocess.run", return_value=_completed(1, stdout="", stderr="FAILED")
@@ -65,6 +71,53 @@ class LocalRunnerTests(unittest.TestCase):
             result = verify_patch_local("p", "t")
         self.assertLessEqual(len(result["feedback"]), 8100)
 
+    def test_container_is_network_isolated_and_capped(self) -> None:
+        with patch("shutil.which", return_value="/usr/bin/docker"), patch(
+            "subprocess.run", return_value=_completed(0)
+        ) as run:
+            verify_patch_local("p", "t")
+        argv = run.call_args.args[0]
+        for flag in ("--network", "none", "--read-only", "--memory", "--cpus",
+                     "--pids-limit", "-p", "no:cacheprovider"):
+            self.assertIn(flag, argv)
+        mount = argv[argv.index("-v") + 1]
+        self.assertTrue(mount.endswith(":ro"))
+        self.assertNotIn("pip", argv)  # pytest baked in; no install at runtime
+
+    def test_missing_image_points_at_build_script(self) -> None:
+        with patch("shutil.which", return_value="/usr/bin/docker"), patch(
+            "subprocess.run",
+            return_value=_completed(125, stderr="Unable to find image"),
+        ):
+            result = verify_patch_local("p", "t")
+        self.assertFalse(result["passed"])
+        self.assertIn("build-sandbox-image", result["feedback"])
+
+    def test_resolver_prefers_docker_bin_then_path_then_desktop(self) -> None:
+        with patch.dict(os.environ, {"DOCKER_BIN": "/opt/docker"}), patch(
+            "os.path.isfile", return_value=True
+        ), patch("os.access", return_value=True):
+            self.assertEqual(resolve_docker(), "/opt/docker")
+        with patch.dict(os.environ, {}, clear=False), patch(
+            "shutil.which", return_value="/usr/bin/docker"
+        ):
+            os.environ.pop("DOCKER_BIN", None)
+            self.assertEqual(resolve_docker(), "/usr/bin/docker")
+        with patch.dict(os.environ, {}, clear=False), patch(
+            "shutil.which", return_value=None
+        ), patch("os.path.isfile", return_value=True), patch(
+            "os.access", return_value=True
+        ):
+            os.environ.pop("DOCKER_BIN", None)
+            found = resolve_docker()
+            self.assertIsNotNone(found)
+            assert found is not None
+            self.assertTrue(found.endswith(".docker/bin/docker"))
+
+    def test_bad_docker_bin_resolves_to_none(self) -> None:
+        with patch.dict(os.environ, {"DOCKER_BIN": "/nonexistent/docker"}):
+            self.assertIsNone(resolve_docker())
+
 
 class SandboxFallbackTests(unittest.TestCase):
     def test_missing_modal_falls_back_to_docker(self) -> None:
@@ -86,6 +139,19 @@ class SandboxFallbackTests(unittest.TestCase):
             self.skipTest("modal not installed")
         sentinel = {"passed": True, "feedback": "local"}
         with patch("modal.App.lookup", side_effect=AuthError("no creds")), patch(
+            "core.verify.local_runner.verify_patch_local", return_value=sentinel
+        ):
+            self.assertEqual(verify_patch("p", "t"), sentinel)
+
+    def test_ta_verify_local_skips_modal(self) -> None:
+        try:
+            import modal  # noqa: F401
+        except ImportError:
+            self.skipTest("modal not installed")
+        sentinel = {"passed": True, "feedback": "local"}
+        with patch.dict(os.environ, {"TA_VERIFY": "local"}), patch(
+            "modal.App.lookup", side_effect=AssertionError("must not touch modal")
+        ), patch(
             "core.verify.local_runner.verify_patch_local", return_value=sentinel
         ):
             self.assertEqual(verify_patch("p", "t"), sentinel)

@@ -200,6 +200,22 @@ class Shop:
              "items": skus},
         )
 
+    def reload_inventory(self, path: str) -> str:
+        """Hot-swap the active inventory module (Sim 5 "merge and deploy").
+
+        Only the buggy default (reset) or a file under `.runtime/` (verified
+        patch) is accepted; anything else raises ValueError.
+        """
+        resolved = os.path.realpath(path)
+        runtime_root = os.path.realpath(os.path.join(HERE, ".runtime"))
+        if resolved != os.path.realpath(DEFAULT_INVENTORY) and not resolved.startswith(
+            runtime_root + os.sep
+        ):
+            raise ValueError(f"inventory path not allowlisted: {path}")
+        self.inventory = load_inventory(resolved)
+        self.inventory_path = resolved
+        return resolved
+
     def products(self) -> list:
         with self.stock_lock:
             return [{**item, "stock": self.stock[item["sku"]]} for item in CATALOG]
@@ -245,6 +261,21 @@ def orders(payload: OrderIn) -> dict:
 
         return JSONResponse(status_code=503, content=result)
     return result
+
+
+class ReloadIn(BaseModel):
+    inventory_path: str
+
+
+@app.post("/reload")
+def reload(payload: ReloadIn) -> dict:
+    try:
+        resolved = shop.reload_inventory(payload.inventory_path)
+    except ValueError as exc:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return {"inventory": resolved}
 
 
 def _metrics_loop(stop: threading.Event) -> None:
