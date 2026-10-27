@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,13 @@ class LogEvent(BaseModel):
     source: str
     message: str
     level: LogLevel
+
+
+class SimEvent(BaseModel):
+    kind: Literal[
+        "shop_order", "shop_metrics", "fridge_reading", "watcher_trigger", "fix_applied"
+    ]
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentStep(BaseModel):

@@ -19,21 +19,34 @@ def _write_file(sandbox, path: str, content: str) -> None:
         raise RuntimeError(f"Could not write {path} in sandbox: {process.stderr.read()}")
 
 
+def _local_fallback(patch_code: str, test_code: str, timeout: int) -> dict:
+    from core.verify.local_runner import verify_patch_local
+
+    return verify_patch_local(patch_code, test_code, timeout=timeout)
+
+
 def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
     """Write a generated patch and pytest suite into a Modal Sandbox and run pytest.
 
-    Generated code is untrusted and only ever runs inside the sandbox.
+    Generated code is untrusted and only ever runs inside a sandbox. When Modal
+    is unavailable (not installed, or no credentials), this falls back to the
+    local Docker runner instead of failing.
     """
     if not patch_code or not test_code:
         raise ValueError("patch_code and test_code must be non-empty strings")
     try:
         import modal
-    except ImportError as exc:
-        raise RuntimeError("Install the optional Modal dependency to use sandbox execution.") from exc
+    except ImportError:
+        return _local_fallback(patch_code, test_code, timeout)
 
-    image = modal.Image.debian_slim(python_version="3.11").pip_install("pytest")
-    app = modal.App.lookup("telemetry-agent-sandbox", create_if_missing=True)
-    sandbox = modal.Sandbox.create(app=app, image=image, timeout=timeout)
+    try:
+        image = modal.Image.debian_slim(python_version="3.11").pip_install("pytest")
+        app = modal.App.lookup("telemetry-agent-sandbox", create_if_missing=True)
+        sandbox = modal.Sandbox.create(app=app, image=image, timeout=timeout)
+    except Exception as exc:
+        if type(exc).__name__ == "AuthError":
+            return _local_fallback(patch_code, test_code, timeout)
+        raise
     try:
         _write_file(sandbox, "/work/solution.py", patch_code)
         _write_file(sandbox, "/work/test_solution.py", test_code)

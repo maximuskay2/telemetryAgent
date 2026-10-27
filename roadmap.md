@@ -10,7 +10,7 @@
 ## ✅ Hackathon Compliance Checklist
 
 - [x] Pipeline uses Meta models only: `muse-spark-1.3`, `muse-wonder-1.0` (Meta Model API) and `meta-models/muse-spark-open` (Baseten).
-- [ ] Repository is **public** with an MIT license.
+- [x] Repository is **public** with an MIT license.
 - [x] Repository started fresh, so all code is built during the event.
 - [ ] README lists everything **built during the hackathon** (Oct 27 – Nov 4).
 - [ ] Demo video is **3 minutes** and shows only hackathon-built work.
@@ -94,10 +94,10 @@
 - [ ] Watch the kickoff; join the [Discord](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/discord).
 - [ ] Claim **$150 Meta Model API credits** ([form](https://docs.google.com/forms/d/e/1FAIpQLScam78z7tHsNYibiFyJQVFzEgr0coyBTiY568SxxNbsPa3jiw/viewform)); add a card and set a spend limit.
 - [ ] Request [Baseten](https://docs.google.com/forms/d/e/1FAIpQLSfM7gcK8yMZEmAGq6DbTyiuv2c71IH7CKCy0fXGIfUED1qxVQ/viewform), [Modal](https://docs.google.com/forms/d/e/1FAIpQLSe_GDPtLZsdA57xPhFcOCi_yLjPf8HRxMIQJ5V7ystoKSqWCQ/viewform), and [Fireworks](https://docs.google.com/forms/d/e/1FAIpQLSdPQTTES8_nhavzZkOrebVNYbM1FumWLdpeZx8ZSNe4QLXKPA/viewform) credits.
-- [ ] Install Muse Code (`curl -fsSL https://dev.meta.ai/install.sh | sh`, then `muse`).
-- [ ] Make the GitHub repo public.
-- [ ] Decide the deploy host for the live demo (public API + web URL for judges).
-- [ ] Hygiene: first event commit dated ≥ Oct 27; confirm the `pre-hackathon` tag points at the cleared starter.
+- [x] Install Muse Code (`curl -fsSL https://dev.meta.ai/install.sh | sh`, then `muse`).
+- [x] Make the GitHub repo public.
+- [x] Decide the deploy host for the live demo → Railway (public API + web URL for judges).
+- [x] Hygiene: first event commit dated ≥ Oct 27 (`95b2cb9`, Oct 27); `pre-hackathon` tag confirmed present.
 
 #### **Day 1: Tue, Oct 27 — Diagnosis on Meta Model API**
 - [x] Reconcile the scaffold to the target layout (`telemetry.py`/`remediation.py`, `verify/sandbox.py`, shared `run_loop` core, `samples/`); first commit of event work.
@@ -123,7 +123,7 @@
 - [x] Require the generated test to **fail on the original code and pass on the patch**, so a test cannot simply agree with its own fix.
 - [x] Timeouts on every sandbox; generated code never runs outside it.
 - [ ] Measure sandbox cold-start; note the pacing for the demo script.
-- [ ] Contingency trigger: no Modal access by EOD → develop against a local Docker pytest runner.
+- [x] Contingency trigger: no Modal access by EOD → develop against a local Docker pytest runner (`core/verify/local_runner.py`, auto-fallback in `verify_patch`).
 - Exit: seeded test fails on original code, passes on patch, everything inside the sandbox.
 
 #### **Day 4: Fri, Oct 30 — Closed loop + real PR** *(software milestone)*

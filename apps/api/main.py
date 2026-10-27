@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Set
 from uuid import uuid4
@@ -13,13 +14,15 @@ from pydantic import BaseModel
 
 from core.infer.analyzer import diagnose
 from core.schemas.diagnosis import Diagnosis, DiagnosisRequest
-from core.schemas.events import AgentStep, LogEvent, LogInput
+from core.schemas.events import AgentStep, LogEvent, LogInput, SimEvent
 from core.schemas.remediation import (
     ApplianceResult,
     ApplianceRunRequest,
     ExecutionResult,
     RunRequest,
+    RunSource,
 )
+from core.schemas.telemetry import ApplianceTelemetry
 
 app = FastAPI(title="Telemetry Agent API", version="0.1.0")
 app.add_middleware(
@@ -110,7 +113,14 @@ async def run_agent(payload: RunRequest) -> ExecutionResult:
 
     original_code = payload.original_code
     code_path = "solution.py"
-    if payload.target_path:
+    test_path = "test_solution.py"
+    if payload.target == "inventory":
+        from core.verify.targets import read_target_file
+
+        if original_code is None:
+            original_code = read_target_file("inventory.py")
+        code_path, test_path = "inventory.py", "test_inventory_regression.py"
+    elif payload.target_path:
         from core.verify.targets import read_target_file, resolve_target_path
 
         try:
@@ -125,9 +135,8 @@ async def run_agent(payload: RunRequest) -> ExecutionResult:
     if os.environ.get("GITHUB_TOKEN"):
         from core.actions.github_pr import open_fix_pr
 
-        if payload.target_path:
-            def opener(**kwargs):
-                return open_fix_pr(**kwargs, code_path=code_path)
+        if payload.target == "inventory" or payload.target_path:
+            opener = partial(open_fix_pr, code_path=code_path, test_path=test_path)
         else:
             opener = open_fix_pr
 
@@ -194,6 +203,45 @@ async def run_appliance(payload: ApplianceRunRequest) -> ApplianceResult:
         )
     )
     return result
+
+
+@app.post("/api/run/appliance/readings", response_model=ApplianceResult)
+async def run_appliance_readings(
+    telemetry: ApplianceTelemetry, source: RunSource = "manual"
+) -> ApplianceResult:
+    from core.actions.notify import send_alert
+    from core.agent.loop import run_appliance_loop
+
+    run_id = uuid4().hex[:8]
+    on_event = _step_bridge(asyncio.get_running_loop(), source)
+    try:
+        result = await asyncio.to_thread(
+            run_appliance_loop, telemetry, 3, on_event, send_alert, run_id
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    message = ""
+    if result.alert is not None:
+        message = f"{result.alert.alert_id} · {result.alert.work_order_id}"
+    await hub.broadcast(
+        AgentStep(
+            step="done",
+            attempt=result.attempts,
+            model=result.model_used,
+            status=result.status,
+            message=message,
+            run_id=run_id,
+            domain="appliance",
+            source=source,
+        )
+    )
+    return result
+
+
+@app.post("/api/sim/events", response_model=SimEvent)
+async def sim_event(event: SimEvent) -> SimEvent:
+    await hub.broadcast(event)
+    return event
 
 
 @app.get("/api/samples/deadlock")

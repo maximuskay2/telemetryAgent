@@ -57,7 +57,7 @@ class ApplianceResult(BaseModel):
     run_id: str = Field(default="", description="Incident run identifier")
 
 
-RunSource = Literal["upload", "watcher", "webhook"]
+RunSource = Literal["manual", "upload", "watcher", "webhook"]
 
 
 class RunRequest(BaseModel):
@@ -66,7 +66,11 @@ class RunRequest(BaseModel):
         default=None, description="Buggy original; enables fail-to-pass verification"
     )
     source: RunSource = Field(
-        default="upload", description="How the incident reached the agent"
+        default="manual", description="How the incident reached the agent"
+    )
+    target: Optional[Literal["inventory"]] = Field(
+        default=None,
+        description="Known demo target; verifies against inventory.py (constant, not a path)",
     )
     target_path: Optional[str] = Field(
         default=None,
@@ -86,5 +90,5 @@ class ApplianceRunRequest(BaseModel):
     n_readings: int = Field(default=30, ge=5, le=120)
     source_id: str = Field(default="dashboard", min_length=1, max_length=100)
     source: RunSource = Field(
-        default="upload", description="How the incident reached the agent"
+        default="manual", description="How the incident reached the agent"
     )

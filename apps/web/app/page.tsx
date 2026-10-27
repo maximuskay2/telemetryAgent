@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { ChangeEvent } from "react";
+import ServiceMap, { type OrderDot } from "./components/ServiceMap";
+import PipelineLane from "./components/PipelineLane";
 
 type AgentStepEvent = {
   step: string;
@@ -154,43 +156,18 @@ function applyStep(prev: IncidentState, msg: AgentStepEvent): IncidentState {
   return next;
 }
 
-type StepState = "done" | "active" | "todo" | "failed";
-
-function stepStates(incident: IncidentState): StepState[] {
-  const reached = [
-    incident.telemetry !== "",
-    incident.runId !== "" || incident.status === "running",
-    incident.diagnosis !== "",
-    incident.fix !== "",
-    incident.verification !== "",
-    incident.final !== "",
-  ];
-  const failed = incident.status === "error" || incident.status === "FAIL";
-  return reached.map((done, i) => {
-    if (done) return failed && i === reached.length - 1 ? "failed" : "done";
-    const prevDone = i === 0 || reached[i - 1];
-    if (prevDone && (incident.status === "running" || failed)) {
-      return failed ? "failed" : "active";
-    }
-    return "todo";
-  });
-}
-
-function ProgressBar({ labels, states }: { labels: string[]; states: StepState[] }) {
-  return (
-    <ol className="progress" aria-label="Pipeline progress">
-      {labels.map((label, i) => (
-        <li
-          key={label}
-          className={`pstep ${states[i]}`}
-          aria-current={states[i] === "active" ? "step" : undefined}
-        >
-          <span className="dot">{i + 1}</span>
-          <span className="plabel">{label}</span>
-        </li>
-      ))}
-    </ol>
-  );
+function laneProps(incident: IncidentState) {
+  return {
+    reached: [
+      incident.telemetry !== "",
+      incident.runId !== "" || incident.status === "running",
+      incident.diagnosis !== "",
+      incident.verification !== "",
+      incident.final !== "",
+    ],
+    running: incident.status === "running",
+    failed: incident.status === "error" || incident.status === "FAIL",
+  };
 }
 
 function Stage({
@@ -222,8 +199,16 @@ export default function Home() {
   const [targetFile, setTargetFile] = useState("inventory.py");
   const [trimNotice, setTrimNotice] = useState("");
   const [events, setEvents] = useState<LogEvent[]>([]);
+  const [orders, setOrders] = useState<OrderDot[]>([]);
   const [connection, setConnection] = useState("connecting");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setOrders((current) => current.filter((o) => Date.now() - o.born < 6000));
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const socket = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/api/ws`);
@@ -240,6 +225,34 @@ export default function Home() {
           const update =
             data.domain === "software" ? setSoftware : setAppliance;
           update((prev) => applyStep(prev, data));
+        } else if (
+          (data as unknown as { kind?: string }).kind === "shop_order"
+        ) {
+          const payload = (
+            data as unknown as {
+              payload?: { order_id?: unknown; status?: unknown; items?: unknown };
+            }
+          ).payload;
+          if (payload && typeof payload.order_id === "string") {
+            const status =
+              payload.status === "failed"
+                ? "failed"
+                : payload.status === "waiting"
+                  ? "waiting"
+                  : "ok";
+            const items = Array.isArray(payload.items)
+              ? payload.items.filter((s): s is string => typeof s === "string")
+              : [];
+            const order: OrderDot = {
+              id: payload.order_id,
+              status,
+              items,
+              born: Date.now(),
+            };
+            setOrders((current) =>
+              [...current.filter((o) => Date.now() - o.born < 6000), order].slice(-24),
+            );
+          }
         } else if (typeof data.message === "string") {
           setEvents((current) => [...current.slice(-49), data]);
         }
@@ -389,6 +402,21 @@ export default function Home() {
         </div>
       </header>
 
+      <section className="panel map-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">WORLD</p>
+            <h2>Service map</h2>
+          </div>
+          <span className="counter">{orders.length} recent orders</span>
+        </div>
+        {orders.length === 0 ? (
+          <p className="mapempty">Start the shop + load to see traffic.</p>
+        ) : (
+          <ServiceMap orders={orders} />
+        )}
+      </section>
+
       <div className="grid">
         <section className="panel incident">
           <div className="panel-heading">
@@ -450,9 +478,9 @@ export default function Home() {
                 )}
               </div>
             </div>
-            <ProgressBar
-              labels={["Grab logs", "Inject", "Diagnosis", "Generated fix", "Verification", "Final action"]}
-              states={stepStates(software)}
+            <PipelineLane
+              labels={["Crash", "Grab", "Suggest", "Verify", "Fix"]}
+              {...laneProps(software)}
             />
             <Stage label="Incoming telemetry" value={software.telemetry} meta="" />
             <Stage
@@ -537,9 +565,9 @@ export default function Home() {
                 </span>
               )}
             </div>
-            <ProgressBar
-              labels={["Grab telemetry", "Inject", "Diagnosis", "Runbook", "Safety check", "Final action"]}
-              states={stepStates(appliance)}
+            <PipelineLane
+              labels={["Crash", "Grab", "Suggest", "Safety", "Fix"]}
+              {...laneProps(appliance)}
             />
             <Stage label="Incoming telemetry" value={appliance.telemetry} meta="" />
             <Stage
@@ -607,7 +635,9 @@ export default function Home() {
         </div>
       </section>
 
-      <footer>Local-first telemetry · API {apiUrl}</footer>
+      <footer>
+        <a href="/shop">Shop demo →</a> · Local-first telemetry · API {apiUrl}
+      </footer>
     </main>
   );
 }

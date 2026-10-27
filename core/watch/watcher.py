@@ -138,10 +138,13 @@ def send_run(
     log_text: str,
     source: str = "watcher",
     target_path: Optional[str] = None,
+    target: Optional[str] = None,
     timeout: float = 600.0,
 ) -> dict:
     """POST a context window to the agent loop; return the parsed response."""
     body: Dict[str, object] = {"log_text": log_text, "source": source}
+    if target:
+        body["target"] = target
     if target_path:
         body["target_path"] = target_path
     try:
@@ -156,6 +159,26 @@ def send_run(
         except ValueError:
             detail = response.text[:200]
         raise RuntimeError(f"Agent rejected the incident ({response.status_code}): {detail}.")
+    return response.json()
+
+
+def publish_sim_event(
+    api_base: str, kind: str, payload: dict, timeout: float = 5.0
+) -> dict:
+    """Publish a SimEvent for the dashboard; raise RuntimeError on failure."""
+    try:
+        response = httpx.post(
+            f"{api_base.rstrip('/')}/api/sim/events",
+            json={"kind": kind, "payload": payload},
+            timeout=timeout,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not publish {kind} to {api_base}: {exc}.") from exc
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"API rejected {kind} ({response.status_code}): "
+            f"{response.text[:200]}."
+        )
     return response.json()
 
 
@@ -188,7 +211,7 @@ def run_watcher(
                 if not should_send(fp, time.time(), last_sent, debounce_minutes * 60):
                     buffer.append(line)
                     continue
-                after_lines = _collect_after(tail, buffer, after, after_timeout_s)
+                after_lines = collect_after(tail, buffer, after, after_timeout_s)
                 window = build_window(list(buffer), line, after_lines)
                 print(f"[watch] {trigger.level} {trigger.name} fp={fp} -> {api}", flush=True)
                 send_run(api, window, source=source, target_path=target_path)
@@ -202,7 +225,7 @@ def run_watcher(
         tail.close()
 
 
-def _collect_after(
+def collect_after(
     tail: LogTail, buffer: Deque[str], count: int, timeout_s: float
 ) -> List[str]:
     """Gather up to `count` lines after a trigger, waiting at most `timeout_s`."""

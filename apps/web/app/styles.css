@@ -47,21 +47,55 @@ input[type="file"]::file-selector-button { cursor: pointer; border: 0; border-ra
 .notice { color: #f3cf7e; font: 11px var(--mono); margin: 0; }
 .run-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .via { color: var(--green); font: 11px var(--mono); border: 1px solid #a5efc066; border-radius: 20px; padding: 4px 10px; }
-.progress { display: flex; list-style: none; margin: 0; padding: 14px 0 4px; }
-.pstep { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; text-align: center; min-width: 0; }
-.pstep::before { content: ""; position: absolute; top: 10px; left: calc(-50% + 12px); right: calc(50% + 12px); height: 2px; background: var(--line); transition: background .4s ease; }
-.pstep:first-child::before { display: none; }
-.pstep.done::before, .pstep.active::before { background: #3f6b52; }
-.pstep.failed::before { background: #7a3b37; }
-.pstep .dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: #0b1011; color: var(--muted); font: 10px/19px var(--mono); z-index: 1; transition: background .3s ease, color .3s ease, border-color .3s ease; }
-.pstep.done .dot { background: var(--green); border-color: var(--green); color: #0b1710; }
-.pstep.active .dot { border-color: var(--green); color: var(--green); animation: pulse 1.6s ease-in-out infinite; }
-.pstep.failed .dot { border-color: #ff887f; color: #ff887f; }
-.pstep .plabel { color: var(--muted); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
-.pstep.done .plabel, .pstep.active .plabel { color: var(--text); }
-.pstep.failed .plabel { color: #ff887f; }
+.lane { display: flex; list-style: none; margin: 0; padding: 14px 0 4px; }
+.lstep { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; text-align: center; min-width: 0; }
+.lstep::before { content: ""; position: absolute; top: 10px; left: calc(-50% + 12px); right: calc(50% + 12px); height: 2px; background: var(--line); transition: background .4s ease; }
+.lstep:first-child::before { display: none; }
+.lstep.done::before, .lstep.active::before { background: #3f6b52; }
+.lstep.failed::before { background: #7a3b37; }
+.lstep .ldot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line); background: #0b1011; color: var(--muted); font: 10px/19px var(--mono); z-index: 1; transition: background .3s ease, color .3s ease, border-color .3s ease; }
+.lstep.done .ldot { background: var(--green); border-color: var(--green); color: #0b1710; }
+.lstep.active .ldot { border-color: var(--green); color: var(--green); animation: pulse 1.6s ease-in-out infinite; }
+.lstep.failed .ldot { border-color: #ff887f; color: #ff887f; }
+.lstep .llabel { color: var(--muted); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.lstep.done .llabel, .lstep.active .llabel { color: var(--text); }
+.lstep.failed .llabel { color: #ff887f; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 #a5efc044; } 50% { box-shadow: 0 0 0 5px transparent; } }
-@media (prefers-reduced-motion: reduce) { .pstep.active .dot { animation: none; } .pstep::before, .pstep .dot { transition: none; } }
+.map-panel { margin-bottom: 18px; }
+.mapempty { margin: 0; padding: 0 25px 20px; color: var(--muted); font: 12px var(--mono); }
+.servicemap { width: 100%; height: auto; display: block; padding: 0 10px 14px; }
+.servicemap .backbone { stroke: var(--line); stroke-width: 2; }
+.servicemap .node { fill: #0b1011; stroke: var(--green); stroke-width: 1.5; }
+.servicemap .maplabel { fill: var(--muted); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.servicemap .lock { fill: #111719; stroke: var(--line); }
+.servicemap .lock.hot { stroke: #ff887f; }
+.servicemap .locklabel { fill: var(--muted); font: 8px var(--mono); text-anchor: middle; }
+.servicemap .cycle-edge { stroke: #ff887f; stroke-width: 2; stroke-dasharray: 5 3; animation: dashmove 1s linear infinite; }
+.servicemap .cyclelabel { fill: #ff887f; font: 9px var(--mono); text-anchor: middle; }
+.servicemap .orderdot { animation: travel 2.4s linear forwards; }
+.servicemap .orderdot.ok { fill: var(--green); }
+.servicemap .orderdot.failed { fill: #ff887f; }
+.servicemap .orderdot.waiting { fill: #f3cf7e; }
+@keyframes travel { from { transform: translateX(0); opacity: 1; } to { transform: translateX(640px); opacity: .15; } }
+@keyframes dashmove { to { stroke-dashoffset: -8; } }
+@media (prefers-reduced-motion: reduce) { .lstep.active .ldot, .servicemap .orderdot, .servicemap .cycle-edge { animation: none; } .lstep::before, .lstep .ldot { transition: none; } }
+.shop-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 25px; margin-bottom: 18px; }
+.shop-banner .bignum { font-size: 34px; font-weight: 700; margin: 4px 0 0; }
+.shop-banner.failing { border-color: #ff887f66; }
+.spark { width: 220px; height: 60px; }
+.spark polyline { fill: none; stroke: var(--green); stroke-width: 1.5; }
+.shop-banner.failing .spark polyline { stroke: #ff887f; }
+.product-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 22px; }
+.product { padding: 18px 22px 22px; }
+.product h2 { font-size: 19px; margin: 2px 0 6px; }
+.price { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
+.product button { margin-top: 12px; width: 100%; }
+.toasts { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+.toast { margin: 0; padding: 10px 14px; border-radius: 6px; background: #111719; border: 1px solid var(--line); font: 12px var(--sans); }
+.toast.ok { border-color: #a5efc066; color: var(--green); }
+.toast.bad { border-color: #ff887f66; color: #ff887f; }
+footer a { color: var(--green); }
+@media (max-width: 760px) { .product-grid { grid-template-columns: 1fr; } .shop-banner { flex-direction: column; align-items: stretch; } }
 .topbar, .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .topbar { margin-bottom: 34px; }
 .eyebrow { color: var(--green); font: 500 10px var(--mono); letter-spacing: .16em; margin: 0 0 9px; }

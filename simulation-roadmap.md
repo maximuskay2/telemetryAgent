@@ -61,53 +61,53 @@ UI work runs in parallel under **🎨 UI: Incident Command Center** in `roadmap.
 
 Small, backward-compatible changes so everything after it plugs in.
 
-- [ ] `core/schemas/remediation.py` → `RunRequest`: add `source: Literal["manual","upload","watcher","webhook"] = "manual"` and `target: Optional[Literal["inventory"]] = None`.
-- [ ] `apps/api/main.py` → `/api/run`: when `target == "inventory"`, load `demo/target-service/inventory.py` server-side as `original_code` (allowlisted; never accept a client file path).
-- [ ] Pass a PR opener bound to `code_path="inventory.py"`, `test_path="test_inventory_regression.py"` (e.g. `functools.partial(open_fix_pr, ...)`) for inventory runs.
-- [ ] New endpoint `POST /api/run/appliance/readings` taking `ApplianceTelemetry` (existing schema) → `run_appliance_loop` directly. Keep `/api/run/appliance` (generated window) for the old button.
-- [ ] `core/schemas/events.py`: add `SimEvent` (`kind`: `shop_order`, `shop_metrics`, `fridge_reading`, `watcher_trigger`, `fix_applied`; `payload: dict`) broadcast via `EventHub`.
-- [ ] `POST /api/sim/events` so out-of-process simulators (shop, watcher) can publish `SimEvent`s to the dashboard.
-- [ ] `AgentStep` gains `source` so the dashboard can badge "Detected by watcher".
-- [ ] `.env.example`: `GITHUB_DEMO_REPO`, `GITHUB_BASE_BRANCH`, `SHOP_PORT=8002`.
-- [ ] Tests: `target="inventory"` sends the real file as `original_code`; readings endpoint runs the loop with mocked models; `SimEvent` broadcast.
+- [x] `core/schemas/remediation.py` → `RunRequest`: add `source: Literal["manual","upload","watcher","webhook"] = "manual"` and `target: Optional[Literal["inventory"]] = None`.
+- [x] `apps/api/main.py` → `/api/run`: when `target == "inventory"`, load `demo/target-service/inventory.py` server-side as `original_code` (allowlisted; never accept a client file path).
+- [x] Pass a PR opener bound to `code_path="inventory.py"`, `test_path="test_inventory_regression.py"` (e.g. `functools.partial(open_fix_pr, ...)`) for inventory runs.
+- [x] New endpoint `POST /api/run/appliance/readings` taking `ApplianceTelemetry` (existing schema) → `run_appliance_loop` directly. Keep `/api/run/appliance` (generated window) for the old button.
+- [x] `core/schemas/events.py`: add `SimEvent` (`kind`: `shop_order`, `shop_metrics`, `fridge_reading`, `watcher_trigger`, `fix_applied`; `payload: dict`) broadcast via `EventHub`.
+- [x] `POST /api/sim/events` so out-of-process simulators (shop, watcher) can publish `SimEvent`s to the dashboard.
+- [x] `AgentStep` gains `source` so the dashboard can badge "Detected by watcher".
+- [x] `.env.example`: `GITHUB_DEMO_REPO`, `GITHUB_BASE_BRANCH`, `SHOP_PORT=8002`.
+- [x] Tests: `target="inventory"` sends the real file as `original_code`; readings endpoint runs the loop with mocked models; `SimEvent` broadcast.
 - Exit: `curl` with `target=inventory` runs fail-to-pass against the real `inventory.py`.
 
 ## Sim 1 — Real mini shop (S2) *(Oct 28–29 · ~6 h)*
 
 A real app that really fails because of the real bug.
 
-- [ ] `demo/shop/app.py`: tiny FastAPI app on `:8002` ("AutoParts Lagos") with `GET /products`, `POST /orders` (moves stock between 2–3 items using `inventory.acquire_all` / `release_all`).
-- [ ] Load `inventory` from an **active module path** (default: `demo/target-service/inventory.py`), so Sim 5 can hot-swap to the patched copy without touching the buggy original.
-- [ ] Lock timeouts in the shop (not in `inventory.py`): a stuck acquire after N ms becomes `WARN lock wait … retry=n`, then `ERROR Deadlock detected … rolled back`. The laptop never freezes.
-- [ ] Structured log lines to `demo/shop/logs/shop.log` (same shape as `samples/database_deadlock.log`).
-- [ ] Publish `shop_order` (ok / waiting / failed + latency) and per-second `shop_metrics` (orders/min, error rate, p95) to `POST /api/sim/events`.
-- [ ] `demo/shop/load.py`: N concurrent shoppers with random item order; `--rate`, `--duration`, `--shoppers`.
-- [ ] Shop page in Next.js at `apps/web/app/shop/page.tsx`: product cards, **Buy** button, spinner, "Order failed" toasts, live error-rate sparkline (reads `SimEvent`s from the existing socket).
-- [ ] Tests: shop with the buggy module produces timeouts under load; with a sorted-order module it doesn't (stdlib threads, no models).
+- [x] `demo/shop/app.py`: tiny FastAPI app on `:8002` ("AutoParts Lagos") with `GET /products`, `POST /orders` (moves stock between 2–3 items using `inventory.acquire_all` / `release_all`).
+- [x] Load `inventory` from an **active module path** (default: `demo/target-service/inventory.py`), so Sim 5 can hot-swap to the patched copy without touching the buggy original.
+- [x] Lock timeouts in the shop (not in `inventory.py`): a stuck acquire after N ms becomes `WARN lock wait … retry=n`, then `ERROR Deadlock detected … rolled back`. The laptop never freezes.
+- [x] Structured log lines to `demo/shop/logs/shop.log` (same shape as `samples/database_deadlock.log`).
+- [x] Publish `shop_order` (ok / waiting / failed + latency) and per-second `shop_metrics` (orders/min, error rate, p95) to `POST /api/sim/events`.
+- [x] `demo/shop/load.py`: N concurrent shoppers with random item order; `--rate`, `--duration`, `--shoppers`.
+- [x] Shop page in Next.js at `apps/web/app/shop/page.tsx`: product cards, **Buy** button, spinner, "Order failed" toasts, live error-rate sparkline (reads `SimEvent`s from the existing socket).
+- [x] Tests: shop with the buggy module produces timeouts under load; with a sorted-order module it doesn't (stdlib threads, no models).
 - Exit: running `load.py` makes orders visibly fail on `/shop` and writes real deadlock logs.
 
 ## Sim 2 — Log watcher (autonomous grab) *(Thu, Oct 29 · ~4 h)*
 
-- [ ] `core/watch/log_watcher.py`, run as `python -m core.watch.log_watcher --file demo/shop/logs/shop.log --api http://localhost:8001 --target inventory`.
-- [ ] Tail with rotation/truncation handling.
-- [ ] Trigger rules (`core/watch/rules.py`, shared with Sim 4):
+- [x] `core/watch/log_watcher.py`, run as `python -m core.watch.log_watcher --file demo/shop/logs/shop.log --api http://localhost:8001 --target inventory`.
+- [x] Tail with rotation/truncation handling.
+- [x] Trigger rules (`core/watch/rules.py`, shared with Sim 4):
   - Warning: ≥ 2 `retry=` on the same item within 30 s → early trigger.
   - Error: `Deadlock` / `ERROR` / `Traceback` → incident.
-- [ ] Context window: last 30 lines before + 10 after → `POST /api/run` with `source="watcher"`, `target="inventory"`.
-- [ ] Debounce by fingerprint (error type + resource) for N minutes: one retry storm = one run.
-- [ ] Publish `watcher_trigger` (rule, matched lines) so the dashboard shows *what* was grabbed.
-- [ ] Tests: rule matching, window, debounce, rotation (temp files, no network).
+- [x] Context window: last 30 lines before + 10 after → `POST /api/run` with `source="watcher"`, `target="inventory"`.
+- [x] Debounce by fingerprint (error type + resource) for N minutes: one retry storm = one run.
+- [x] Publish `watcher_trigger` (rule, matched lines) so the dashboard shows *what* was grabbed.
+- [x] Tests: rule matching, window, debounce, rotation (temp files, no network).
 - Exit: start shop + load + watcher → a run starts with no clicks, verified against the real `inventory.py`.
 
 ## Sim 3 — Service map + pipeline lanes (S1) *(Fri, Oct 30 · ~5 h)*
 
-- [ ] `apps/web/app/components/ServiceMap.tsx` (SVG): Shoppers → Shop API → Inventory locks (`axle`, `brake-pad`, …) → Orders DB.
-- [ ] Each `shop_order` animates a dot: green ok, yellow waiting, red failed.
-- [ ] Deadlock view: two orders each holding one lock and waiting on the other, drawn as a red cycle between the two item nodes.
-- [ ] `apps/web/app/components/PipelineLane.tsx`: CRASH → GRAB → SUGGEST → VERIFY → FIX stepper, fed by `watcher_trigger` + existing `AgentStep`s (`diagnose`, `generate`, `verify`, `done`).
-- [ ] Badge from `AgentStep.source` ("Detected by watcher" / "Manual"); timer "first warning → verified fix".
-- [ ] Keep the current panels' `Stage` details below each lane (reuse `applyStep`).
-- Exit: during a watcher run, the map shows the deadlock cycle and the lane advances step by step.
+- [x] `apps/web/app/components/ServiceMap.tsx` (SVG): Shoppers → Shop API → Inventory locks (`axle`, `brake-pad`, …) → Orders DB.
+- [x] Each `shop_order` animates a dot: green ok, yellow waiting, red failed.
+- [x] Deadlock view: two orders each holding one lock and waiting on the other, drawn as a red cycle between the two item nodes.
+- [x] `apps/web/app/components/PipelineLane.tsx`: CRASH → GRAB → SUGGEST → VERIFY → FIX stepper, fed by `watcher_trigger` + existing `AgentStep`s (`diagnose`, `generate`, `verify`, `done`).
+- [x] Badge from `AgentStep.source` ("Detected by watcher" / "Manual"); timer "first warning → verified fix".
+- [x] Keep the current panels' `Stage` details below each lane (reuse `applyStep`).
+- Exit: during a watcher run, the map shows the deadlock cycle and the lane advances step by step. ✅ Live probe 2026-10-27 (API :8011 + shop :8012): `shop_order`/`shop_metrics`/`watcher_trigger` all arrive over `/api/ws`; under load 216/216 failed orders with item lists reached the socket (deadlock-pair input); `npm run build` clean.
 
 ## Sim 4 — Virtual fridge (H1) + sensor watcher *(Oct 30–31 · ~6 h)*
 
