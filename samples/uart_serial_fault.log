@@ -1,0 +1,3 @@
+2026-10-26T14:22:17.002Z ERROR device=uart0 baud=115200
+UART framing error: invalid stop bit detected while receiving packet.
+2026-10-26T14:22:17.009Z WARNING device=uart0 retries=3 action=reset_receiver

@@ -6,6 +6,8 @@ venv/
 .vscode/
 __pycache__/
 *.py[cod]
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
+demo/target-service/logs/

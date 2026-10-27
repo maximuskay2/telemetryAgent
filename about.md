@@ -5,7 +5,7 @@
 **Problem Statement:** Push the Frontier (software systems, with a physical-appliance proof point)  
 **Building Period:** Oct 27 – Nov 4, 2026  
 **Submission Deadline:** Wed, Nov 4, 2026 @ 9:00 PM ET (02:00 UTC Nov 5) via the [CV submission page](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/hackathon/submit)  
-**Core Stack:** Python 3.9+, FastAPI, WebSockets, Next.js, Meta Model API (Muse Spark 1.3, Muse Wonder 1.0, optional SAM 3.1), Muse Spark Open on Baseten (Fireworks as backup), Modal Sandboxes, GitHub API, Muse Code (development agent).
+**Core Stack:** Python 3.9+, FastAPI, WebSockets, Next.js, Meta Model API (Muse Spark 1.3, Muse Wonder 1.0), Muse Spark Open on Baseten (Fireworks as backup), Modal Sandboxes, GitHub API, Muse Code (development agent).
 
 ---
 
@@ -22,18 +22,18 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
 
 | Requirement (from the Participant Guide) | How TelemetryAgent satisfies it |
 | :--- | :--- |
-| Must incorporate Meta's models (Stage 1 pass/fail) | Meta Model API (`muse-spark-1.3`, `muse-wonder-1.0`, optional `sam-3.1`) and open-weight `meta-models/muse-spark-open-1026` on Baseten. No non-Meta models in the pipeline. |
+| Must incorporate Meta's models (Stage 1 pass/fail) | Meta Model API (`muse-spark-1.3`, `muse-wonder-1.0`) and open-weight `meta-models/muse-spark-open` on Baseten. No non-Meta models in the pipeline. |
 | Fits a problem statement | Push the Frontier: autonomous, verified repair for software, extended to physical equipment. |
 | Public repository | Repo is public and MIT licensed. |
 | New work only; demo shows only hackathon-built work | Repository started fresh for the event; all code is built Oct 27 – Nov 4 and listed in the README. |
 | Team size ≤ 4 | Solo/duo indie entry; all contributors listed on the submission page. |
 | 3-minute demo video | Shows only hackathon-built features. |
-| Not an anti-project | Infrastructure tooling. Not medical, not basic RAG, not a simple image analyzer (SAM is at most one optional confirmation step), not education, jobs, nutrition, personality, sports, or politics. |
+| Not an anti-project | Infrastructure tooling. Not medical, not basic RAG, not a simple image analyzer (no image step at all), not education, jobs, nutrition, personality, sports, or politics. |
 
 ### Stage 2 rubric strategy
 
 1. **Impact (30%):** Outage diagnosis and fix verification go from hours of manual work to minutes, and the same agent watches physical equipment where failures mean spoiled stock.
-2. **Use of Meta AI Tooling (25%):** Model routing by job — Muse Spark for diagnosis and classification, Muse Spark Open for patches and runbooks, Muse Wonder escalation on the final retry, optional SAM 3.1 visual confirmation — with structured output and feedback-driven self-correction. Built with Muse Code.
+2. **Use of Meta AI Tooling (25%):** Model routing by job — Muse Spark for diagnosis and classification, Muse Spark Open for patches and runbooks, Muse Wonder escalation on the final retry — with structured output and feedback-driven self-correction. Built with Muse Code.
 3. **Technical Depth & Execution (20%):** Typed telemetry contracts for two domains, sandboxed execution of untrusted generated code, deterministic safety validation, bounded retries, real PR creation, tests.
 4. **Demo (25%):** Two incidents side by side on one dashboard; the software incident ends in a real PR, the appliance incident ends in an alert and work order.
 
@@ -60,11 +60,10 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
         ┌─────────────────────────────────────────────────────┐
         │ META MODEL API — muse-spark-1.3                     │
         │ Classifies domain + structured diagnosis JSON       │
-        │ (optional sam-3.1 visual confirmation, appliance)   │
         └──────────────────────────┬──────────────────────────┘
                                    ▼
         ┌─────────────────────────────────────────────────────┐
-        │ BASETEN — meta-models/muse-spark-open-1026          │
+        │ BASETEN — meta-models/muse-spark-open          │
         │ Software  → code patch + pytest test                │
         │ Appliance → diagnostic runbook                      │
         │ Backup: Fireworks (Muse Spark Open) → muse-spark-1.3│
@@ -88,10 +87,9 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
 | Stage | Model | Provider |
 | :--- | :--- | :--- |
 | Diagnosis and classification (both domains) | `muse-spark-1.3` | Meta Model API |
-| Patch / runbook generation | `meta-models/muse-spark-open-1026` | Baseten |
+| Patch / runbook generation | `meta-models/muse-spark-open` | Baseten |
 | Generation backup | Muse Spark Open (`FIREWORKS_PATCH_MODEL`) | Fireworks, used only if Baseten fails or has no credits |
 | Final-attempt escalation | `muse-wonder-1.0` | Meta Model API |
-| Visual symptom confirmation (optional) | `sam-3.1` | Meta Model API |
 | Building the project | Muse Code | `muse` CLI |
 
 Generation fails over in this order: **Baseten → Fireworks → Meta Model API (`muse-spark-1.3`)**. Providers without a key are skipped, and the dashboard shows which provider served each step.
@@ -116,7 +114,7 @@ telemetry-agent/
 │   │   ├── remediation.py          # Patch, runbook, verification result
 │   │   └── events.py               # Dashboard stream events
 │   ├── infer/
-│   │   ├── meta_client.py          # Muse Spark, Muse Wonder, SAM 3.1
+│   │   ├── meta_client.py          # Muse Spark, Muse Wonder
 │   │   ├── baseten_client.py       # Muse Spark Open (primary)
 │   │   └── fireworks_client.py     # Muse Spark Open (backup)
 │   ├── verify/
@@ -206,7 +204,7 @@ def diagnose(telemetry_json: str) -> Diagnosis:
 
 ### 3. Generation on Muse Spark Open (`core/infer/baseten_client.py`)
 
-Use the hackathon model ID `meta-models/muse-spark-open-1026`.
+Use the hackathon model ID `meta-models/muse-spark-open`.
 
 ```python
 import os
@@ -215,7 +213,7 @@ from openai import OpenAI
 
 baseten = OpenAI(base_url="https://inference.baseten.co/v1", api_key=os.environ["BASETEN_API_KEY"])
 
-GENERATION_MODEL = os.getenv("BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026")
+GENERATION_MODEL = os.getenv("BASETEN_PATCH_MODEL", "meta-models/muse-spark-open")
 
 
 def generate(system_prompt: str, user_content: str) -> str:
@@ -314,6 +312,11 @@ Each domain plugs in its own `generate_fix`, `verify`, and `act`:
 
 Every step is streamed to the dashboard over WebSockets.
 
+### Interfaces
+
+- **Web dashboard (main product):** Next.js in the browser, used by engineers to watch both incident panels live.
+- **Mobile extras (next version):** a phone-friendly alert page and a small owner-facing alert screen for the appliance path. These are built only after the core plan is complete; see the roadmap's "Next Version: Mobile Extras" section.
+
 ---
 
 ## 🔑 Credits & Accounts
@@ -357,6 +360,6 @@ npm run dev
 ## 📚 Reference Links
 
 - [Participant Guide](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details) · [Discord](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/discord) · [Livestream](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/live)
-- Meta Model API: [Quickstart](https://dev.meta.ai/docs/quickstart) · [Models](https://dev.meta.ai/docs/models) · [SAM 3.1](https://dev.meta.ai/docs/sam/overview) · [API cookbook](https://github.com/meta-models/meta-model-cookbook) · [Muse Code recipes](https://github.com/meta-models/meta-model-cookbook/tree/main/04_muse_code)
+- Meta Model API: [Quickstart](https://dev.meta.ai/docs/quickstart) · [Models](https://dev.meta.ai/docs/models) · [API cookbook](https://github.com/meta-models/meta-model-cookbook) · [Muse Code recipes](https://github.com/meta-models/meta-model-cookbook/tree/main/04_muse_code)
 - Baseten: [Chat Completions](https://docs.baseten.co/reference/inference-api/chat-completions)
 - Modal: [Sandboxes](https://modal.com/docs/guide/sandboxes)
