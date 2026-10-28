@@ -111,8 +111,11 @@ def _software_providers() -> list:
         providers.append(
             (
                 f"meta:{DIAGNOSIS_MODEL}",
-                lambda diagnosis, feedback: meta_client.generate_patch(
-                    diagnosis, feedback, model=DIAGNOSIS_MODEL
+                lambda diagnosis, feedback, contract=None: (
+                    meta_client.generate_patch(
+                        diagnosis, feedback, model=DIAGNOSIS_MODEL,
+                        contract=contract,
+                    )
                 ),
             )
         )
@@ -150,12 +153,19 @@ def run_software_loop(
     original_code: Optional[str] = None,
     open_pr: Optional[Callable[..., str]] = None,
     run_id: Optional[str] = None,
+    contract: Optional[str] = None,
+    harness: Optional[str] = None,
 ) -> ExecutionResult:
     """Software loop; `open_pr` opens the fix PR and returns its URL.
 
     When `open_pr` is None the PR step is skipped (pr_url stays None), which
     keeps local runs and unit tests hermetic. Production callers pass
     `core.actions.github_pr.open_fix_pr`.
+
+    `contract` pins the required module interface in every generation call;
+    `harness` is repo-owned pytest executed against each patch in the sandbox
+    before fail-to-pass, so a patch that ignores the contract fails fast with
+    actionable feedback instead of deploying.
     """
     run_id = run_id or uuid4().hex[:8]
     state = {"model": "none"}
@@ -172,7 +182,7 @@ def run_software_loop(
         last_error = "No patch provider is configured; set BASETEN_API_KEY or MODEL_API_KEY."
         for name, generate in _software_providers():
             try:
-                patch = generate(diagnosis, feedback)
+                patch = generate(diagnosis, feedback, contract=contract)
                 state["model"] = name
                 return patch
             except Exception as exc:
@@ -181,9 +191,18 @@ def run_software_loop(
 
     def escalate(diagnosis, feedback):
         state["model"] = f"meta:{ESCALATION_MODEL}"
-        return meta_client.generate_patch(diagnosis, feedback, model=ESCALATION_MODEL)
+        return meta_client.generate_patch(
+            diagnosis, feedback, model=ESCALATION_MODEL, contract=contract
+        )
 
     def verify(patch) -> VerificationResult:
+        if harness:
+            head = verify_patch(patch.patch_code, harness)
+            if not head["passed"]:
+                return VerificationResult(
+                    passed=False,
+                    feedback="Interface harness failed:\n" + head["feedback"],
+                )
         if original_code:
             return VerificationResult(
                 **verify_fix(original_code, patch.patch_code, patch.test_code)
@@ -309,6 +328,8 @@ def run_diagnostic_loop(
     original_code: Optional[str] = None,
     open_pr: Optional[Callable[..., str]] = None,
     run_id: Optional[str] = None,
+    contract: Optional[str] = None,
+    harness: Optional[str] = None,
 ) -> ExecutionResult:
     telemetry = SoftwareTelemetry(source_id="api", raw_log=log_text)
     return run_software_loop(
@@ -318,4 +339,6 @@ def run_diagnostic_loop(
         original_code=original_code,
         open_pr=open_pr,
         run_id=run_id,
+        contract=contract,
+        harness=harness,
     )

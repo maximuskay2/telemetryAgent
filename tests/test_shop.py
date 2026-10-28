@@ -110,6 +110,50 @@ class ShopTests(unittest.TestCase):
                 shop.log.close()
         self.assertEqual(result["status"], "ok")
 
+    def test_raising_inventory_fails_order_without_raising(self) -> None:
+        """A bad hot-swapped module must 503 the order, never 500 (e2e)."""
+        with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+            bad = os.path.join(tmp, "bad_inventory.py")
+            with open(bad, "w", encoding="utf-8") as f:
+                f.write(
+                    "def acquire_all(items):\n"
+                    "    raise AttributeError('no such lock')\n"
+                    "def release_all(held):\n"
+                    "    pass\n"
+                )
+            shop = self._shop(tmp, inventory_path=bad)
+            try:
+                with patch("time.sleep", return_value=None):
+                    result = shop.place_order(["axle", "brake-pad"])
+            finally:
+                shop.log.close()
+            with open(os.path.join(tmp, "shop.log"), encoding="utf-8") as f:
+                text = f.read()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("inventory acquire raised AttributeError", text)
+
+    def test_release_error_logged_not_raised(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+            bad = os.path.join(tmp, "bad_release.py")
+            with open(bad, "w", encoding="utf-8") as f:
+                f.write(
+                    "import threading\n"
+                    "def acquire_all(items):\n"
+                    "    return [(i, threading.Lock()) for i in items]\n"
+                    "def release_all(held):\n"
+                    "    raise RuntimeError('release boom')\n"
+                )
+            shop = self._shop(tmp, inventory_path=bad)
+            try:
+                with patch("time.sleep", return_value=None):
+                    result = shop.place_order(["axle", "brake-pad"])
+            finally:
+                shop.log.close()
+            with open(os.path.join(tmp, "shop.log"), encoding="utf-8") as f:
+                text = f.read()
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("inventory release raised RuntimeError", text)
+
     def test_metrics_math(self) -> None:
         metrics = self.app.Metrics()
         for _ in range(9):

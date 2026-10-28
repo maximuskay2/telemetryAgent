@@ -1,0 +1,295 @@
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'models/connection.dart';
+import 'models/pending_action.dart';
+import 'models/run_report.dart';
+import 'models/sim_event.dart';
+import 'services/alarm.dart';
+import 'services/api.dart';
+import 'services/foreground.dart';
+import 'services/socket.dart';
+import 'services/storage.dart';
+
+final storageProvider = Provider<PairingStorage>((ref) => PairingStorage());
+
+/// Saved pairing, or null when the app needs the Connect screen.
+final connectionProvider =
+    AsyncNotifierProvider<ConnectionNotifier, Connection?>(
+        ConnectionNotifier.new);
+
+class ConnectionNotifier extends AsyncNotifier<Connection?> {
+  @override
+  Future<Connection?> build() => ref.read(storageProvider).load();
+
+  Future<bool> saveAndConnect(Connection connection) async {
+    final api = AgentApi(connection: connection);
+    final ok = await api.checkHealth();
+    api.close();
+    if (!ok) return false;
+    await ref.read(storageProvider).save(connection);
+    state = AsyncData(connection);
+    unawaited(Keepalive.start());
+    return true;
+  }
+
+  Future<void> disconnect() async {
+    await ref.read(storageProvider).clear();
+    unawaited(Keepalive.stop());
+    state = const AsyncData(null);
+  }
+}
+
+final apiProvider = Provider<AgentApi?>((ref) {
+  final connection = ref.watch(connectionProvider).asData?.value;
+  if (connection == null) return null;
+  final api = AgentApi(connection: connection);
+  ref.onDispose(api.close);
+  return api;
+});
+
+/// Live socket; reconnects with backoff and resyncs open actions.
+final socketProvider = Provider<AgentSocket?>((ref) {
+  final connection = ref.watch(connectionProvider).asData?.value;
+  if (connection == null) return null;
+  final socket = AgentSocket(
+    wsUri: connection.wsUri,
+    onReconnect: () {
+      ref.invalidate(openActionsProvider);
+      ref.invalidate(runsProvider);
+    },
+  );
+  socket.connect();
+  ref.onDispose(() => unawaited(socket.close()));
+  return socket;
+});
+
+final socketStateProvider = StreamProvider<SocketState>((ref) async* {
+  final socket = ref.watch(socketProvider);
+  if (socket == null) {
+    yield SocketState.connecting;
+    return;
+  }
+  yield* socket.state;
+});
+
+/// Rolling live feed (newest first, capped).
+class FeedNotifier extends Notifier<List<FeedItem>> {
+  StreamSubscription? _subscription;
+
+  @override
+  List<FeedItem> build() {
+    final socket = ref.watch(socketProvider);
+    _subscription?.cancel();
+    if (socket != null) {
+      _subscription = socket.events.listen((item) {
+        state = [item, ...state].take(100).toList();
+      });
+    }
+    ref.onDispose(() => _subscription?.cancel());
+    return const [];
+  }
+}
+
+final feedProvider =
+    NotifierProvider<FeedNotifier, List<FeedItem>>(FeedNotifier.new);
+
+/// Open veto windows, refreshed on reconnect and by the alarm flow.
+final openActionsProvider =
+    FutureProvider.autoDispose<List<PendingAction>>((ref) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return const [];
+  return api.openActions();
+});
+
+/// One-second heartbeat so on-screen countdowns tick locally.
+final clockProvider = StreamProvider.autoDispose<int>((ref) async* {
+  var tick = 0;
+  while (true) {
+    await Future<void>.delayed(const Duration(seconds: 1));
+    yield tick++;
+  }
+});
+
+final alarmHardwareProvider = Provider<AlarmHardware>((ref) {
+  final hardware = AlarmHardware();
+  ref.onDispose(() => unawaited(hardware.stop()));
+  return hardware;
+});
+
+/// Last server tick for the ringing window (plain field: the route already
+/// rebuilds every second, so no notification is needed).
+class ServerTick {
+  const ServerTick(this.runId, this.left, this.at);
+
+  final String runId;
+  final int left;
+  final DateTime at;
+}
+
+/// Currently ringing veto window, driven by action_pending/resolved events.
+class AlarmNotifier extends Notifier<PendingAction?> {
+  StreamSubscription? _subscription;
+  ServerTick? lastTick;
+
+  @override
+  PendingAction? build() {
+    final socket = ref.watch(socketProvider);
+    _subscription?.cancel();
+    lastTick = null;
+    if (socket != null) {
+      _subscription = socket.actions.listen(_onEvent);
+    }
+    ref.onDispose(() => _subscription?.cancel());
+    return null;
+  }
+
+  void show(PendingAction action) {
+    if (state?.runId == action.runId) return;
+    state = action;
+    final hardware = ref.read(alarmHardwareProvider);
+    unawaited(hardware.ring());
+    unawaited(AlarmHardware.fire(action));
+  }
+
+  Future<void> silence() async {
+    final action = state;
+    state = null;
+    await ref.read(alarmHardwareProvider).stop();
+    if (action != null) await AlarmHardware.cancel(action);
+  }
+
+  void _onEvent(SimEvent event) {
+    if (event.kind == 'action_pending') {
+      lastTick = null;
+      show(PendingAction.fromJson(event.payload));
+    } else if (event.kind == 'action_tick') {
+      final runId = event.payload['run_id'] as String?;
+      final left = (event.payload['seconds_left'] as num?)?.toInt();
+      if (runId != null && left != null && state?.runId == runId) {
+        lastTick = ServerTick(runId, left, DateTime.now());
+      }
+    } else if (event.kind == 'action_resolved') {
+      final runId = event.payload['run_id'] as String?;
+      ref.invalidate(runsProvider);
+      if (runId != null) ref.invalidate(runDetailProvider(runId));
+      if (runId != null && state?.runId == runId) {
+        unawaited(silence());
+      }
+    }
+  }
+}
+
+final alarmProvider =
+    NotifierProvider<AlarmNotifier, PendingAction?>(AlarmNotifier.new);
+
+/// M4 report filters (roadmap: open, auto-applied, approved, disapproved,
+/// failed — plus "all" for the unfiltered feed).
+enum ReportFilter { all, open, autoApplied, approved, disapproved, failed }
+
+extension ReportFilterMatch on ReportFilter {
+  String get label {
+    switch (this) {
+      case ReportFilter.all:
+        return 'All';
+      case ReportFilter.open:
+        return 'Open';
+      case ReportFilter.autoApplied:
+        return 'Auto-applied';
+      case ReportFilter.approved:
+        return 'Approved';
+      case ReportFilter.disapproved:
+        return 'Disapproved';
+      case ReportFilter.failed:
+        return 'Failed';
+    }
+  }
+
+  bool matches(RunReport run) {
+    switch (this) {
+      case ReportFilter.all:
+        return true;
+      case ReportFilter.open:
+        return run.decision == 'pending';
+      case ReportFilter.autoApplied:
+        return run.decision == 'auto_applied';
+      case ReportFilter.approved:
+        return run.decision == 'approved';
+      case ReportFilter.disapproved:
+        return run.decision == 'disapproved';
+      case ReportFilter.failed:
+        return run.decision == 'failed' || run.status == 'FAIL';
+    }
+  }
+}
+
+final reportFilterProvider =
+    NotifierProvider<ReportFilterNotifier, ReportFilter>(
+        ReportFilterNotifier.new);
+
+class ReportFilterNotifier extends Notifier<ReportFilter> {
+  @override
+  ReportFilter build() => ReportFilter.all;
+
+  void set(ReportFilter filter) => state = filter;
+}
+
+/// Incident list: polls every 5 s; refreshed on reconnect and every veto
+/// resolution so the feed follows live updates.
+final runsProvider =
+    FutureProvider.autoDispose<List<RunReport>>((ref) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return const [];
+  final timer =
+      Timer(const Duration(seconds: 5), () => ref.invalidateSelf());
+  ref.onDispose(timer.cancel);
+  return api.runs();
+});
+
+/// One incident report, refreshed when its veto window resolves.
+final runDetailProvider =
+    FutureProvider.autoDispose.family<RunReport, String>((ref, runId) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) throw const ApiError('Not connected.');
+  return api.runDetail(runId);
+});
+
+/// Recent fridge temperatures captured from the live stream (for the mini
+/// chart on appliance reports; the server keeps no per-run history).
+class TempSample {
+  const TempSample(this.at, this.celsius);
+
+  final DateTime at;
+  final double celsius;
+}
+
+class FridgeTempsNotifier extends Notifier<List<TempSample>> {
+  StreamSubscription? _subscription;
+
+  @override
+  List<TempSample> build() {
+    final socket = ref.watch(socketProvider);
+    _subscription?.cancel();
+    if (socket != null) {
+      _subscription = socket.actions.listen((event) {
+        if (event.kind != 'fridge_reading') return;
+        final reading = event.payload['reading'];
+        final temp = reading is Map
+            ? (reading['temperature_c'] as num?)?.toDouble()
+            : null;
+        if (temp == null) return;
+        final next = [...state, TempSample(DateTime.now(), temp)];
+        state = next.length > 120
+            ? next.sublist(next.length - 120)
+            : next;
+      });
+    }
+    ref.onDispose(() => _subscription?.cancel());
+    return const [];
+  }
+}
+
+final fridgeTempsProvider =
+    NotifierProvider<FridgeTempsNotifier, List<TempSample>>(
+        FridgeTempsNotifier.new);

@@ -1,0 +1,152 @@
+{
+  "system_id": "autoparts-shop",
+  "name": "AutoParts Lagos shop",
+  "kind": "software",
+  "appliance_type": null,
+  "owner_contact": "ops@autoparts-lagos.example",
+  "environment": {
+    "location": "Lagos, Nigeria",
+    "operating_hours": "8:00-20:00 Africa/Lagos",
+    "expected_traffic": "10-40 orders per minute"
+  },
+  "normal_ranges": [
+    {
+      "metric": "error_rate",
+      "min": 0,
+      "max": 0.01,
+      "unit": "ratio",
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§1",
+        "quote": "Order error rate must stay under 1% in any 5-minute window.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "metric": "p95_ms",
+      "min": 0,
+      "max": 300,
+      "unit": "ms",
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§1",
+        "quote": "Order p95 latency must stay under 300 ms.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "expected_behaviours": [
+    {
+      "name": "cache warm-up",
+      "signature": "WARN cache cold, warming",
+      "schedule": "once at startup",
+      "max_duration_s": 60,
+      "allowed_effect": "one warning line, no errors",
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§2",
+        "quote": "At startup the service logs `WARN cache cold, warming` exactly once while the SKU cache fills.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "name": "deploy retries",
+      "signature": "retry=1",
+      "schedule": "during deploy mode",
+      "max_duration_s": 60,
+      "allowed_effect": "a few retry lines, error rate under 1%",
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§3",
+        "quote": "During a deploy (POST /deploy, lasts at most 60 seconds), a few `retry=1` lines are expected while connections drain.",
+        "confidence": 0.9,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "modes": [
+    {
+      "mode": "deploying",
+      "relaxes": ["retry=1 lines", "error_rate under 1%"],
+      "max_duration_s": 60,
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§3",
+        "quote": "During a deploy (POST /deploy, lasts at most 60 seconds), a few `retry=1` lines are expected while connections drain.",
+        "confidence": 0.9,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "mode": "maintenance",
+      "relaxes": ["all warnings"],
+      "max_duration_s": 3600,
+      "provenance": {
+        "source_doc": "manual",
+        "page_or_region": "",
+        "quote": "",
+        "confidence": 1.0,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "failure_definitions": [
+    {
+      "name": "outage",
+      "metric": "error_rate",
+      "op": ">",
+      "threshold": 0.05,
+      "duration_s": 30,
+      "except_modes": [],
+      "provenance": {
+        "source_doc": "autoparts_ops_guide.md",
+        "page_or_region": "§4",
+        "quote": "An outage is an order error rate above 5% for 30 seconds or longer.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "hard_limits": [
+    {
+      "metric": "error_rate",
+      "op": ">",
+      "threshold": 0.5,
+      "provenance": {
+        "source_doc": "manual",
+        "page_or_region": "",
+        "quote": "",
+        "confidence": 1.0,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "policy": {
+    "allowed_actions": ["deploy verified inventory patch", "restart shop service"],
+    "forbidden_actions": ["delete order history", "edit SKU catalog", "restart payment terminal"],
+    "auto_fix_allowed": true,
+    "countdown_s": 20,
+    "alert_contacts": ["phone"]
+  },
+  "baseline": {
+    "status": "none",
+    "duration_s": 0,
+    "learned_at": "",
+    "log_templates": [],
+    "sensor_bands": {},
+    "metric_bands": {}
+  },
+  "status": "confirmed",
+  "version": 1
+}

@@ -1,28 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Sparkline from "../components/Sparkline";
 
 type Product = { sku: string; name: string; price: number; stock: number };
 type Toast = { id: number; text: string; ok: boolean };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const shopUrl = process.env.NEXT_PUBLIC_SHOP_URL ?? "http://localhost:8002";
-const SPARK_POINTS = 40;
-
-function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return <span className="hint">waiting for metrics…</span>;
-  const max = Math.max(0.05, ...values);
-  const step = 100 / (SPARK_POINTS - 1);
-  const points = values
-    .slice(-SPARK_POINTS)
-    .map((v, i) => `${(i * step).toFixed(1)},${(28 - (v / max) * 26).toFixed(1)}`)
-    .join(" ");
-  return (
-    <svg className="spark" viewBox="0 0 100 30" aria-label="Error rate">
-      <polyline points={points} />
-    </svg>
-  );
-}
 
 export default function ShopPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -63,7 +48,7 @@ export default function ShopPage() {
         };
         const rate = data.payload?.error_rate;
         if (data.kind === "shop_metrics" && typeof rate === "number") {
-          setErrorRate((current) => [...current, rate].slice(-SPARK_POINTS));
+          setErrorRate((current) => [...current, rate].slice(-60));
         }
       } catch {
         // ignore malformed frames

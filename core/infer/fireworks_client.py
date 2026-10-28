@@ -43,11 +43,16 @@ def generate(system_prompt: str, user_content: str) -> str:
     return response.choices[0].message.content
 
 
-def generate_patch(diagnosis: Diagnosis, previous_stderr: Optional[str] = None) -> GeneratedPatch:
+def generate_patch(
+    diagnosis: Diagnosis,
+    previous_stderr: Optional[str] = None,
+    contract: Optional[str] = None,
+) -> GeneratedPatch:
     feedback = f"\nThe previous attempt failed with:\n{previous_stderr}" if previous_stderr else ""
+    pinned = f"\n\nInterface contract (the patch MUST satisfy this):\n{contract}" if contract else ""
     content = generate(
         "Return JSON with patch_code (solution.py) and test_code (pytest importing solution).",
-        diagnosis.model_dump_json() + feedback,
+        diagnosis.model_dump_json() + feedback + pinned,
     )
     return GeneratedPatch.model_validate(json.loads(content))
 

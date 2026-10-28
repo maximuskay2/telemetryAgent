@@ -7,14 +7,22 @@ from unittest.mock import patch
 
 import httpx
 
-from core.watch.log_watcher import run
+from core.watch.log_watcher import classify_forward, run
 from core.watch.rules import (
     RetryClusterTracker,
     extract_resource,
     fingerprint_for,
     match_error,
 )
-from core.watch.watcher import LogTail, build_window, publish_sim_event, send_run, should_send
+from core.watch.watcher import (
+    LogForwarder,
+    LogTail,
+    build_window,
+    post_log,
+    publish_sim_event,
+    send_run,
+    should_send,
+)
 
 
 class ErrorRuleTests(unittest.TestCase):
@@ -156,7 +164,7 @@ class GrabFlowTests(unittest.TestCase):
             "core.watch.log_watcher.publish_sim_event"
         ) as publish:
             run(path, "http://api:8001", from_start=True, max_runs=1,
-                poll_s=0.01, after_timeout_s=0.0)
+                poll_s=0.01, after_timeout_s=0.0, forward=False)
         _, kwargs = send.call_args
         self.assertEqual(kwargs["source"], "watcher")
         self.assertEqual(kwargs["target"], "inventory")
@@ -166,6 +174,181 @@ class GrabFlowTests(unittest.TestCase):
         payload = trigger_args[2]
         self.assertEqual(payload["rule"], "deadlock")
         self.assertEqual(len(payload["matched_lines"]), 1)
+        self.assertIn("resource", payload)
+
+    def test_quiet_period_suppresses_backlog_runs(self) -> None:
+        handle, path = tempfile.mkstemp(prefix="logwatch")
+        with os.fdopen(handle, "w") as f:
+            f.write(
+                "ERROR order=a1 service=shop items=axle,chain\n"
+                "ERROR order=b2 service=shop items=piston,muffler\n"
+            )
+        self.addCleanup(os.unlink, path)
+
+        class Stop(Exception):
+            pass
+
+        with patch("core.watch.log_watcher.send_run") as send, patch(
+            "core.watch.log_watcher.publish_sim_event"
+        ), patch("core.watch.log_watcher.time.sleep", side_effect=Stop):
+            with self.assertRaises(Stop):
+                run(path, "http://api:8001", from_start=True, poll_s=0.01,
+                    after=0, after_timeout_s=0.0, forward=False, quiet_s=60.0)
+        self.assertEqual(send.call_count, 1)
+
+
+class ClassifyForwardTests(unittest.TestCase):
+    def test_levels(self) -> None:
+        self.assertEqual(
+            classify_forward("2026-10-27T12:00:00Z Deadlock detected on t"), "ERROR"
+        )
+        self.assertEqual(
+            classify_forward("ERROR order=abc service=shop"), "ERROR"
+        )
+        self.assertEqual(
+            classify_forward("WARNING retry=1 order=abc items=axle"), "WARNING"
+        )
+        self.assertEqual(classify_forward("retry=2 items=axle"), "WARNING")
+        self.assertEqual(
+            classify_forward("Traceback (most recent call last)"), "ERROR"
+        )
+        self.assertEqual(
+            classify_forward("FATAL process died"), "CRITICAL"
+        )
+
+    def test_clean_lines_stay_out(self) -> None:
+        self.assertIsNone(classify_forward("INFO starting"))
+        self.assertIsNone(classify_forward("order ok in 3ms"))
+        self.assertIsNone(classify_forward(""))
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
+class ForwarderTests(unittest.TestCase):
+    def _forwarder(self, clock, sent, **kwargs):
+        kwargs.setdefault("rate_per_s", 5.0)
+        return LogForwarder(
+            "http://api:8001", clock=clock,
+            sender=lambda message, level: sent.append((level, message)),
+            **kwargs,
+        )
+
+    def test_under_rate_sends_all(self) -> None:
+        clock, sent = FakeClock(), []
+        forward = self._forwarder(clock, sent)
+        forward.push("w1", "WARNING")
+        forward.push("e1", "ERROR")
+        self.assertEqual(forward.flush(), 2)
+        self.assertEqual(sent, [("ERROR", "e1"), ("WARNING", "w1")])
+
+    def test_caps_at_five_per_second_then_refills(self) -> None:
+        clock, sent = FakeClock(), []
+        forward = self._forwarder(clock, sent)
+        for i in range(8):
+            forward.push(f"w{i}", "WARNING")
+        self.assertEqual(forward.flush(), 5)
+        self.assertEqual(forward.flush(), 0)
+        clock.advance(1.0)
+        self.assertEqual(forward.flush(), 3)
+        self.assertEqual(len(sent), 8)
+
+    def test_errors_jump_the_queue(self) -> None:
+        clock, sent = FakeClock(), []
+        forward = self._forwarder(clock, sent, rate_per_s=2.0)
+        forward.push("w1", "WARNING")
+        forward.push("w2", "WARNING")
+        forward.push("e1", "ERROR")
+        forward.flush()
+        self.assertEqual([line for _, line in sent], ["e1", "w1"])
+
+    def test_full_buffer_evicts_oldest_warnings_first(self) -> None:
+        clock, sent = FakeClock(), []
+        forward = self._forwarder(clock, sent, rate_per_s=100.0, max_buffer=3)
+        forward.push("w1", "WARNING")
+        forward.push("e1", "ERROR")
+        forward.push("w2", "WARNING")
+        forward.push("w3", "WARNING")
+        self.assertEqual(forward.dropped, 1)
+        forward.flush()
+        self.assertEqual(
+            [line for _, line in sent], ["e1", "w2", "w3"]
+        )
+
+    def test_sender_failure_drops_without_raising(self) -> None:
+        clock = FakeClock()
+
+        def boom(message, level):
+            raise RuntimeError("down")
+
+        forward = LogForwarder(
+            "http://api:8001", clock=clock, sender=boom
+        )
+        forward.push("e1", "ERROR")
+        self.assertEqual(forward.flush(), 0)
+        self.assertEqual(forward.dropped, 1)
+
+    def test_post_log_body(self) -> None:
+        seen = {}
+
+        def fake_post(url, json=None, timeout=None):
+            seen["url"] = url
+            seen["body"] = json
+            return httpx.Response(200, json={"id": "1"})
+
+        with patch("httpx.post", side_effect=fake_post):
+            post_log("http://api:8001", "boom", source="shop", level="ERROR")
+        self.assertEqual(seen["url"], "http://api:8001/api/logs")
+        self.assertEqual(
+            seen["body"],
+            {"message": "boom", "source": "shop", "level": "ERROR"},
+        )
+
+
+class ForwardFlowTests(unittest.TestCase):
+    def test_run_forwards_warnings_and_errors_only(self) -> None:
+        handle, path = tempfile.mkstemp(prefix="logwatch-fwd")
+        with os.fdopen(handle, "w") as f:
+            f.write(
+                "WARNING retry=1 order=a1 items=axle (lock wait timeout)\n"
+                "INFO shop open\n"
+                "ERROR order=z9 service=shop\n"
+                "Deadlock detected order=z8 while acquiring lock\n"
+            )
+        self.addCleanup(os.unlink, path)
+        with patch("core.watch.log_watcher.send_run"), patch(
+            "core.watch.log_watcher.publish_sim_event"
+        ), patch("core.watch.log_watcher.post_log") as posted:
+            run(path, "http://api:8001", from_start=True, max_runs=2,
+                poll_s=0.01, after_timeout_s=0.0)
+        messages = [call.args[1] for call in posted.call_args_list]
+        self.assertEqual(len(messages), 3)
+        self.assertTrue(any("retry=1" in m for m in messages))
+        self.assertTrue(any("Deadlock detected" in m for m in messages))
+        self.assertFalse(any("shop open" in m for m in messages))
+
+    def test_no_forward_sends_nothing(self) -> None:
+        handle, path = tempfile.mkstemp(prefix="logwatch-nofwd")
+        with os.fdopen(handle, "w") as f:
+            f.write(
+                "WARNING retry=1 order=a1 items=axle\n"
+                "Deadlock detected while acquiring lock\n"
+            )
+        self.addCleanup(os.unlink, path)
+        with patch("core.watch.log_watcher.send_run"), patch(
+            "core.watch.log_watcher.publish_sim_event"
+        ), patch("core.watch.log_watcher.post_log") as posted:
+            run(path, "http://api:8001", from_start=True, max_runs=1,
+                poll_s=0.01, after_timeout_s=0.0, forward=False)
+        self.assertEqual(posted.call_count, 0)
 
 
 if __name__ == "__main__":

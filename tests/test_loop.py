@@ -119,7 +119,7 @@ class SoftwareLoopTests(unittest.TestCase):
         self.assertEqual(result.attempts, 1)
         self.assertTrue(result.model_used.startswith("baseten:"))
         diag.assert_called_once_with(TELEMETRY.model_dump_json())
-        gen.assert_called_once_with(DIAGNOSIS, None)
+        gen.assert_called_once_with(DIAGNOSIS, None, contract=None)
 
     def test_falls_back_to_fireworks(self) -> None:
         with _patch_env(BASETEN_API_KEY="x", FIREWORKS_API_KEY="y",
@@ -134,7 +134,7 @@ class SoftwareLoopTests(unittest.TestCase):
             result = run_software_loop(TELEMETRY)
         self.assertEqual(result.status, "PASS")
         self.assertTrue(result.model_used.startswith("fireworks:"))
-        fw.assert_called_once_with(DIAGNOSIS, None)
+        fw.assert_called_once_with(DIAGNOSIS, None, contract=None)
 
     def test_final_attempt_escalates_to_wonder(self) -> None:
         with _patch_env(BASETEN_API_KEY="x", MODEL_API_KEY="z"), \
@@ -196,6 +196,49 @@ class SoftwareLoopTests(unittest.TestCase):
         self.assertEqual(result.status, "PASS")
         fix.assert_called_once_with("buggy", PATCH.patch_code, PATCH.test_code)
         single.assert_not_called()
+
+    def test_contract_forwarded_to_provider(self) -> None:
+        with _patch_env(BASETEN_API_KEY="x"), \
+                patch("core.agent.loop.meta_client.diagnose", return_value=DIAGNOSIS), \
+                patch("core.infer.baseten_client.generate_patch",
+                      return_value=PATCH) as gen, \
+                patch("core.agent.loop.verify_patch",
+                      return_value={"passed": True, "feedback": "ok"}):
+            result = run_software_loop(TELEMETRY, contract="PINNED-API")
+        self.assertEqual(result.status, "PASS")
+        gen.assert_called_once_with(DIAGNOSIS, None, contract="PINNED-API")
+
+    def test_harness_failure_fails_fast(self) -> None:
+        """A patch that ignores the contract fails before fail-to-pass."""
+        with _patch_env(MODEL_API_KEY="z"), \
+                patch("core.agent.loop.meta_client.diagnose", return_value=DIAGNOSIS), \
+                patch("core.infer.meta_client.generate_patch", return_value=PATCH), \
+                patch("core.agent.loop.verify_fix") as fix, \
+                patch("core.agent.loop.verify_patch",
+                      return_value={"passed": False,
+                                    "feedback": "missing acquire_all"}) as head:
+            result = run_software_loop(
+                TELEMETRY, max_attempts=1, original_code="buggy",
+                harness="HARNESS",
+            )
+        self.assertEqual(result.status, "FAIL")
+        self.assertIn("harness", result.stderr.lower())
+        head.assert_called_once_with(PATCH.patch_code, "HARNESS")
+        fix.assert_not_called()
+
+    def test_harness_pass_falls_through_to_fail_to_pass(self) -> None:
+        with _patch_env(BASETEN_API_KEY="x"), \
+                patch("core.agent.loop.meta_client.diagnose", return_value=DIAGNOSIS), \
+                patch("core.infer.baseten_client.generate_patch", return_value=PATCH), \
+                patch("core.agent.loop.verify_fix",
+                      return_value={"passed": True, "feedback": "ok"}) as fix, \
+                patch("core.agent.loop.verify_patch",
+                      return_value={"passed": True, "feedback": "harness ok"}):
+            result = run_software_loop(
+                TELEMETRY, original_code="buggy", harness="HARNESS"
+            )
+        self.assertEqual(result.status, "PASS")
+        fix.assert_called_once_with("buggy", PATCH.patch_code, PATCH.test_code)
 
     def test_step_events_carry_durations(self) -> None:
         events = []

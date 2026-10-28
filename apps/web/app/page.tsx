@@ -1,10 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent, ReactElement } from "react";
 import ServiceMap, { type OrderDot } from "./components/ServiceMap";
 import PipelineLane from "./components/PipelineLane";
 import VirtualFridge, { type FridgeState } from "./components/VirtualFridge";
+import { QRCodeSVG } from "qrcode.react";
+import Sparkline from "./components/Sparkline";
+
+type ShopMetrics = {
+  ordersPerMin: number;
+  errorRate: number;
+  p95Ms: number;
+  seenAt: number;
+};
+
+// The shop publishes metrics every second; no metrics for this long means it is down.
+const SHOP_STALE_MS = 5000;
+const TRAFFIC = { shoppers: 8, rate: 20, duration: 60 };
+
+function errorTone(rate: number): string {
+  if (rate >= 0.2) return "bad";
+  if (rate > 0) return "warn";
+  return "good";
+}
 
 type AgentStepEvent = {
   step: string;
@@ -26,6 +45,193 @@ type LogEvent = {
   source: string;
   message: string;
   level: string;
+  tag?: string;
+};
+
+function feedItem(
+  source: string,
+  message: string,
+  level: string,
+  tag?: string,
+): LogEvent {
+  return {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    source,
+    message,
+    level,
+    tag,
+  };
+}
+
+function firstLine(text: string, max: number): string {
+  const line = text.split("\n")[0].trim();
+  return line.length > max ? `${line.slice(0, max)}…` : line;
+}
+
+function watcherSentence(payload: {
+  rule?: unknown;
+  level?: unknown;
+  domain?: unknown;
+  resource?: unknown;
+  matched_lines?: unknown;
+}): { message: string; level: string; source: string } | null {
+  if (typeof payload.rule !== "string") return null;
+  const on =
+    typeof payload.resource === "string" && payload.resource
+      ? ` on ${payload.resource}`
+      : "";
+  const detail = Array.isArray(payload.matched_lines)
+    ? payload.matched_lines.find((l): l is string => typeof l === "string")
+    : undefined;
+  const level = payload.level === "error" ? "ERROR" : "WARNING";
+  const source = payload.domain === "appliance" ? "sensor-watcher" : "watcher";
+  switch (payload.rule) {
+    case "retry-cluster":
+      return { message: `Watcher caught a retry storm${on}`, level, source };
+    case "deadlock":
+      return { message: `Watcher caught a deadlock${on}`, level, source };
+    case "traceback":
+      return { message: `Watcher caught a traceback${on}`, level, source };
+    case "error":
+      return { message: `Watcher caught an error${on}`, level, source };
+    case "temp-warning":
+    case "temp-critical":
+    case "current-warning":
+    case "current-spike":
+      return {
+        message: `Sensor watcher caught ${payload.rule}${detail ? `: ${detail}` : ""}`,
+        level,
+        source,
+      };
+    default:
+      return { message: `Watcher caught ${payload.rule}${on}`, level, source };
+  }
+}
+
+function stepSentence(msg: AgentStepEvent): LogEvent | null {
+  const tag = msg.model || undefined;
+  if (msg.step === "diagnose") {
+    return feedItem(
+      "agent",
+      `Diagnosed: ${firstLine(msg.detail || msg.message, 140)}`,
+      "INFO",
+      tag,
+    );
+  }
+  if (msg.step === "generate") {
+    return feedItem(
+      "agent",
+      `Wrote a fix (attempt ${msg.attempt})`,
+      "INFO",
+      tag,
+    );
+  }
+  if (msg.step === "verify") {
+    const failed = msg.status === "FAIL" || msg.status === "error";
+    return feedItem(
+      "agent",
+      `Sandbox verification: ${msg.status || "ran"}`,
+      failed ? "ERROR" : "INFO",
+      tag,
+    );
+  }
+  if (msg.step === "done") {
+    const failed = msg.status === "FAIL" || msg.status === "error";
+    const tail = msg.message ? ` — ${firstLine(msg.message, 120)}` : "";
+    return feedItem(
+      "agent",
+      failed
+        ? `Run finished: ${msg.status || "error"}${tail}`
+        : `Run finished: verified fix${tail}`,
+      failed ? "ERROR" : "INFO",
+      tag,
+    );
+  }
+  return null;
+}
+
+type VetoAction = {
+  runId: string;
+  domain: string;
+  summary: string;
+  deadlineMs: number;
+  secondsLeft: number;
+  state: string;
+  decidedBy: string;
+  detail: string;
+};
+
+// Same outcome titles as the phone (M3 parity).
+function vetoCopy(
+  veto: VetoAction,
+  left: number,
+): { text: string; tone: string } {
+  switch (veto.state) {
+    case "pending":
+      return {
+        text: `⏳ ${veto.summary} — auto-apply in ${left}s (veto from phone)`,
+        tone: "running",
+      };
+    case "approved":
+      return { text: `Approved ✓ ${veto.detail}`, tone: "pass" };
+    case "auto_applied":
+      return { text: "Auto-applied ✓ at 0s", tone: "pass" };
+    case "disapproved":
+      return {
+        text: `Disapproved — left for a human (${veto.decidedBy})`,
+        tone: "",
+      };
+    case "failed":
+      return { text: `Apply failed: ${veto.detail}`, tone: "fail" };
+    default:
+      return { text: `Window ${veto.state}`, tone: "" };
+  }
+}
+
+function vetoFor(
+  vetoes: Record<string, VetoAction>,
+  domain: string,
+  runId: string,
+): VetoAction | null {
+  if (runId && vetoes[runId]) return vetoes[runId];
+  const same = Object.values(vetoes).filter((v) => v.domain === domain);
+  if (same.length === 0) return null;
+  return same.sort((a, b) => b.deadlineMs - a.deadlineMs)[0];
+}
+
+function VetoStrip({
+  veto,
+  now,
+}: {
+  veto: VetoAction | null;
+  now: number;
+}): ReactElement | null {
+  if (!veto) return null;
+  const fromDeadline = Math.max(
+    0,
+    Math.ceil((veto.deadlineMs - now) / 1000),
+  );
+  const left =
+    veto.state === "pending"
+      ? Math.min(veto.secondsLeft, fromDeadline)
+      : 0;
+  const copy = vetoCopy(veto, left);
+  return (
+    <p className="veto">
+      <span className={`chip ${copy.tone}`}>veto</span> {copy.text}
+    </p>
+  );
+}
+
+const FRIDGE_SENTENCES: Record<string, string> = {
+  door_open: "Fridge door opened",
+  condenser_fouling: "Condenser dirtied",
+  power_surge: "Power surge injected",
+  rapid_restart: "Rapid restart injected",
+  close_door: "Fridge door closed",
+  clean_condenser: "Condenser cleaned",
+  reset: "Fridge reset",
 };
 
 type IncidentState = {
@@ -209,8 +415,87 @@ export default function Home() {
     total: 0,
     current: "",
   });
+  const [pairUrl, setPairUrl] = useState<string | null>(null);
   const [connection, setConnection] = useState("connecting");
+  const [reconnectKey, setReconnectKey] = useState(0);
   const [error, setError] = useState("");
+  const [shopMetrics, setShopMetrics] = useState<ShopMetrics | null>(null);
+  const [errorRates, setErrorRates] = useState<number[]>([]);
+  const [trafficUntil, setTrafficUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [mountedAt] = useState(() => Date.now());
+  const [vetoes, setVetoes] = useState<Record<string, VetoAction>>({});
+  const fetchedRuns = useRef<Set<string>>(new Set());
+  const knownRuns = useRef<Set<string>>(new Set());
+
+  function applyActionPayload(payload: {
+    run_id?: unknown;
+    domain?: unknown;
+    action?: unknown;
+    deadline?: unknown;
+    seconds_left?: unknown;
+    seconds?: unknown;
+    state?: unknown;
+    decided_by?: unknown;
+    detail?: unknown;
+  }) {
+    if (typeof payload.run_id !== "string" || !payload.run_id) return;
+    const runId = payload.run_id;
+    knownRuns.current.add(runId);
+    setVetoes((current) => {
+      const prev = current[runId];
+      const merged: VetoAction = {
+        runId,
+        domain:
+          typeof payload.domain === "string"
+            ? payload.domain
+            : (prev?.domain ?? ""),
+        summary:
+          typeof payload.action === "string"
+            ? payload.action
+            : (prev?.summary ?? ""),
+        deadlineMs:
+          typeof payload.deadline === "number"
+            ? payload.deadline * 1000
+            : (prev?.deadlineMs ?? 0),
+        secondsLeft:
+          typeof payload.seconds_left === "number"
+            ? payload.seconds_left
+            : typeof payload.seconds === "number"
+              ? Math.ceil(payload.seconds)
+              : (prev?.secondsLeft ?? 0),
+        state:
+          typeof payload.state === "string"
+            ? payload.state
+            : (prev?.state ?? "pending"),
+        decidedBy:
+          typeof payload.decided_by === "string"
+            ? payload.decided_by
+            : (prev?.decidedBy ?? ""),
+        detail:
+          typeof payload.detail === "string"
+            ? payload.detail
+            : (prev?.detail ?? ""),
+      };
+      return { ...current, [runId]: merged };
+    });
+  }
+
+  // Late joiners only see ticks; fetch the full window once per run.
+  async function fetchRunDecision(runId: string) {
+    if (fetchedRuns.current.has(runId)) return;
+    fetchedRuns.current.add(runId);
+    try {
+      const response = await fetch(`${apiUrl}/api/runs/${runId}`);
+      if (!response.ok) return;
+      const body = (await response.json()) as { decision?: unknown };
+      if (body.decision && typeof body.decision === "object") {
+        applyActionPayload(body.decision as Record<string, unknown>);
+      }
+    } catch {
+      fetchedRuns.current.delete(runId);
+    }
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -220,10 +505,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let retry: number | undefined;
     const socket = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/api/ws`);
     socket.onopen = () => setConnection("connected");
-    socket.onclose = () => setConnection("disconnected");
-    socket.onerror = () => setConnection("disconnected");
+    socket.onclose = () => {
+      setConnection("disconnected");
+      if (!disposed) {
+        retry = window.setTimeout(() => setReconnectKey((key) => key + 1), 2000);
+      }
+    };
+    socket.onerror = () => socket.close();
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as AgentStepEvent & LogEvent;
@@ -234,6 +531,10 @@ export default function Home() {
           const update =
             data.domain === "software" ? setSoftware : setAppliance;
           update((prev) => applyStep(prev, data));
+          const milestone = stepSentence(data);
+          if (milestone) {
+            setEvents((current) => [...current.slice(-49), milestone]);
+          }
         } else if (
           (data as unknown as { kind?: string }).kind === "shop_order"
         ) {
@@ -261,6 +562,33 @@ export default function Home() {
             setOrders((current) =>
               [...current.filter((o) => Date.now() - o.born < 6000), order].slice(-24),
             );
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "shop_metrics"
+        ) {
+          const payload = (
+            data as unknown as {
+              payload?: {
+                orders_per_min?: unknown;
+                error_rate?: unknown;
+                p95_ms?: unknown;
+              };
+            }
+          ).payload;
+          if (
+            payload &&
+            typeof payload.orders_per_min === "number" &&
+            typeof payload.error_rate === "number" &&
+            typeof payload.p95_ms === "number"
+          ) {
+            const rate = payload.error_rate;
+            setShopMetrics({
+              ordersPerMin: payload.orders_per_min,
+              errorRate: rate,
+              p95Ms: payload.p95_ms,
+              seenAt: Date.now(),
+            });
+            setErrorRates((current) => [...current, rate].slice(-60));
           }
         } else if (
           (data as unknown as { kind?: string }).kind === "fridge_reading"
@@ -326,7 +654,95 @@ export default function Home() {
               current:
                 typeof payload.action === "string" ? payload.action : "",
             });
+            const action =
+              typeof payload.action === "string" ? payload.action : "step";
+            setEvents((current) => [
+              ...current.slice(-49),
+              feedItem(
+                "scenario",
+                `Scenario step ${payload.done}/${payload.total}: ${action}`,
+                "INFO",
+              ),
+            ]);
           }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "watcher_trigger"
+        ) {
+          const payload = (data as unknown as { payload?: object }).payload;
+          const sentence =
+            payload && typeof payload === "object"
+              ? watcherSentence(payload)
+              : null;
+          if (sentence) {
+            setEvents((current) => [
+              ...current.slice(-49),
+              feedItem(sentence.source, sentence.message, sentence.level),
+            ]);
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "action_pending"
+        ) {
+          const payload = (
+            data as unknown as { payload?: Record<string, unknown> }
+          ).payload;
+          if (payload) applyActionPayload(payload);
+        } else if (
+          (data as unknown as { kind?: string }).kind === "action_tick"
+        ) {
+          const payload = (
+            data as unknown as { payload?: Record<string, unknown> }
+          ).payload;
+          if (payload) {
+            const runId = payload.run_id;
+            const unknown =
+              typeof runId === "string" &&
+              runId !== "" &&
+              !knownRuns.current.has(runId);
+            applyActionPayload(payload);
+            if (unknown) void fetchRunDecision(runId);
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "action_resolved"
+        ) {
+          const payload = (
+            data as unknown as { payload?: Record<string, unknown> }
+          ).payload;
+          if (payload) {
+            applyActionPayload(payload);
+            const state = payload.state;
+            if (typeof state === "string" && state !== "pending") {
+              const summary =
+                typeof payload.action === "string" ? payload.action : "action";
+              setEvents((current) => [
+                ...current.slice(-49),
+                feedItem(
+                  "veto",
+                  state === "auto_applied"
+                    ? `Auto-applied ✓ at 0s: ${summary}`
+                    : state === "approved"
+                      ? `Approved ✓: ${summary}`
+                      : state === "disapproved"
+                        ? `Disapproved — left for a human: ${summary}`
+                        : `Veto window ${state}: ${summary}`,
+                  state === "failed" ? "ERROR" : "INFO",
+                ),
+              ]);
+            }
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "fix_applied"
+        ) {
+          const domain = (
+            data as unknown as { payload?: { domain?: unknown } }
+          ).payload?.domain;
+          const message =
+            domain === "appliance"
+              ? "Runbook applied to fridge"
+              : "Fix applied to shop (merge and deploy)";
+          setEvents((current) => [
+            ...current.slice(-49),
+            feedItem("fix", message, "INFO"),
+          ]);
         } else if (typeof data.message === "string") {
           setEvents((current) => [...current.slice(-49), data]);
         }
@@ -334,8 +750,12 @@ export default function Home() {
         setError("Received an invalid event from the API.");
       }
     };
-    return () => socket.close();
-  }, []);
+    return () => {
+      disposed = true;
+      window.clearTimeout(retry);
+      socket.close();
+    };
+  }, [reconnectKey]);
 
   async function loadSample() {
     setError("");
@@ -463,6 +883,24 @@ export default function Home() {
     }
   }
 
+  async function togglePairing() {
+    if (pairUrl) {
+      setPairUrl(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${apiUrl}/api/pairing`);
+      if (!response.ok) throw new Error(await responseDetail(response));
+      const body = (await response.json()) as { api_url?: unknown };
+      if (typeof body.api_url !== "string") {
+        throw new Error("Pairing URL unavailable.");
+      }
+      setPairUrl(body.api_url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pairing failed.");
+    }
+  }
+
   async function playScenario() {
     setError("");
     try {
@@ -495,10 +933,38 @@ export default function Home() {
     }
     setSoftware(emptyIncident());
     setAppliance(emptyIncident());
+    setVetoes({});
+    fetchedRuns.current.clear();
+    knownRuns.current.clear();
     setOrders([]);
+    setErrorRates([]);
+    setTrafficUntil(0);
     setFridgeTemps([]);
     setFridge(null);
     setScenario({ playing: false, done: 0, total: 0, current: "" });
+  }
+
+  async function startTraffic() {
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/shop/load`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(TRAFFIC),
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      setTrafficUntil(Date.now() + TRAFFIC.duration * 1000);
+      setEvents((current) => [
+        ...current.slice(-49),
+        feedItem(
+          "shop",
+          `Traffic started: ${TRAFFIC.shoppers} shoppers for ${TRAFFIC.duration}s`,
+          "INFO",
+        ),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start traffic.");
+    }
   }
 
   async function deployFix() {
@@ -575,10 +1041,35 @@ export default function Home() {
         surge_active: snap.surge_active === true,
         short_cycling: snap.short_cycling === true,
       }));
+      const name =
+        "fault" in body ? body.fault : body.action;
+      const sentence = FRIDGE_SENTENCES[name];
+      if (sentence) {
+        setEvents((current) => [
+          ...current.slice(-49),
+          feedItem("sim", sentence, "INFO"),
+        ]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Fridge control failed.");
     }
   }
+
+  const shopOnline =
+    shopMetrics !== null && now - shopMetrics.seenAt < SHOP_STALE_MS;
+  const trafficLeft = Math.max(0, Math.ceil((trafficUntil - now) / 1000));
+  const trafficSeen = errorRates.some((r) => r > 0) || (shopMetrics?.ordersPerMin ?? 0) > 0;
+  const shopChecking = shopMetrics === null && now - mountedAt < SHOP_STALE_MS;
+  const errorRate = shopMetrics?.errorRate ?? 0;
+  const shopChip = shopChecking
+    ? { tone: "", label: "checking shop" }
+    : !shopOnline
+      ? { tone: "fail", label: shopMetrics ? "shop offline" : "shop not seen" }
+      : errorRate >= 0.2
+        ? { tone: "fail", label: "orders failing" }
+        : errorRate > 0
+          ? { tone: "running", label: "degraded" }
+          : { tone: "pass", label: `${orders.length} recent orders` };
 
   return (
     <main className="shell">
@@ -587,11 +1078,37 @@ export default function Home() {
           <p className="eyebrow">AUTONOMOUS SRE / LIVE INCIDENTS</p>
           <h1>Telemetry Agent</h1>
         </div>
-        <div className={`status ${connection}`}>
-          <span className="status-dot" />
-          {connection}
+        <div className="topbar-right">
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => void togglePairing()}
+            title="Show a QR code to pair the mobile app"
+          >
+            Pair phone
+          </button>
+          <div className={`status ${connection}`}>
+            <span className="status-dot" />
+            {connection}
+          </div>
         </div>
       </header>
+
+      {pairUrl ? (
+        <section className="panel map-panel pair-panel">
+          <div className="pair-qr">
+            <QRCodeSVG value={JSON.stringify({ api: pairUrl })} size={140} />
+            <div>
+              <p className="eyebrow">MOBILE PAIRING</p>
+              <p className="mono">{pairUrl}</p>
+              <p className="mapempty">
+                Same Wi-Fi as this machine (API_HOST=0.0.0.0), then type the
+                mobile token from .env into the app.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel map-panel">
         <div className="panel-heading">
@@ -627,10 +1144,50 @@ export default function Home() {
             <p className="eyebrow">WORLD</p>
             <h2>Service map</h2>
           </div>
-          <span className="counter">{orders.length} recent orders</span>
+          <span className={`chip ${shopChip.tone}`}>{shopChip.label}</span>
         </div>
-        {orders.length === 0 ? (
-          <p className="mapempty">Start the shop + load to see traffic.</p>
+        <div className="controls map-controls">
+          <button
+            type="button"
+            onClick={startTraffic}
+            disabled={!shopOnline || trafficLeft > 0}
+          >
+            {trafficLeft > 0 ? `Traffic running · ${trafficLeft}s` : "Start traffic"}
+          </button>
+          <span className="hint">
+            {TRAFFIC.shoppers} shoppers · {TRAFFIC.rate} orders/s · {TRAFFIC.duration}s
+          </span>
+        </div>
+        {shopMetrics && shopOnline && (
+          <div className="shop-metrics">
+            <div>
+              <span>Orders / min</span>
+              <strong>{Math.round(shopMetrics.ordersPerMin)}</strong>
+            </div>
+            <div className={errorTone(shopMetrics.errorRate)}>
+              <span>Error rate</span>
+              <strong>{Math.round(shopMetrics.errorRate * 100)}%</strong>
+            </div>
+            <div>
+              <span>p95 latency</span>
+              <strong>{Math.round(shopMetrics.p95Ms)} ms</strong>
+            </div>
+            <div className="spark-cell">
+              <span>Error rate, last 60s</span>
+              <Sparkline values={errorRates} />
+            </div>
+          </div>
+        )}
+        {shopChecking ? (
+          <p className="mapempty">Checking the shop…</p>
+        ) : !shopOnline ? (
+          <p className="mapempty">
+            Shop is not running. Start everything with <code>./scripts/demo.sh</code>.
+          </p>
+        ) : orders.length === 0 && !trafficSeen ? (
+          <p className="mapempty">
+            No traffic yet. Press Start traffic, or Play scenario above.
+          </p>
         ) : (
           <ServiceMap orders={orders} />
         )}
@@ -755,6 +1312,7 @@ export default function Home() {
               value={software.final}
               meta={software.finalMeta}
             />
+            <VetoStrip veto={vetoFor(vetoes, "software", software.runId)} now={now} />
           </div>
         </section>
 
@@ -852,6 +1410,7 @@ export default function Home() {
               value={appliance.final}
               meta={appliance.finalMeta}
             />
+            <VetoStrip veto={vetoFor(vetoes, "appliance", appliance.runId)} now={now} />
           </div>
         </section>
       </div>
@@ -885,7 +1444,10 @@ export default function Home() {
                   {item.level}
                 </span>
                 <span className="source">{item.source}</span>
-                <p>{item.message}</p>
+                <p>
+                  {item.tag ? <span className="tag">{item.tag}</span> : null}
+                  {item.message}
+                </p>
               </article>
             ))
           )}

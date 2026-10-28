@@ -224,7 +224,7 @@ Tailwind CSS + shadcn/ui (cards, drawer, badges), Recharts (live charts), Framer
 ### U1 — Incident cards + activity feed *(Thu, Oct 29 · ~4 h)*
 - [ ] `IncidentCard`: domain icon, status, elapsed timer, five-step lane (software: VERIFY; appliance: SAFETY), one-line current activity, source badge (Watcher / Manual / Upload).
 - [ ] Incident list keyed by `run_id` (supports several runs, not one per panel).
-- [ ] `ActivityFeed`: map `AgentStep` / `SimEvent` to plain sentences with model tags in violet.
+- [x] `ActivityFeed`: map `AgentStep` / `SimEvent` to plain sentences with model tags in violet. (Implemented inside the Stream panel: watcher/sensor sentences, agent milestones with violet model tags, fix + scenario + fridge sentences; shop WARNING/ERROR lines stream via watcher forwarding at ≤5/s, errors first.)
 - [ ] Upload modal (Log Ingestion I1) and the existing inject buttons as "Manual incident" actions.
 - Exit: injecting either incident adds a card that fills its lane live.
 
@@ -355,6 +355,10 @@ Layout: `World` column (live systems) + `Incidents` column (pipeline lanes + det
 ## 📱 Mobile: On-Call Companion (Flutter)
 
 Planned in [`mobile-roadmap.md`](mobile-roadmap.md): a Flutter app for **alerts and reports**. Verified incidents trigger a full-screen alarm (loud sound, strong vibration) with a **20-second server-side countdown**: tap Disapprove to cancel, otherwise the verified fix is applied automatically. Only verified fixes and safety-passed runbooks can auto-apply. Built in parallel (M0–M6, Oct 28 – Nov 3) on the existing `WS /api/ws` stream and Sim 5 endpoints; it must not delay the web Command Center or the simulation. The web dashboard remains the main product.
+
+## 🧭 Setup: Teach It What Normal Looks Like
+
+Planned in [`setup-roadmap.md`](setup-roadmap.md): before a system is watched, the owner, manufacturer or developer uploads spec sheets, rating-plate photos, ops docs or text. TelemetryAgent extracts a cited **System Profile** (normal ranges, expected behaviours like defrost or deploys, modes, hard limits, action policy), a human confirms it, a short baseline is learned, and the system is **armed**. Every signal then passes a **gate** (hard limit → armed → expected behaviour → mode → baseline → proof of impact) before any fix is generated, so normal-but-scary behaviour is ignored with a cited reason. Acceptance cases cover the AutoParts shop (S-1…S-12) and the cold-chain fridge (C-1…C-14). P0–P9, Oct 29 – Nov 3.
 
 ---
 

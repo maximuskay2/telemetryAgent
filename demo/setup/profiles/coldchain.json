@@ -1,0 +1,167 @@
+{
+  "system_id": "coldchain-1",
+  "name": "Cold room 1",
+  "kind": "appliance",
+  "appliance_type": "fridge",
+  "owner_contact": "facilities@example.com",
+  "environment": {
+    "climate_class": "T (tropical, ambient up to 43 C)",
+    "location": "Lagos cold room",
+    "ambient_range": "25-43 C"
+  },
+  "normal_ranges": [
+    {
+      "metric": "temp_c",
+      "min": 2,
+      "max": 5,
+      "unit": "C",
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.1",
+        "quote": "Storage temperature range: 2-5 C. Keep food between 2 and 5 C.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "metric": "current_a",
+      "min": 0.8,
+      "max": 1.6,
+      "unit": "A",
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.2",
+        "quote": "Rated current: 1.2 A at 230 V.",
+        "confidence": 0.9,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "expected_behaviours": [
+    {
+      "name": "defrost",
+      "signature": "mode=defrost",
+      "schedule": "every 6h",
+      "max_duration_s": 1200,
+      "allowed_effect": "temp may rise to 7 C",
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.1",
+        "quote": "Automatic defrost every 6 hours, lasting at most 20 minutes. During defrost the cabinet may warm to 7 C.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "name": "compressor inrush",
+      "signature": "current spike after restart",
+      "schedule": "at compressor start",
+      "max_duration_s": 3,
+      "allowed_effect": "current up to 4x rated",
+      "provenance": {
+        "source_doc": "coldchain_rating_plate.jpg",
+        "page_or_region": "plate, middle",
+        "quote": "RATED CURRENT 1.2 A",
+        "confidence": 0.9,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "name": "restocking",
+      "signature": "door open",
+      "schedule": "as needed",
+      "max_duration_s": 120,
+      "allowed_effect": "small temp bump, closes itself",
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.2",
+        "quote": "Restocking openings of up to 2 minutes are normal.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "modes": [
+    {
+      "mode": "defrost",
+      "relaxes": ["temp_c up to 7 C"],
+      "max_duration_s": 1200,
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.1",
+        "quote": "Automatic defrost every 6 hours, lasting at most 20 minutes.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "mode": "door_service",
+      "relaxes": ["door open", "small temp bump"],
+      "max_duration_s": 600,
+      "provenance": {
+        "source_doc": "manual",
+        "page_or_region": "",
+        "quote": "",
+        "confidence": 1.0,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "failure_definitions": [
+    {
+      "name": "warm alarm",
+      "metric": "temp_c",
+      "op": ">",
+      "threshold": 8,
+      "duration_s": 600,
+      "except_modes": ["defrost"],
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.1",
+        "quote": "Alarm: temperature above 8 C for 10 minutes or longer.",
+        "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "hard_limits": [
+    {
+      "metric": "temp_c",
+      "op": ">",
+      "threshold": 10,
+      "provenance": {
+        "source_doc": "manual",
+        "page_or_region": "",
+        "quote": "",
+        "confidence": 1.0,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    }
+  ],
+  "policy": {
+    "allowed_actions": ["end defrost", "close door work order", "clean condenser work order"],
+    "forbidden_actions": ["raise setpoint above 5 C", "disable temperature alarm"],
+    "auto_fix_allowed": true,
+    "countdown_s": 20,
+    "alert_contacts": ["phone"]
+  },
+  "baseline": {
+    "status": "none",
+    "duration_s": 0,
+    "learned_at": "",
+    "log_templates": [],
+    "sensor_bands": {},
+    "metric_bands": {}
+  },
+  "status": "confirmed",
+  "version": 1
+}

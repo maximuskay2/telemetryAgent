@@ -162,6 +162,115 @@ def send_run(
     return response.json()
 
 
+def post_log(
+    api_base: str,
+    message: str,
+    source: str = "shop",
+    level: str = "INFO",
+    timeout: float = 5.0,
+) -> dict:
+    """POST one line to /api/logs for the Stream panel; RuntimeError on failure."""
+    try:
+        response = httpx.post(
+            f"{api_base.rstrip('/')}/api/logs",
+            json={"message": message, "source": source, "level": level},
+            timeout=timeout,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"Could not post log to {api_base}: {exc}.") from exc
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"API rejected log ({response.status_code}): "
+            f"{response.text[:200]}."
+        )
+    return response.json()
+
+
+class LogForwarder:
+    """Rate-limited log line forwarder: errors first, at most N per second.
+
+    The shop writes hundreds of lines under load; the Stream panel wants a
+    readable trickle. `sender(message, level)` is injectable for tests.
+    """
+
+    def __init__(
+        self,
+        api_base: str,
+        source: str = "shop",
+        rate_per_s: float = 5.0,
+        max_buffer: int = 200,
+        clock=None,
+        sender=None,
+    ) -> None:
+        self.source = source
+        self.rate_per_s = rate_per_s
+        self.max_buffer = max(1, max_buffer)
+        self.clock = clock or time.monotonic
+        if sender is None:
+            self.sender = lambda message, level: post_log(  # noqa: E731
+                api_base, message, source=source, level=level
+            )
+        else:
+            self.sender = sender
+        self._buffer: List[tuple] = []  # (level, line), arrival order
+        self._tokens = rate_per_s
+        self._last = self.clock()
+        self.sent = 0
+        self.dropped = 0
+
+    def push(self, line: str, level: str) -> None:
+        """Queue one classified line, evicting oldest warnings when full."""
+        self._buffer.append((level, line))
+        while len(self._buffer) > self.max_buffer:
+            for index, (candidate, _) in enumerate(self._buffer):
+                if candidate != "ERROR" and candidate != "CRITICAL":
+                    del self._buffer[index]
+                    break
+            else:
+                del self._buffer[0]
+            self.dropped += 1
+
+    def flush(self) -> int:
+        """Send what's affordable, errors first; failures drop, never raise."""
+        now = self.clock()
+        self._tokens = min(
+            self.rate_per_s,
+            self._tokens + max(0.0, now - self._last) * self.rate_per_s,
+        )
+        self._last = now
+        ordered = sorted(
+            range(len(self._buffer)),
+            key=lambda i: (
+                0 if self._buffer[i][0] in ("ERROR", "CRITICAL") else 1,
+                i,
+            ),
+        )
+        sent = 0
+        failed = 0
+        consumed: set = set()
+        for index in ordered:
+            if self._tokens < 1.0:
+                break
+            self._tokens -= 1.0
+            level, line = self._buffer[index]
+            try:
+                self.sender(line, level)
+            except Exception:
+                failed += 1
+                self.dropped += 1
+            else:
+                sent += 1
+            consumed.add(index)
+        self._buffer = [
+            item for i, item in enumerate(self._buffer) if i not in consumed
+        ]
+        self.sent += sent
+        if failed:
+            print(f"[watch] log forward: {failed} send(s) failed, dropped",
+                  flush=True)
+        return sent
+
+
 def publish_sim_event(
     api_base: str, kind: str, payload: dict, timeout: float = 5.0
 ) -> dict:

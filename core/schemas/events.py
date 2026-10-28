@@ -28,6 +28,12 @@ class SimEvent(BaseModel):
         "watcher_trigger",
         "fix_applied",
         "scenario_step",
+        "action_pending",
+        "action_tick",
+        "action_resolved",
+        "setup_progress",
+        "baseline_progress",
+        "gate_decision",
     ]
     payload: Dict[str, Any] = Field(default_factory=dict)
 

@@ -17,9 +17,11 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +55,13 @@ def load_inventory(path: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _contract_error(module) -> Optional[str]:
+    """Shared interface check; None means the module is a drop-in."""
+    from core.verify.contracts import check_inventory_module
+
+    return check_inventory_module(module)
 
 
 def _stamp() -> str:
@@ -133,17 +142,31 @@ class Shop:
         self.stock_lock = threading.Lock()
 
     def acquire_timed(self, items: list, timeout_s: float = ACQUIRE_TIMEOUT_S):
-        """Acquire via the active inventory module with a timeout."""
+        """Acquire via the active inventory module with a timeout.
+
+        Never raises: a worker exception (e.g. a bad hot-swapped module) is
+        logged and reported as a timeout so the order fails through the
+        normal retry path instead of 500ing.
+        """
         box: dict = {}
-        thread = threading.Thread(
-            target=lambda: box.setdefault(
-                "held", self.inventory.acquire_all(items)
-            ),
-            daemon=True,
-        )
+
+        def _run() -> None:
+            try:
+                box["held"] = self.inventory.acquire_all(items)
+            except Exception as exc:  # noqa: BLE001 - reported via box
+                box["error"] = exc
+
+        thread = threading.Thread(target=_run, daemon=True)
         thread.start()
         thread.join(timeout=timeout_s)
         if thread.is_alive():
+            return None, True
+        error = box.get("error")
+        if error is not None:
+            self.log.log(
+                f"ERROR inventory acquire raised {type(error).__name__}: "
+                f"{error} items={','.join(items)}"
+            )
             return None, True
         return box["held"], False
 
@@ -173,7 +196,13 @@ class Shop:
                         self.stock[sku] -= 1
                     self.stock[skus[0]] += len(skus) - 1
             finally:
-                self.inventory.release_all(held)
+                try:
+                    self.inventory.release_all(held)
+                except Exception as exc:  # noqa: BLE001 - never fail an order here
+                    self.log.log(
+                        f"ERROR inventory release raised "
+                        f"{type(exc).__name__}: {exc} order={order_id}"
+                    )
             latency_ms = (time.perf_counter() - started) * 1000.0
             self.metrics.record(True, latency_ms)
             self._emit_order(order_id, True, latency_ms, skus)
@@ -204,7 +233,9 @@ class Shop:
         """Hot-swap the active inventory module (Sim 5 "merge and deploy").
 
         Only the buggy default (reset) or a file under `.runtime/` (verified
-        patch) is accepted; anything else raises ValueError.
+        patch) is accepted; anything else raises ValueError. The candidate
+        module must also satisfy the inventory interface contract, else the
+        active module is left untouched and ValueError is raised.
         """
         resolved = os.path.realpath(path)
         runtime_root = os.path.realpath(os.path.join(HERE, ".runtime"))
@@ -212,7 +243,14 @@ class Shop:
             runtime_root + os.sep
         ):
             raise ValueError(f"inventory path not allowlisted: {path}")
-        self.inventory = load_inventory(resolved)
+        try:
+            candidate = load_inventory(resolved)
+        except Exception as exc:  # noqa: BLE001 - reported as 400, not 500
+            raise ValueError(f"inventory module does not import: {exc}") from exc
+        reason = _contract_error(candidate)
+        if reason is not None:
+            raise ValueError(f"inventory module rejected: {reason}")
+        self.inventory = candidate
         self.inventory_path = resolved
         return resolved
 
@@ -241,6 +279,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AutoParts Lagos (demo shop)", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=os.environ.get(
+        "CORS_ORIGIN_REGEX", r"http://(localhost|127\.0\.0\.1):3000"
+    ),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 
 @app.get("/health")

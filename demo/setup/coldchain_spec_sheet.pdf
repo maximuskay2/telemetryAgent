@@ -1,0 +1,99 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 681 >>
+stream
+BT /F1 11 Tf 14 TL 50 760 Td
+(COLDCHAIN CCR-400T - SPECIFICATION SHEET \(page 1 of 2\)) Tj
+T*
+() Tj
+T*
+(1. STORAGE) Tj
+T*
+(   Storage temperature range: 2-5 C. Keep food between 2 and 5 C.) Tj
+T*
+(   Alarm: temperature above 8 C for 10 minutes or longer.) Tj
+T*
+(   HARD LIMIT: temperature above 10 C at any time is critical.) Tj
+T*
+() Tj
+T*
+(2. DEFROST) Tj
+T*
+(   Automatic defrost every 6 hours, lasting at most 20 minutes.) Tj
+T*
+(   During defrost the cabinet may warm to 7 C. This is expected.) Tj
+T*
+() Tj
+T*
+(3. CLIMATE CLASS) Tj
+T*
+(   Climate class T \(tropical\): approved for ambient up to 43 C.) Tj
+T*
+(   In hot rooms the compressor runs harder; this is normal.) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 611 >>
+stream
+BT /F1 11 Tf 14 TL 50 760 Td
+(COLDCHAIN CCR-400T - SPECIFICATION SHEET \(page 2 of 2\)) Tj
+T*
+() Tj
+T*
+(4. ELECTRICAL) Tj
+T*
+(   Rated current: 1.2 A at 230 V. Refrigerant R600a.) Tj
+T*
+(   Compressor inrush at start: up to 4x rated current for 3 seconds.) Tj
+T*
+(   Inrush above 4x, or lasting longer than 3 seconds, is a fault.) Tj
+T*
+() Tj
+T*
+(5. DOOR) Tj
+T*
+(   Restocking openings of up to 2 minutes are normal.) Tj
+T*
+(   A door left open longer than 10 minutes is a fault.) Tj
+T*
+() Tj
+T*
+(6. FORBIDDEN) Tj
+T*
+(   Never raise the setpoint above 5 C.) Tj
+T*
+(   Never disable the temperature alarm.) Tj
+ET
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000317 00000 n 
+0000001049 00000 n 
+0000001175 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+1837
+%%EOF

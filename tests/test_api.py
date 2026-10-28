@@ -146,6 +146,15 @@ class CorsTests(unittest.TestCase):
             self.assertIn("localhost", cors_origin_regex())
 
 
+class PairingTests(unittest.TestCase):
+    def test_pairing_returns_lan_url(self) -> None:
+        with TestClient(app) as client:
+            response = client.get("/api/pairing")
+        self.assertEqual(response.status_code, 200)
+        api_url = response.json()["api_url"]
+        self.assertRegex(api_url, r"^http://[\d.]+:\d+$")
+
+
 class RunFailureTests(unittest.TestCase):
     def test_run_without_keys_returns_503(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
@@ -326,6 +335,10 @@ class SimZeroTests(unittest.TestCase):
         with patch.dict(os.environ, env), \
                 patch("core.agent.loop.meta_client.diagnose", return_value=diag), \
                 patch("core.infer.baseten_client.generate_patch", return_value=patch_), \
+                patch(
+                    "core.agent.loop.verify_patch",
+                    return_value={"passed": True, "feedback": "harness ok"},
+                ), \
                 patch(
                     "core.agent.loop.verify_fix",
                     return_value={"passed": True, "feedback": "1 passed"},

@@ -49,12 +49,47 @@ def diagnose(telemetry_json: str) -> Diagnosis:
     return Diagnosis.model_validate(json.loads(response.choices[0].message.content))
 
 
+def describe_image(image_bytes: bytes, mime: str, prompt: str) -> str:
+    """Best-effort vision read of one image; raises when unavailable."""
+    import base64
+
+    data = base64.b64encode(image_bytes).decode("ascii")
+    try:
+        response = _client().chat.completions.create(
+            model=DIAGNOSIS_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime};base64,{data}"
+                            },
+                        },
+                    ],
+                }
+            ],
+        )
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise translate(exc, provider="Meta Model API", action="vision") from exc
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise RuntimeError("Vision returned no text for the image.")
+    return content
+
+
 def generate_patch(
     diagnosis: Diagnosis,
     previous_stderr: Optional[str] = None,
     model: Optional[str] = None,
+    contract: Optional[str] = None,
 ) -> GeneratedPatch:
     feedback = f"\nThe previous attempt failed with:\n{previous_stderr}" if previous_stderr else ""
+    pinned = f"\n\nInterface contract (the patch MUST satisfy this):\n{contract}" if contract else ""
     try:
         response = _client().chat.completions.create(
             model=model or ESCALATION_MODEL,
@@ -63,7 +98,7 @@ def generate_patch(
                     "role": "system",
                     "content": "Return JSON with patch_code (solution.py) and test_code (pytest importing solution).",
                 },
-                {"role": "user", "content": diagnosis.model_dump_json() + feedback},
+                {"role": "user", "content": diagnosis.model_dump_json() + feedback + pinned},
             ],
             response_format={"type": "json_object"},
         )

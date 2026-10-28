@@ -171,6 +171,22 @@ class ApplyFixApiTest(unittest.TestCase):
                 )
         self.assertEqual(response.status_code, 502)
 
+    def test_nonconforming_patch_rejected_before_write(self) -> None:
+        """A PASS patch without the inventory API must not deploy (e2e)."""
+        self._inject(
+            "run-pass", "PASS", "inventory",
+            "def with_retry(fn):\n    return fn()\n",
+        )
+        with TestClient(app) as client:
+            with patch("httpx.post", side_effect=_ok_reload) as posted:
+                response = client.post(
+                    "/api/sim/shop/apply-fix", json={"run_id": "run-pass"}
+                )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("contract", response.json()["detail"])
+        self.assertFalse(shop_runtime_path().exists())
+        posted.assert_not_called()
+
 
 class ShopReloadTest(unittest.TestCase):
     @classmethod
@@ -238,6 +254,55 @@ class ShopReloadTest(unittest.TestCase):
                 "/reload", json={"inventory_path": "/etc/passwd"}
             )
             self.assertEqual(denied.status_code, 400)
+
+    def test_reload_rejects_nonconforming_module(self) -> None:
+        """A runtime file without the lock API must not swap in (e2e)."""
+        runtime = shop_runtime_path()
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_text(
+            "def with_retry(fn):\n    return fn()\n", encoding="utf-8"
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                shop = self.shop_app.Shop(
+                    inventory_path=str(BUGGY),
+                    log_path=os.path.join(tmp, "shop.log"),
+                    api_base="http://127.0.0.1:9",
+                )
+                with self.assertRaisesRegex(ValueError, "rejected"):
+                    shop.reload_inventory(str(runtime))
+                self.assertEqual(
+                    os.path.realpath(shop.inventory_path),
+                    os.path.realpath(str(BUGGY)),
+                )
+        finally:
+            if runtime.exists():
+                runtime.unlink()
+            try:
+                runtime.parent.rmdir()
+            except OSError:
+                pass
+
+    def test_reload_rejects_unimportable_file(self) -> None:
+        runtime = shop_runtime_path()
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_text("def broken(:\n", encoding="utf-8")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                shop = self.shop_app.Shop(
+                    inventory_path=str(BUGGY),
+                    log_path=os.path.join(tmp, "shop.log"),
+                    api_base="http://127.0.0.1:9",
+                )
+                with self.assertRaisesRegex(ValueError, "does not import"):
+                    shop.reload_inventory(str(runtime))
+        finally:
+            if runtime.exists():
+                runtime.unlink()
+            try:
+                runtime.parent.rmdir()
+            except OSError:
+                pass
 
 
 class RunbookMappingTest(unittest.TestCase):

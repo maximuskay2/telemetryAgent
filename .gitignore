@@ -13,3 +13,4 @@ __pycache__/
 demo/target-service/logs/
 demo/shop/logs/
 demo/shop/.runtime/
+data/
