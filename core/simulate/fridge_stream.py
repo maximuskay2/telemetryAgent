@@ -27,9 +27,24 @@ DOOR_INGRESS_C = {"fridge": 0.35, "freezer": 0.8}
 DRIFT = 0.15  # pull toward baseline per tick when the loop is healthy
 COMPRESSOR_BAND_C = 0.5  # hysteresis around baseline
 
-FAULTS = ("door_open", "condenser_fouling", "power_surge", "rapid_restart")
-ACTIONS = ("close_door", "clean_condenser", "reset")
+FAULTS = (
+    "door_open",
+    "condenser_fouling",
+    "power_surge",
+    "rapid_restart",
+    "defrost_stuck",
+)
+ACTIONS = ("close_door", "clean_condenser", "reset", "end_defrost")
 SURGE_TICKS = 3
+
+# Normal-but-scary behaviours (P3): defrost every 6 sim-hours, 20 sim-minutes
+# each (at 1 tick/s real time the demo cycle is ~20 s).
+DEFROST_PERIOD_TICKS = 360
+DEFROST_DURATION_TICKS = 20
+DEFROST_TARGET_C = 7.0
+IN_RUSH_TICKS = 3
+IN_RUSH_RATIO = 3.5  # total current multiple; trips the raw 3.0 watcher ratio
+AMBIENT_HOT_RATIO = 1.15  # class-T steady load uplift on hot afternoons
 
 
 class VirtualFridge:
@@ -55,35 +70,77 @@ class VirtualFridge:
         self.condenser_heat = 0.0  # 0 clean .. 1 fully fouled
         self.surge_ticks = 0
         self.short_cycling = False
+        # P3 normal-but-scary state.
+        self.defrost_ticks_left = 0
+        self.defrost_stuck = False
+        self.last_defrost_tick = 0
+        self.defrost_schedule = True
+        self.door_ticks_left: int | None = None  # None = held open
+        self.ambient_hot = False
+        self.inrush_ticks = 0
 
     # -- controls ---------------------------------------------------------
     def apply_fault(self, fault: str) -> None:
         """Mutate state; unknown names raise ValueError (422 at the API)."""
         if fault == "door_open":
-            self.door_open = True
+            self.open_door(None)
         elif fault == "condenser_fouling":
             self.condenser_dirty = True
         elif fault == "power_surge":
             self.surge_ticks = SURGE_TICKS
         elif fault == "rapid_restart":
             self.short_cycling = True
+        elif fault == "defrost_stuck":
+            self.defrost_stuck = True
+            self.defrost_ticks_left = DEFROST_DURATION_TICKS
         else:
             raise ValueError(f"unknown fault: {fault}")
+
+    def start_defrost(self, duration_ticks: int = DEFROST_DURATION_TICKS) -> None:
+        """Begin a defrost cycle (schedule, button, or API)."""
+        if duration_ticks < 1:
+            raise ValueError("duration_ticks must be >= 1")
+        self.defrost_ticks_left = duration_ticks
+
+    def open_door(self, ticks: int | None) -> None:
+        """Open the door; `ticks` auto-closes (restock), None holds it open."""
+        if ticks is not None and ticks < 1:
+            raise ValueError("ticks must be >= 1")
+        self.door_open = True
+        self.door_ticks_left = ticks
+
+    def set_ambient_hot(self, hot: bool) -> None:
+        """Lagos afternoon: class-T steady load runs ~15% higher."""
+        self.ambient_hot = hot
+
+    def restart(self) -> None:
+        """Compressor restart: 2-3 ticks of ~3.5x inrush current."""
+        self.inrush_ticks = IN_RUSH_TICKS
+        self.compressor_on = True
 
     def apply_action(self, action: str) -> None:
         """Repairs clear state; unknown names raise ValueError (422 at the API)."""
         if action == "close_door":
             self.door_open = False
+            self.door_ticks_left = None
         elif action == "clean_condenser":
             self.condenser_dirty = False
+        elif action == "end_defrost":
+            self.defrost_ticks_left = 0
+            self.defrost_stuck = False
+            self.last_defrost_tick = self.tick_count
         elif action == "reset":
             self.door_open = False
             self.condenser_dirty = False
             self.condenser_heat = 0.0
             self.surge_ticks = 0
             self.short_cycling = False
+            self.defrost_ticks_left = 0
+            self.defrost_stuck = False
+            self.door_ticks_left = None
             self.temp_c = BASE_TEMP_C[self.appliance_type]
             self.compressor_on = True
+            self.restart()  # any restart draws inrush
         else:
             raise ValueError(f"unknown action: {action}")
 
@@ -98,12 +155,42 @@ class VirtualFridge:
         current = base_a + self.rng.uniform(-0.08, 0.08)
         vibration = max(0.0, BASE_VIBRATION_G + self.rng.uniform(-0.008, 0.008))
 
-        if self.temp_c > base_t + COMPRESSOR_BAND_C:
-            self.compressor_on = True
-        elif self.temp_c < base_t - COMPRESSOR_BAND_C:
-            self.compressor_on = False
+        if self.ambient_hot:
+            current *= AMBIENT_HOT_RATIO
+            self.temp_c += 0.02
+        if self.inrush_ticks > 0:
+            current += base_a * (IN_RUSH_RATIO - 1.0)
+            vibration += 0.05
+            self.inrush_ticks -= 1
+        if (
+            self.defrost_schedule
+            and self.defrost_ticks_left <= 0
+            and not self.defrost_stuck
+            and self.tick_count - self.last_defrost_tick >= DEFROST_PERIOD_TICKS
+        ):
+            self.start_defrost()
+        defrosting = self.defrost_ticks_left > 0 or self.defrost_stuck
+        if self.door_ticks_left is not None:
+            self.door_ticks_left -= 1
+            if self.door_ticks_left <= 0:
+                self.door_open = False  # restock closes itself
+                self.door_ticks_left = None
 
-        self.temp_c += (base_t - self.temp_c) * DRIFT
+        if defrosting:
+            self.compressor_on = False  # heater on, cooling off
+            if self.defrost_stuck:
+                self.temp_c += 0.15  # heater never stops: blows past 7 °C
+            else:
+                self.temp_c += (DEFROST_TARGET_C - self.temp_c) * 0.12
+                self.defrost_ticks_left -= 1
+                if self.defrost_ticks_left <= 0:
+                    self.last_defrost_tick = self.tick_count
+        else:
+            if self.temp_c > base_t + COMPRESSOR_BAND_C:
+                self.compressor_on = True
+            elif self.temp_c < base_t - COMPRESSOR_BAND_C:
+                self.compressor_on = False
+            self.temp_c += (base_t - self.temp_c) * DRIFT
         self.temp_c += self.rng.uniform(-0.1, 0.1)
 
         if self.door_open:
@@ -126,12 +213,14 @@ class VirtualFridge:
         if self.compressor_on:
             vibration += 0.01
 
+        defrosting = self.defrost_ticks_left > 0 or self.defrost_stuck
         return SensorReading(
             ts=self.sim_ts,
             temperature_c=round(self.temp_c, 2),
             current_a=round(max(0.0, current), 3),
             vibration_g=round(vibration, 4),
             door_open=self.door_open,
+            mode="defrost" if defrosting else "",
         )
 
     # -- views ------------------------------------------------------------
@@ -147,6 +236,10 @@ class VirtualFridge:
             "condenser_dirty": self.condenser_dirty,
             "surge_active": self.surge_ticks > 0,
             "short_cycling": self.short_cycling,
+            "defrost_active": self.defrost_ticks_left > 0 or self.defrost_stuck,
+            "defrost_stuck": self.defrost_stuck,
+            "ambient_hot": self.ambient_hot,
+            "inrush_active": self.inrush_ticks > 0,
         }
 
     def window(self, readings: list[SensorReading]) -> ApplianceTelemetry:
@@ -165,6 +258,10 @@ def map_step_to_action(step: str) -> str | None:
     caller, never force-executed.
     """
     text = step.lower()
+    if "defrost" in text and any(
+        word in text for word in ("end", "stop", "off", "finish", "cancel")
+    ):
+        return "end_defrost"
     if "door" in text and any(word in text for word in ("close", "shut", "seal")):
         return "close_door"
     if "condens" in text and any(

@@ -13,6 +13,7 @@ class RunReport {
     this.stepCount = 0,
     this.decision,
     this.decisionDetail,
+    this.gate,
     this.steps = const [],
     this.result = const {},
   });
@@ -26,6 +27,7 @@ class RunReport {
   final int stepCount;
   final String? decision;
   final PendingAction? decisionDetail;
+  final GateDecision? gate;
   final List<AgentStep> steps;
   final Map<String, dynamic> result;
 
@@ -39,6 +41,13 @@ class RunReport {
       source: json['source'] as String? ?? '',
       stepCount: (json['n_steps'] as num?)?.toInt() ?? 0,
       decision: json['decision'] as String?,
+      gate: json['gate_decision'] is String
+          ? GateDecision(
+              decision: json['gate_decision'] as String,
+              reason: '',
+              citation: '',
+            )
+          : null,
     );
   }
 
@@ -46,6 +55,7 @@ class RunReport {
     final rawSteps = json['steps'];
     final rawResult = json['result'];
     final rawDecision = json['decision'];
+    final rawGate = json['gate'];
     return RunReport(
       runId: json['run_id'] as String? ?? '',
       domain: json['domain'] as String? ?? '',
@@ -63,10 +73,73 @@ class RunReport {
       decisionDetail: rawDecision is Map
           ? PendingAction.fromJson(Map<String, dynamic>.from(rawDecision))
           : null,
+      gate: rawGate is Map
+          ? GateDecision.fromJson(Map<String, dynamic>.from(rawGate))
+          : null,
     );
   }
 
   /// Sum of streamed stage wall times, for the "pipeline took …" header.
   double get pipelineMs =>
       steps.fold(0.0, (total, step) => total + step.durationMs);
+}
+
+/// The setup gate's verdict for the candidate behind this run:
+/// suppress / observe / act, with reason, citation, and per-check detail.
+class GateDecision {
+  const GateDecision({
+    required this.decision,
+    required this.reason,
+    required this.citation,
+    this.checks = const [],
+  });
+
+  final String decision;
+  final String reason;
+  final String citation;
+  final List<GateCheck> checks;
+
+  factory GateDecision.fromJson(Map<String, dynamic> json) {
+    final rawChecks = json['checks'];
+    return GateDecision(
+      decision: json['decision'] as String? ?? '',
+      reason: json['reason'] as String? ?? '',
+      citation: json['citation'] as String? ?? '',
+      checks: rawChecks is List
+          ? rawChecks
+              .whereType<Map>()
+              .map((c) => GateCheck.fromJson(Map<String, dynamic>.from(c)))
+              .toList()
+          : const [],
+    );
+  }
+
+  /// Short display label for the verdict chip.
+  String get label => switch (decision) {
+        'suppress' => 'Suppressed',
+        'observe' => 'Watching',
+        'act' => 'Escalated',
+        _ => decision,
+      };
+}
+
+/// One gate check row: hard_limit / armed / expected / mode / baseline / impact.
+class GateCheck {
+  const GateCheck({
+    required this.name,
+    required this.result,
+    required this.detail,
+  });
+
+  final String name;
+  final String result;
+  final String detail;
+
+  factory GateCheck.fromJson(Map<String, dynamic> json) {
+    return GateCheck(
+      name: json['name'] as String? ?? '',
+      result: json['result'] as String? ?? '',
+      detail: json['detail'] as String? ?? '',
+    );
+  }
 }

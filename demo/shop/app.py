@@ -140,6 +140,8 @@ class Shop:
         self.api_base = api_base
         self.stock = {item["sku"]: 100 for item in CATALOG}
         self.stock_lock = threading.Lock()
+        self.deploy_until = 0.0
+        self.log.log("WARN cache cold, warming (startup, expected)")
 
     def acquire_timed(self, items: list, timeout_s: float = ACQUIRE_TIMEOUT_S):
         """Acquire via the active inventory module with a timeout.
@@ -206,6 +208,11 @@ class Shop:
             latency_ms = (time.perf_counter() - started) * 1000.0
             self.metrics.record(True, latency_ms)
             self._emit_order(order_id, True, latency_ms, skus)
+            if self.deploying and order_id[0] in "012":
+                self.log.log(
+                    f"WARNING retry=1 order={order_id} "
+                    f"items={','.join(skus)} (deploy drain)"
+                )
             return {"order_id": order_id, "status": "ok",
                     "latency_ms": round(latency_ms, 1)}
         latency_ms = (time.perf_counter() - started) * 1000.0
@@ -228,6 +235,21 @@ class Shop:
              "latency_ms": round(latency_ms, 1),
              "items": skus},
         )
+
+    @property
+    def deploying(self) -> bool:
+        return time.time() < self.deploy_until
+
+    def start_deploy(self, duration_s: float = 20.0) -> float:
+        """Deploy mode: a few drain retries, error rate stays < 1% (P3)."""
+        until = time.time() + max(1.0, duration_s)
+        self.deploy_until = until
+        for index in range(4):
+            self.log.log(
+                f"WARNING retry=1 order=drain{index} "
+                "items=axle,brake-pad (deploy drain)"
+            )
+        return until
 
     def reload_inventory(self, path: str) -> str:
         """Hot-swap the active inventory module (Sim 5 "merge and deploy").
@@ -307,6 +329,16 @@ def orders(payload: OrderIn) -> dict:
 
         return JSONResponse(status_code=503, content=result)
     return result
+
+
+class DeployIn(BaseModel):
+    duration_s: float = 20.0
+
+
+@app.post("/deploy")
+def deploy(payload: DeployIn) -> dict:
+    until = shop.start_deploy(payload.duration_s)
+    return {"deploying": True, "until": until}
 
 
 class ReloadIn(BaseModel):

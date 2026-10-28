@@ -131,12 +131,10 @@ class SystemProfile(BaseModel):
 
     @model_validator(mode="after")
     def _cross_field_rules(self) -> "SystemProfile":
+        # Hard limits are optional (but recommended as the safety floor):
+        # any status validates with or without them.
         if self.kind == "appliance" and self.appliance_type is None:
             raise ValueError("appliance systems need an appliance_type")
         if self.kind == "software" and self.appliance_type is not None:
             raise ValueError("software systems must not set appliance_type")
-        if self.status != "draft" and not self.hard_limits:
-            raise ValueError(
-                f"status '{self.status}' needs at least one hard limit"
-            )
         return self

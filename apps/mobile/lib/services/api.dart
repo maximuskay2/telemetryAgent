@@ -22,6 +22,21 @@ class AgentApi {
   Uri _uri(String path) =>
       Uri.parse(connection.apiUrl).replace(path: path);
 
+  /// Server's `{"detail": ...}` message, so 400s explain themselves
+  /// (for example why a hard limit can't be marked normal).
+  static String _detailOf(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final detail = decoded['detail'] ?? decoded['message'];
+        if (detail is String && detail.isNotEmpty) return detail;
+      }
+    } catch (_) {
+      // Fall through to the generic message.
+    }
+    return 'Bad request.';
+  }
+
   Future<bool> checkHealth() async {
     try {
       final response = await _client
@@ -58,17 +73,24 @@ class AgentApi {
     return RunReport.fromDetailJson(Map<String, dynamic>.from(body as Map));
   }
 
-  Future<PendingAction> decide(String runId, bool approve) async {
+  Future<PendingAction> decide(String runId, bool approve,
+      {bool markNormal = false}) async {
     final verb = approve ? 'approve' : 'disapprove';
     final response = await _client
         .post(
           _uri('/api/actions/$runId/$verb'),
           headers: _headers,
-          body: jsonEncode({'device': connection.deviceName}),
+          body: jsonEncode({
+            'device': connection.deviceName,
+            if (!approve && markNormal) 'mark_normal': true,
+          }),
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode == 401) {
       throw const ApiError('Bad mobile token — re-pair this device.');
+    }
+    if (response.statusCode == 400) {
+      throw ApiError(_detailOf(response.body));
     }
     if (response.statusCode == 404) {
       throw const ApiError('That window is gone — the run may be over.');

@@ -30,6 +30,10 @@ class PendingAction(BaseModel):
     )
     resolved_at: Optional[float] = None
     detail: str = Field(default="", description="Apply outcome or failure reason")
+    auto_apply: bool = Field(
+        default=True,
+        description="False means the window expires unless explicitly approved",
+    )
 
 
 def window_seconds() -> float:
@@ -48,6 +52,22 @@ def auto_enabled() -> bool:
 def mobile_token() -> str:
     """Shared secret for decide/apply calls; empty means open (dev mode)."""
     return os.environ.get("MOBILE_API_TOKEN", "")
+
+
+def auto_apply_for(entry: dict, policy_allowed: Optional[bool]) -> bool:
+    """True when a due window may apply itself (P6).
+
+    Runs that never passed the gate keep the legacy behaviour (auto-apply).
+    Gate-started runs auto-apply only when the gate decision was `act` and
+    the profile policy allows auto-fix; otherwise the window needs an
+    explicit Approve and expires untouched.
+    """
+    gate = entry.get("gate")
+    if not gate:
+        return True
+    if policy_allowed is not True:
+        return False
+    return gate.get("decision") == "act"
 
 
 def action_summary_for(domain: str, entry: dict) -> Optional[str]:

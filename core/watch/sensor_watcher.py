@@ -62,6 +62,19 @@ class SensorWatcher:
     def buffered(self) -> int:
         return len(self._readings)
 
+    def door_open_s(self) -> float:
+        """Continuous door-open seconds at the buffer end (P7/C-9)."""
+        opened_at: Optional[float] = None
+        for sensor in self._readings:
+            if sensor.door_open:
+                if opened_at is None:
+                    opened_at = sensor.ts
+            else:
+                opened_at = None
+        if opened_at is None or not self._readings:
+            return 0.0
+        return max(0.0, self._readings[-1].ts - opened_at)
+
     def observe(self, reading: ReadingLike) -> Optional[SensorHit]:
         """Evaluate one reading; return a hit when a rule fires (debounced)."""
         if isinstance(reading, Mapping):

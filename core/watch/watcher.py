@@ -162,18 +162,69 @@ def send_run(
     return response.json()
 
 
+def post_candidate(
+    api_base: str,
+    system_id: str,
+    rule: str,
+    fingerprint: str = "",
+    signature: str = "",
+    window: str = "",
+    source: str = "log",
+    metrics: Optional[Dict[str, float]] = None,
+    durations: Optional[Dict[str, float]] = None,
+    mode: str = "",
+    timeout: float = 10.0,
+) -> dict:
+    """POST a watcher candidate to the gate; return the gate response.
+
+    The gate (not the watcher) decides suppress / observe / act, so a
+    failing POST must never start a run: RuntimeError on failure.
+    """
+    body: Dict[str, object] = {
+        "system_id": system_id,
+        "source": source,
+        "rule": rule,
+        "fingerprint": fingerprint,
+        "signature": signature,
+        "window": window,
+        "metrics": metrics or {},
+        "durations": durations or {},
+        "mode": mode,
+    }
+    try:
+        response = httpx.post(
+            f"{api_base.rstrip('/')}/api/incidents/candidate",
+            json=body,
+            timeout=timeout,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Watcher could not reach {api_base}: {exc}."
+        ) from exc
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Gate rejected the candidate ({response.status_code}): "
+            f"{response.text[:200]}."
+        )
+    return response.json()
+
+
 def post_log(
     api_base: str,
     message: str,
     source: str = "shop",
     level: str = "INFO",
     timeout: float = 5.0,
+    system_id: str = "",
 ) -> dict:
     """POST one line to /api/logs for the Stream panel; RuntimeError on failure."""
+    body = {"message": message, "source": source, "level": level}
+    if system_id:
+        body["system_id"] = system_id
     try:
         response = httpx.post(
             f"{api_base.rstrip('/')}/api/logs",
-            json={"message": message, "source": source, "level": level},
+            json=body,
             timeout=timeout,
         )
     except httpx.HTTPError as exc:
@@ -201,6 +252,7 @@ class LogForwarder:
         max_buffer: int = 200,
         clock=None,
         sender=None,
+        system_id: str = "",
     ) -> None:
         self.source = source
         self.rate_per_s = rate_per_s
@@ -208,7 +260,8 @@ class LogForwarder:
         self.clock = clock or time.monotonic
         if sender is None:
             self.sender = lambda message, level: post_log(  # noqa: E731
-                api_base, message, source=source, level=level
+                api_base, message, source=source, level=level,
+                system_id=system_id,
             )
         else:
             self.sender = sender

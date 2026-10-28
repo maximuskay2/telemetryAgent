@@ -109,6 +109,47 @@ function watcherSentence(payload: {
   }
 }
 
+function gateSentence(payload: {
+  decision?: unknown;
+  reason?: unknown;
+  citation?: unknown;
+  rule?: unknown;
+}): { message: string; level: string; source: string } | null {
+  if (typeof payload.decision !== "string") return null;
+  const reason =
+    typeof payload.reason === "string" && payload.reason
+      ? payload.reason
+      : "no reason given";
+  const citation =
+    typeof payload.citation === "string" && payload.citation
+      ? ` (${payload.citation})`
+      : "";
+  const rule =
+    typeof payload.rule === "string" && payload.rule ? ` [${payload.rule}]` : "";
+  switch (payload.decision) {
+    case "suppress":
+      return {
+        message: `Gate suppressed${rule}: ${reason}${citation}`,
+        level: "DEBUG",
+        source: "gate",
+      };
+    case "observe":
+      return {
+        message: `Gate watching${rule}: ${reason}`,
+        level: "WARNING",
+        source: "gate",
+      };
+    case "act":
+      return {
+        message: `Gate escalated${rule}: ${reason}${citation}`,
+        level: "ERROR",
+        source: "gate",
+      };
+    default:
+      return null;
+  }
+}
+
 function stepSentence(msg: AgentStepEvent): LogEvent | null {
   const tag = msg.model || undefined;
   if (msg.step === "diagnose") {
@@ -138,13 +179,16 @@ function stepSentence(msg: AgentStepEvent): LogEvent | null {
   }
   if (msg.step === "done") {
     const failed = msg.status === "FAIL" || msg.status === "error";
+    const noAction = msg.status === "NO_ACTION";
     const tail = msg.message ? ` — ${firstLine(msg.message, 120)}` : "";
     return feedItem(
       "agent",
       failed
         ? `Run finished: ${msg.status || "error"}${tail}`
-        : `Run finished: verified fix${tail}`,
-      failed ? "ERROR" : "INFO",
+        : noAction
+          ? `Run finished: no action — normal behaviour${tail}`
+          : `Run finished: verified fix${tail}`,
+      failed ? "ERROR" : noAction ? "DEBUG" : "INFO",
       tag,
     );
   }
@@ -425,8 +469,40 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const [mountedAt] = useState(() => Date.now());
   const [vetoes, setVetoes] = useState<Record<string, VetoAction>>({});
+  const [deployUntil, setDeployUntil] = useState(0);
+  const [systems, setSystems] = useState<
+    { system_id: string; name: string; status: string }[]
+  >([]);
+  const [systemsLoaded, setSystemsLoaded] = useState(false);
   const fetchedRuns = useRef<Set<string>>(new Set());
   const knownRuns = useRef<Set<string>>(new Set());
+
+  async function refreshSystems() {
+    try {
+      const response = await fetch(`${apiUrl}/api/systems`);
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        systems?: { system_id?: unknown; name?: unknown; status?: unknown }[];
+      };
+      setSystems(
+        (body.systems ?? [])
+          .filter(
+            (s): s is { system_id: string; name: string; status: string } =>
+              typeof s.system_id === "string" &&
+              typeof s.name === "string" &&
+              typeof s.status === "string",
+          )
+          .map((s) => ({
+            system_id: s.system_id,
+            name: s.name,
+            status: s.status,
+          })),
+      );
+      setSystemsLoaded(true);
+    } catch {
+      // API down; the banner stays hidden until systems load.
+    }
+  }
 
   function applyActionPayload(payload: {
     run_id?: unknown;
@@ -508,6 +584,19 @@ export default function Home() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    refreshSystems();
+    const timer = window.setInterval(refreshSystems, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Fresh installs open on the Setup wizard; nothing auto-fixes until armed.
+  useEffect(() => {
+    if (systemsLoaded && systems.length === 0) {
+      window.location.replace("/setup");
+    }
+  }, [systemsLoaded, systems]);
 
   useEffect(() => {
     let disposed = false;
@@ -608,6 +697,7 @@ export default function Home() {
                   condenser_dirty?: unknown;
                   surge_active?: unknown;
                   short_cycling?: unknown;
+                  defrost_active?: unknown;
                 };
               };
             }
@@ -632,6 +722,7 @@ export default function Home() {
               condenser_dirty: st?.condenser_dirty === true,
               surge_active: st?.surge_active === true,
               short_cycling: st?.short_cycling === true,
+              defrost_active: st?.defrost_active === true,
             });
           }
         } else if (
@@ -743,6 +834,29 @@ export default function Home() {
             ...current.slice(-49),
             feedItem("fix", message, "INFO"),
           ]);
+        } else if (
+          (data as unknown as { kind?: string }).kind === "gate_decision"
+        ) {
+          const payload = (data as unknown as { payload?: object }).payload;
+          const sentence =
+            payload && typeof payload === "object"
+              ? gateSentence(payload)
+              : null;
+          if (sentence) {
+            setEvents((current) => [
+              ...current.slice(-49),
+              feedItem(sentence.source, sentence.message, sentence.level),
+            ]);
+          }
+        } else if (
+          (data as unknown as { kind?: string }).kind === "setup_progress"
+        ) {
+          const stage = (
+            data as unknown as { payload?: { stage?: unknown } }
+          ).payload?.stage;
+          if (stage === "confirmed" || stage === "armed") {
+            refreshSystems();
+          }
         } else if (typeof data.message === "string") {
           setEvents((current) => [...current.slice(-49), data]);
         }
@@ -967,6 +1081,49 @@ export default function Home() {
     }
   }
 
+  async function markNormal(runId: string, domain: "software" | "appliance") {
+    if (!runId) return;
+    setError("");
+    try {
+      const detail = await fetch(`${apiUrl}/api/runs/${runId}`);
+      if (!detail.ok) throw new Error(await responseDetail(detail));
+      const body = (await detail.json()) as {
+        gate?: {
+          system_id?: string;
+          fingerprint?: string;
+          signature?: string;
+          rule?: string;
+        };
+      };
+      const gate = body.gate;
+      if (!gate?.system_id || !gate.fingerprint || !gate.signature) {
+        throw new Error("This run has no gate context to mark normal.");
+      }
+      const response = await fetch(
+        `${apiUrl}/api/systems/${gate.system_id}/feedback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fingerprint: gate.fingerprint,
+            signature: gate.signature,
+            rule: gate.rule ?? "",
+            created_by: "dashboard",
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await responseDetail(response));
+      const note = "Parked as “normal” — confirm it in setup review.";
+      if (domain === "software") {
+        setSoftware((prev) => ({ ...prev, final: `${prev.final}\n${note}` }));
+      } else {
+        setAppliance((prev) => ({ ...prev, final: `${prev.final}\n${note}` }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Mark-normal failed.");
+    }
+  }
+
   async function deployFix() {
     if (!software.runId) return;
     setError("");
@@ -1030,6 +1187,7 @@ export default function Home() {
         condenser_dirty?: unknown;
         surge_active?: unknown;
         short_cycling?: unknown;
+        defrost_active?: unknown;
       };
       setFridge((prev) => ({
         temp_c: typeof snap.temp_c === "number" ? snap.temp_c : (prev?.temp_c ?? 0),
@@ -1040,6 +1198,7 @@ export default function Home() {
         condenser_dirty: snap.condenser_dirty === true,
         surge_active: snap.surge_active === true,
         short_cycling: snap.short_cycling === true,
+        defrost_active: snap.defrost_active === true,
       }));
       const name =
         "fault" in body ? body.fault : body.action;
@@ -1052,6 +1211,54 @@ export default function Home() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Fridge control failed.");
+    }
+  }
+
+  async function fridgeBehaviour(behaviour: string) {
+    setError("");
+    try {
+      const body =
+        behaviour === "restock" ? { ticks: 1 } : { duration_ticks: 20 };
+      const response = await fetch(
+        `${apiUrl}/api/sim/fridge/${behaviour}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!response.ok) throw new Error(await responseDetail(response));
+      setEvents((current) => [
+        ...current.slice(-49),
+        feedItem(
+          "sim",
+          behaviour === "restock"
+            ? "Fridge door opened for restocking"
+            : "Fridge defrost cycle started",
+          "INFO",
+        ),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Behaviour failed.");
+    }
+  }
+
+  async function deployShop() {
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/sim/shop/deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duration_s: 20 }),
+      });
+      if (!response.ok) throw new Error(await responseDetail(response));
+      setDeployUntil(Date.now() + 20000);
+      setEvents((current) => [
+        ...current.slice(-49),
+        feedItem("sim", "Shop deploy started (drain retries expected)", "INFO"),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Deploy failed.");
     }
   }
 
@@ -1079,6 +1286,19 @@ export default function Home() {
           <h1>Telemetry Agent</h1>
         </div>
         <div className="topbar-right">
+          {systems.map((system) => (
+            <a
+              key={system.system_id}
+              className={`syschip ${system.status}`}
+              href={`/setup?system=${system.system_id}`}
+              title={`${system.name} · ${system.status} (edit profile)`}
+            >
+              {system.name} · {system.status}
+            </a>
+          ))}
+          <a className="ghost small buttonlink" href="/setup">
+            + System
+          </a>
           <button
             type="button"
             className="ghost small"
@@ -1093,6 +1313,15 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {systemsLoaded && !systems.some((s) => s.status === "armed") && (
+        <div className="setupbanner" role="alert">
+          <span>Setup needed — no system is armed, watchers are watch-only.</span>
+          <a className="ghost small buttonlink" href="/setup">
+            Teach it normal →
+          </a>
+        </div>
+      )}
 
       {pairUrl ? (
         <section className="panel map-panel pair-panel">
@@ -1145,6 +1374,7 @@ export default function Home() {
             <h2>Service map</h2>
           </div>
           <span className={`chip ${shopChip.tone}`}>{shopChip.label}</span>
+          {now < deployUntil && <span className="chip running">deploying</span>}
         </div>
         <div className="controls map-controls">
           <button
@@ -1153,6 +1383,9 @@ export default function Home() {
             disabled={!shopOnline || trafficLeft > 0}
           >
             {trafficLeft > 0 ? `Traffic running · ${trafficLeft}s` : "Start traffic"}
+          </button>
+          <button type="button" className="ghost" onClick={deployShop}>
+            Deploy shop
           </button>
           <span className="hint">
             {TRAFFIC.shoppers} shoppers · {TRAFFIC.rate} orders/s · {TRAFFIC.duration}s
@@ -1208,6 +1441,7 @@ export default function Home() {
           state={fridge}
           onFault={(fault) => void fridgeControl("fault", { fault })}
           onAction={(action) => void fridgeControl("action", { action })}
+          onBehaviour={(behaviour) => void fridgeBehaviour(behaviour)}
         />
       </section>
 
@@ -1280,6 +1514,15 @@ export default function Home() {
                 title="Deploy the verified patch to the demo shop"
               >
                 Deploy verified fix
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void markNormal(software.runId, "software")}
+                disabled={!software.runId}
+                title="Park this incident as normal (pending setup review)"
+              >
+                This is normal
               </button>
             </div>
             <PipelineLane
@@ -1378,6 +1621,15 @@ export default function Home() {
                 title="Technician applies the validated runbook to the fridge"
               >
                 Technician applies runbook
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void markNormal(appliance.runId, "appliance")}
+                disabled={!appliance.runId}
+                title="Park this incident as normal (pending setup review)"
+              >
+                This is normal
               </button>
             </div>
             <PipelineLane

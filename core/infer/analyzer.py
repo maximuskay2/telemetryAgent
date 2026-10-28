@@ -5,16 +5,20 @@ import os
 from core.schemas.diagnosis import Diagnosis
 
 
-async def diagnose(log_text: str) -> Diagnosis:
+async def diagnose(log_text: str, reference: str = "") -> Diagnosis:
     """Diagnose via Muse Spark on the Meta Model API (Meta models only)."""
     if os.getenv("MODEL_API_KEY") or os.getenv("META_MODEL_API_KEY"):
         import asyncio
+        from functools import partial
 
         from core.infer.meta_client import diagnose as meta_diagnose
         from core.schemas.telemetry import SoftwareTelemetry
 
         telemetry = SoftwareTelemetry(source_id="diagnose", raw_log=log_text)
-        return await asyncio.to_thread(meta_diagnose, telemetry.model_dump_json())
+        call = partial(
+            meta_diagnose, telemetry.model_dump_json(), reference=reference
+        )
+        return await asyncio.to_thread(call)
 
     return Diagnosis(
         summary="Remote inference is not configured.",

@@ -10,6 +10,9 @@ class LogInput(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     source: str = Field(default="unknown", min_length=1, max_length=100)
     level: Optional[LogLevel] = None
+    system_id: Optional[str] = Field(
+        default=None, description="Setup system learning from this line (P7)"
+    )
 
 
 class LogEvent(BaseModel):

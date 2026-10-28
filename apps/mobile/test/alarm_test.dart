@@ -15,15 +15,19 @@ PendingAction _action() => PendingAction(
 
 void main() {
   group('AlarmScreen', () {
-    testWidgets('shows countdown, summary, and both buttons',
+    testWidgets('shows countdown, summary, and all buttons',
         (tester) async {
       bool? decided;
+      bool? marked;
       await tester.pumpWidget(
         MaterialApp(
           home: AlarmScreen(
             action: _action(),
             secondsLeft: 17,
-            onDecide: (approve) async => decided = approve,
+            onDecide: (approve, markNormal) async {
+              decided = approve;
+              marked = markNormal;
+            },
             onSilence: () async {},
           ),
         ),
@@ -31,10 +35,15 @@ void main() {
       expect(find.text('VETO WINDOW OPEN'), findsOneWidget);
       expect(find.text('17s'), findsOneWidget);
       expect(find.textContaining('Deploy the verified'), findsOneWidget);
-      await tester.tap(find.text('DISAPPROVE'));
+      await tester.tap(find.text('NOT NOW'));
       expect(decided, isFalse);
+      expect(marked, isFalse);
+      await tester.tap(find.text('NOT NOW + THIS IS NORMAL'));
+      expect(decided, isFalse);
+      expect(marked, isTrue);
       await tester.tap(find.text('APPROVE'));
       expect(decided, isTrue);
+      expect(marked, isFalse);
     });
 
     testWidgets('busy disables the buttons and shows the error',
@@ -44,12 +53,16 @@ void main() {
           home: AlarmScreen(
             action: _action(),
             secondsLeft: 3,
-            onDecide: (_) async {},
+            onDecide: (_, _) async {},
             onSilence: () async {},
             busy: true,
             error: 'Too late — the server already decided.',
           ),
         ),
+      );
+      await tester.scrollUntilVisible(
+        find.textContaining('Too late'),
+        200,
       );
       expect(find.textContaining('Too late'), findsOneWidget);
       final off = tester.widget<ElevatedButton>(

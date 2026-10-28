@@ -66,6 +66,60 @@ class FridgeApiTest(unittest.TestCase):
         self.assertIn("state", event["payload"])
         self.assertIn("temperature_c", event["payload"]["reading"])
 
+    def test_defrost_and_end_defrost(self) -> None:
+        with TestClient(app) as client:
+            started = client.post(
+                "/api/sim/fridge/defrost", json={"duration_ticks": 5}
+            )
+            self.assertEqual(started.status_code, 200)
+            self.assertTrue(started.json()["defrost_active"])
+            ended = client.post(
+                "/api/sim/fridge/action", json={"action": "end_defrost"}
+            )
+            self.assertFalse(ended.json()["defrost_active"])
+
+    def test_defrost_stuck_fault(self) -> None:
+        with TestClient(app) as client:
+            stuck = client.post(
+                "/api/sim/fridge/fault", json={"fault": "defrost_stuck"}
+            )
+            self.assertEqual(stuck.status_code, 200)
+            self.assertTrue(stuck.json()["defrost_stuck"])
+
+    def test_restock_and_ambient(self) -> None:
+        with TestClient(app) as client:
+            restock = client.post(
+                "/api/sim/fridge/restock", json={"ticks": 1}
+            )
+            self.assertEqual(restock.status_code, 200)
+            self.assertTrue(restock.json()["door_open"])
+            hot = client.post(
+                "/api/sim/fridge/ambient", json={"hot": True}
+            )
+            self.assertEqual(hot.status_code, 200)
+            self.assertTrue(hot.json()["ambient_hot"])
+            cool = client.post(
+                "/api/sim/fridge/ambient", json={"hot": False}
+            )
+            self.assertFalse(cool.json()["ambient_hot"])
+
+    def test_shop_deploy_proxies(self) -> None:
+        from unittest.mock import patch
+
+        from apps.api import main as api_main
+
+        with TestClient(app) as client:
+            with patch.object(
+                api_main, "shop_base_url", return_value="http://shop:1"
+            ), patch("httpx.post") as posted:
+                posted.return_value.status_code = 200
+                posted.return_value.json.return_value = {"deploying": True}
+                response = client.post(
+                    "/api/sim/shop/deploy", json={"duration_s": 5}
+                )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["deploying"])
+
 
 if __name__ == "__main__":
     unittest.main()

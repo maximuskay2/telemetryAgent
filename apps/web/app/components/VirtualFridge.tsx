@@ -9,6 +9,7 @@ export type FridgeState = {
   condenser_dirty: boolean;
   surge_active: boolean;
   short_cycling: boolean;
+  defrost_active?: boolean;
 };
 
 const FAULTS: Array<{ label: string; value: string }> = [
@@ -16,12 +17,19 @@ const FAULTS: Array<{ label: string; value: string }> = [
   { label: "Dirty condenser", value: "condenser_fouling" },
   { label: "Power surge", value: "power_surge" },
   { label: "Rapid restart", value: "rapid_restart" },
+  { label: "Defrost stuck", value: "defrost_stuck" },
 ];
 
 const ACTIONS: Array<{ label: string; value: string }> = [
   { label: "Close door", value: "close_door" },
   { label: "Clean condenser", value: "clean_condenser" },
+  { label: "End defrost", value: "end_defrost" },
   { label: "Reset", value: "reset" },
+];
+
+const BEHAVIOURS: Array<{ label: string; value: string }> = [
+  { label: "Defrost", value: "defrost" },
+  { label: "Restock (door 1 min)", value: "restock" },
 ];
 
 function Gauge({
@@ -85,12 +93,14 @@ export default function VirtualFridge({
   warnTemp = 5,
   onFault,
   onAction,
+  onBehaviour,
 }: {
   temps: number[];
   state: FridgeState | null;
   warnTemp?: number;
   onFault: (fault: string) => void;
   onAction: (action: string) => void;
+  onBehaviour: (behaviour: string) => void;
 }) {
   const s: FridgeState = state ?? {
     temp_c: 0,
@@ -142,6 +152,11 @@ export default function VirtualFridge({
           </text>
         </g>
         {s.surge_active ? <rect x="60" y="20" width="110" height="220" rx="8" className="fridge-surge" /> : null}
+        {s.defrost_active ? (
+          <text x="115" y="40" className="fridge-badge">
+            DEFROST
+          </text>
+        ) : null}
         <text x="115" y="256" className="fridge-temp">
           {state ? `${s.temp_c.toFixed(1)}°C` : "—"}
         </text>
@@ -167,6 +182,13 @@ export default function VirtualFridge({
               onClick={() => onAction(a.value)}
             >
               {a.label}
+            </button>
+          ))}
+        </div>
+        <div className="fridge-btns" role="group" aria-label="Normal behaviours">
+          {BEHAVIOURS.map((b) => (
+            <button key={b.value} type="button" onClick={() => onBehaviour(b.value)}>
+              {b.label}
             </button>
           ))}
         </div>

@@ -24,7 +24,7 @@ class VerificationResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
-    status: str = Field(pattern="^(PASS|FAIL)$")
+    status: str = Field(pattern="^(PASS|FAIL|NO_ACTION)$")
     stdout: str
     stderr: str
     attempts: int
@@ -47,7 +47,7 @@ class ApplianceAlert(BaseModel):
 
 
 class ApplianceResult(BaseModel):
-    status: str = Field(pattern="^(PASS|FAIL)$")
+    status: str = Field(pattern="^(PASS|FAIL|NO_ACTION)$")
     runbook: Optional[Runbook] = Field(
         default=None, description="Validated runbook on PASS"
     )
@@ -60,7 +60,7 @@ class ApplianceResult(BaseModel):
     run_id: str = Field(default="", description="Incident run identifier")
 
 
-RunSource = Literal["manual", "upload", "watcher", "webhook"]
+RunSource = Literal["manual", "upload", "watcher", "webhook", "gate"]
 
 
 class RunRequest(BaseModel):
@@ -79,6 +79,14 @@ class RunRequest(BaseModel):
         default=None,
         max_length=200,
         description="Allowlisted demo-target file used as original_code",
+    )
+    reference: str = Field(
+        default="",
+        description="Profile reference data for the diagnosing model (P6)",
+    )
+    gate: Optional[dict] = Field(
+        default=None,
+        description="Gate decision payload that started the run (P6)",
     )
 
 

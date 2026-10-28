@@ -256,14 +256,39 @@ def sanitize_extraction(
                     continue
                 kept.append(model.model_dump(mode="json"))
             partial[key] = kept
+        elif key == "kind":
+            if value in ("software", "appliance"):
+                partial[key] = value
+            elif isinstance(value, str):
+                rejected.append(
+                    f"kind {value!r} is not software|appliance; dropped"
+                )
+        elif key == "appliance_type":
+            if value in ("fridge", "freezer"):
+                partial[key] = value
+            elif isinstance(value, str) and value.strip():
+                rejected.append(
+                    f"appliance_type {value!r} is not fridge|freezer; "
+                    "dropped"
+                )
+            # "" / null means "not applicable": leave the stored value alone.
+        elif key in ("name", "owner_contact") and isinstance(value, str):
+            if key == "name" and not value.strip():
+                rejected.append("name is empty; dropped")
+            else:
+                partial[key] = value
         elif key == "environment" and isinstance(value, dict):
-            partial[key] = {
-                str(item): str(text)
-                for item, text in value.items()
-                if isinstance(item, str)
-            }
-        elif isinstance(value, str):
-            partial[key] = value
+            env: dict[str, str] = {}
+            for item, text in value.items():
+                if not isinstance(item, str):
+                    continue
+                if not isinstance(text, str):
+                    rejected.append(
+                        f"environment.{item} is not a string; dropped"
+                    )
+                    continue
+                env[item] = text
+            partial[key] = env
     return partial, rejected
 
 
@@ -343,11 +368,31 @@ def merge_partials(
 
 
 EXTRACTION_SYSTEM = (
-    "Fill a SystemProfile JSON object from the document. Quote the exact "
-    "source text for every value (provenance.quote). Leave unknown fields "
-    "empty; never guess numbers. Only use these keys: name, kind, "
-    "appliance_type, owner_contact, environment, normal_ranges, "
-    "expected_behaviours, modes, failure_definitions."
+    "Fill a SystemProfile JSON object from the document. Only use these "
+    "keys: name, kind, appliance_type, owner_contact, environment, "
+    "normal_ranges, expected_behaviours, modes, failure_definitions. "
+    '"kind" is "software" or "appliance" (appliances also set '
+    'appliance_type to "fridge" or "freezer"; software omits '
+    "appliance_type entirely). environment is a flat object of label to "
+    'short text, e.g. {"location": "Lagos cold room"}. Leave unknown '
+    "fields empty; never guess numbers. Ratios are fractions (under 1% "
+    '-> 0.01, unit "ratio"); latencies are milliseconds (unit "ms"). '
+    "Shapes (source_doc is the document filename; quote is a sentence "
+    "copied EXACTLY from the source text): "
+    'normal_ranges[]: {"metric": "<snake_case>", "min": <number>, "max": '
+    '<number>, "unit": "<unit>", "provenance": {"source_doc": '
+    '"<filename>", "quote": "<exact sentence>"}}. '
+    'expected_behaviours[]: {"name": "<short label>", "signature": '
+    '"<one-line description>", "provenance": {"source_doc": "<filename>", '
+    '"quote": "<exact sentence>"}}. '
+    'modes[]: {"mode": "<mode name>", "relaxes": ["<signal excused>"], '
+    '"max_duration_s": <seconds or 0>, "provenance": {"source_doc": '
+    '"<filename>", "quote": "<exact sentence>"}}. '
+    'failure_definitions[]: {"name": "<short label>", "metric": '
+    '"<snake_case>", "op": ">" or "<", "threshold": <number>, '
+    '"duration_s": <seconds or 0>, "provenance": {"source_doc": '
+    '"<filename>", "quote": "<exact sentence>"}}. '
+    "Entries without an exact copied quote are discarded."
 )
 
 

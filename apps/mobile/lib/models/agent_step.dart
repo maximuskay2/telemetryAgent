@@ -60,6 +60,9 @@ class AgentStep {
         if (status == 'FAIL' || status == 'error') {
           return 'Run finished: ${status.isNotEmpty ? status : 'error'}$tail';
         }
+        if (status == 'NO_ACTION') {
+          return 'Run finished: no action — normal behaviour$tail';
+        }
         return 'Run finished: verified fix$tail';
       default:
         return '$step ${status.isNotEmpty ? status : ''}'.trim();

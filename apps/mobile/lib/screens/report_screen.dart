@@ -137,6 +137,7 @@ class ReportBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final passed = report.status == 'PASS';
+    final noAction = report.status == 'NO_ACTION';
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
@@ -150,7 +151,11 @@ class ReportBody extends StatelessWidget {
                   children: [
                     _Badge(
                       passed ? 'PASS' : report.status,
-                      passed ? Accents.ok : Accents.fail,
+                      passed
+                          ? Accents.ok
+                          : noAction
+                              ? Accents.muted
+                              : Accents.fail,
                     ),
                     const SizedBox(width: 8),
                     _Badge(report.domain, Accents.model),
@@ -176,6 +181,7 @@ class ReportBody extends StatelessWidget {
           ),
         ),
         _DecisionCard(decision: report.decisionDetail),
+        _GateCard(gate: report.gate),
         _Section(
           title: 'Pipeline',
           child: _Stepper(steps: report.steps),
@@ -399,6 +405,60 @@ class _DecisionCard extends StatelessWidget {
     if (seconds < 60) return '${seconds.clamp(0, 59)}s ago';
     if (seconds < 3600) return '${seconds ~/ 60}m ago';
     return '${seconds ~/ 3600}h ago';
+  }
+}
+
+/// Setup gate verdict: grey when suppressed, amber when watching, red when
+/// the gate escalated. Hidden for runs that never passed the gate.
+class _GateCard extends StatelessWidget {
+  const _GateCard({required this.gate});
+
+  final GateDecision? gate;
+
+  @override
+  Widget build(BuildContext context) {
+    final verdict = gate;
+    if (verdict == null) return const SizedBox.shrink();
+    final Color accent = switch (verdict.decision) {
+      'suppress' => Accents.muted,
+      'observe' => Accents.warn,
+      'act' => Accents.fail,
+      _ => Accents.muted,
+    };
+    return _Section(
+      title: 'Gate',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Badge('Gate: ${verdict.label}', accent),
+          if (verdict.reason.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              verdict.reason,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+          if (verdict.citation.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Source: ${verdict.citation}',
+              style:
+                  const TextStyle(color: Accents.muted, fontSize: 12),
+            ),
+          ],
+          for (final check in verdict.checks)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${check.name}: ${check.result}'
+                '${check.detail.isEmpty ? '' : ' — ${check.detail}'}',
+                style: const TextStyle(
+                    color: Accents.muted, fontSize: 12),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

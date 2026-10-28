@@ -164,6 +164,14 @@ class AlarmNotifier extends Notifier<PendingAction?> {
     if (event.kind == 'action_pending') {
       lastTick = null;
       show(PendingAction.fromJson(event.payload));
+    } else if (event.kind == 'gate_decision' &&
+        event.payload['decision'] == 'observe') {
+      final reason = event.payload['reason'] as String? ?? 'watching';
+      final rule = event.payload['rule'] as String? ?? '';
+      unawaited(AlarmHardware.notifyQuiet(
+        title: rule.isEmpty ? 'Gate watching' : 'Gate watching: $rule',
+        body: reason,
+      ));
     } else if (event.kind == 'action_tick') {
       final runId = event.payload['run_id'] as String?;
       final left = (event.payload['seconds_left'] as num?)?.toInt();

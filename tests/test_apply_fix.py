@@ -255,6 +255,24 @@ class ShopReloadTest(unittest.TestCase):
             )
             self.assertEqual(denied.status_code, 400)
 
+    def test_deploy_endpoint_starts_window(self) -> None:
+        module = _load_shop_app()
+        module.shop.log.close()
+        with tempfile.TemporaryDirectory() as tmp:
+            module.shop.log = module.ShopLogger(
+                os.path.join(tmp, "shop.log")
+            )
+            try:
+                with TestClient(module.app) as client:
+                    response = client.post(
+                        "/deploy", json={"duration_s": 5}
+                    )
+            finally:
+                module.shop.log.close()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["deploying"])
+        self.assertTrue(module.shop.deploying)
+
     def test_reload_rejects_nonconforming_module(self) -> None:
         """A runtime file without the lock API must not swap in (e2e)."""
         runtime = shop_runtime_path()

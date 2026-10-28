@@ -16,6 +16,9 @@ class SensorReading(BaseModel):
     current_a: float = Field(ge=0)
     vibration_g: float = Field(ge=0)
     door_open: bool = False
+    mode: str = Field(
+        default="", description="Device-reported mode, e.g. 'defrost'"
+    )
 
 
 class ApplianceTelemetry(BaseModel):

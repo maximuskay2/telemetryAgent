@@ -30,6 +30,28 @@ class SimEvent {
       case 'action_resolved':
         return 'Action ${payload['state']}'
             '${payload['decided_by'] != null ? ' by ${payload['decided_by']}' : ''}';
+      case 'gate_decision':
+        return _gateSentence();
+      default:
+        return null;
+    }
+  }
+
+  String? _gateSentence() {
+    final decision = payload['decision'] as String?;
+    final reason = payload['reason'] as String? ?? 'no reason given';
+    final rule = payload['rule'] as String?;
+    final ruleTag = rule != null && rule.isNotEmpty ? ' [$rule]' : '';
+    switch (decision) {
+      case 'suppress':
+        final citation = payload['citation'] as String?;
+        final citeTag =
+            citation != null && citation.isNotEmpty ? ' ($citation)' : '';
+        return 'Gate suppressed$ruleTag: $reason$citeTag';
+      case 'observe':
+        return 'Gate watching$ruleTag: $reason';
+      case 'act':
+        return 'Gate escalated$ruleTag: $reason';
       default:
         return null;
     }

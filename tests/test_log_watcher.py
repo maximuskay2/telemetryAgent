@@ -18,6 +18,7 @@ from core.watch.watcher import (
     LogForwarder,
     LogTail,
     build_window,
+    post_candidate,
     post_log,
     publish_sim_event,
     send_run,
@@ -153,22 +154,52 @@ class SendTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 publish_sim_event("http://api:8001", "watcher_trigger", {})
 
+    def test_post_candidate_shape(self) -> None:
+        with patch("httpx.post") as post:
+            post.return_value.status_code = 200
+            post.return_value.json.return_value = {"decision": {}}
+            post_candidate(
+                "http://api:8001/", system_id="shop", rule="deadlock",
+                fingerprint="fp1", signature="Deadlock!",
+                window="ctx\nDeadlock!",
+            )
+        _, kwargs = post.call_args
+        self.assertEqual(
+            post.call_args.args[0],
+            "http://api:8001/api/incidents/candidate",
+        )
+        body = kwargs["json"]
+        self.assertEqual(
+            (body["system_id"], body["rule"], body["fingerprint"],
+             body["signature"], body["source"]),
+            ("shop", "deadlock", "fp1", "Deadlock!", "log"),
+        )
+        self.assertIn("Deadlock!", body["window"])
+
+    def test_post_candidate_failure_raises(self) -> None:
+        with patch("httpx.post", side_effect=httpx.ConnectError("down")):
+            with self.assertRaises(RuntimeError):
+                post_candidate("http://api:8001", "shop", "deadlock")
+
 
 class GrabFlowTests(unittest.TestCase):
-    def test_deadlock_line_sends_run_and_trigger(self) -> None:
+    def test_deadlock_line_posts_candidate_and_trigger(self) -> None:
         handle, path = tempfile.mkstemp(prefix="logwatch")
         with os.fdopen(handle, "w") as f:
             f.write("INFO starting\nDeadlock detected on inventory_items\n")
         self.addCleanup(os.unlink, path)
-        with patch("core.watch.log_watcher.send_run") as send, patch(
+        with patch("core.watch.log_watcher.post_candidate") as post, patch(
             "core.watch.log_watcher.publish_sim_event"
         ) as publish:
             run(path, "http://api:8001", from_start=True, max_runs=1,
                 poll_s=0.01, after_timeout_s=0.0, forward=False)
-        _, kwargs = send.call_args
-        self.assertEqual(kwargs["source"], "watcher")
-        self.assertEqual(kwargs["target"], "inventory")
-        self.assertIn("Deadlock detected", send.call_args.args[1])
+        _, kwargs = post.call_args
+        self.assertEqual(post.call_args.args[0], "http://api:8001")
+        self.assertEqual(kwargs["system_id"], "shop")
+        self.assertEqual(kwargs["rule"], "deadlock")
+        self.assertTrue(kwargs["fingerprint"])
+        self.assertIn("Deadlock detected", kwargs["signature"])
+        self.assertIn("Deadlock detected", kwargs["window"])
         trigger_args = publish.call_args.args
         self.assertEqual(trigger_args[1], "watcher_trigger")
         payload = trigger_args[2]
@@ -188,13 +219,13 @@ class GrabFlowTests(unittest.TestCase):
         class Stop(Exception):
             pass
 
-        with patch("core.watch.log_watcher.send_run") as send, patch(
+        with patch("core.watch.log_watcher.post_candidate") as post, patch(
             "core.watch.log_watcher.publish_sim_event"
         ), patch("core.watch.log_watcher.time.sleep", side_effect=Stop):
             with self.assertRaises(Stop):
                 run(path, "http://api:8001", from_start=True, poll_s=0.01,
                     after=0, after_timeout_s=0.0, forward=False, quiet_s=60.0)
-        self.assertEqual(send.call_count, 1)
+        self.assertEqual(post.call_count, 1)
 
 
 class ClassifyForwardTests(unittest.TestCase):
@@ -324,7 +355,7 @@ class ForwardFlowTests(unittest.TestCase):
                 "Deadlock detected order=z8 while acquiring lock\n"
             )
         self.addCleanup(os.unlink, path)
-        with patch("core.watch.log_watcher.send_run"), patch(
+        with patch("core.watch.log_watcher.post_candidate"), patch(
             "core.watch.log_watcher.publish_sim_event"
         ), patch("core.watch.log_watcher.post_log") as posted:
             run(path, "http://api:8001", from_start=True, max_runs=2,
@@ -343,7 +374,7 @@ class ForwardFlowTests(unittest.TestCase):
                 "Deadlock detected while acquiring lock\n"
             )
         self.addCleanup(os.unlink, path)
-        with patch("core.watch.log_watcher.send_run"), patch(
+        with patch("core.watch.log_watcher.post_candidate"), patch(
             "core.watch.log_watcher.publish_sim_event"
         ), patch("core.watch.log_watcher.post_log") as posted:
             run(path, "http://api:8001", from_start=True, max_runs=1,

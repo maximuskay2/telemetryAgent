@@ -1,10 +1,15 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:telemetry_agent/models/agent_step.dart';
 import 'package:telemetry_agent/models/connection.dart';
 import 'package:telemetry_agent/models/pending_action.dart';
 import 'package:telemetry_agent/models/run_report.dart';
 import 'package:telemetry_agent/models/sim_event.dart';
 import 'package:telemetry_agent/screens/scan_screen.dart';
+import 'package:telemetry_agent/services/api.dart';
 import 'package:telemetry_agent/services/socket.dart';
 
 void main() {
@@ -39,6 +44,10 @@ void main() {
         AgentStep.fromJson({'step': 'done', 'status': 'PASS'}).sentence(),
         'Run finished: verified fix',
       );
+      expect(
+        AgentStep.fromJson({'step': 'done', 'status': 'NO_ACTION'}).sentence(),
+        'Run finished: no action — normal behaviour',
+      );
     });
   });
 
@@ -71,6 +80,55 @@ void main() {
       expect(SimEvent.fromJson({'kind': 'shop_order'}).sentence(), isNull);
       expect(SimEvent.fromJson({'kind': 'fridge_reading'}).sentence(), isNull);
       expect(SimEvent.fromJson({'kind': 'shop_metrics'}).sentence(), isNull);
+    });
+
+    test('gate verdict sentences', () {
+      expect(
+        SimEvent.fromJson({
+          'kind': 'gate_decision',
+          'payload': {
+            'decision': 'suppress',
+            'reason': 'Mode defrost explains it',
+            'citation': 'coldchain_spec_sheet.pdf p.1',
+            'rule': 'temp_c_high',
+          },
+        }).sentence(),
+        'Gate suppressed [temp_c_high]: Mode defrost explains it '
+        '(coldchain_spec_sheet.pdf p.1)',
+      );
+      expect(
+        SimEvent.fromJson({
+          'kind': 'gate_decision',
+          'payload': {'decision': 'observe', 'reason': 'No impact yet'},
+        }).sentence(),
+        'Gate watching: No impact yet',
+      );
+      expect(
+        SimEvent.fromJson({
+          'kind': 'gate_decision',
+          'payload': {'decision': 'act', 'reason': 'Hot cabinet'},
+        }).sentence(),
+        'Gate escalated: Hot cabinet',
+      );
+    });
+
+    test('gate verdicts colour the feed rows', () {
+      final suppressed = FeedItem.parse({
+        'kind': 'gate_decision',
+        'payload': {'decision': 'suppress', 'reason': 'Expected defrost'},
+      })!;
+      expect(suppressed.source, 'gate');
+      expect(suppressed.level, 'DEBUG');
+      final watching = FeedItem.parse({
+        'kind': 'gate_decision',
+        'payload': {'decision': 'observe', 'reason': 'No impact yet'},
+      })!;
+      expect(watching.level, 'WARNING');
+      final escalated = FeedItem.parse({
+        'kind': 'gate_decision',
+        'payload': {'decision': 'act', 'reason': 'Hot cabinet'},
+      })!;
+      expect(escalated.level, 'ERROR');
     });
   });
 
@@ -148,6 +206,44 @@ void main() {
       expect(parsePairingCode('hello'), isNull);
       expect(parsePairingCode(null), isNull);
       expect(parsePairingCode('{"nope": 1}'), isNull);
+    });
+  });
+
+  group('decide', () {
+    test('mark-normal sends the flag', () async {
+      Map<String, dynamic>? sent;
+      final api = AgentApi(
+        connection: const Connection(
+            apiUrl: 'http://host:8001', token: '', deviceName: 'p'),
+        client: MockClient((request) async {
+          sent = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+              '{"run_id":"r1","domain":"software","action":"x",'
+              '"opened_at":1.0,"deadline":21.0,"state":"disapproved"}',
+              200);
+        }),
+      );
+      final action =
+          await api.decide('r1', false, markNormal: true);
+      expect(action.state, 'disapproved');
+      expect(sent!['mark_normal'], isTrue);
+    });
+
+    test('a 400 refusal explains itself', () async {
+      final api = AgentApi(
+        connection: const Connection(
+            apiUrl: 'http://host:8001', token: '', deviceName: 'p'),
+        client: MockClient((request) async {
+          return http.Response(
+              '{"detail":"hard limits can never be marked normal"}',
+              400);
+        }),
+      );
+      expect(
+        () => api.decide('r1', false, markNormal: true),
+        throwsA(isA<ApiError>().having(
+            (error) => error.message, 'message', contains('hard limits'))),
+      );
     });
   });
 }

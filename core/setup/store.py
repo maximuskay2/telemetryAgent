@@ -66,6 +66,10 @@ def list_profiles() -> list[SystemProfile]:
 
 def save_profile(profile: SystemProfile) -> SystemProfile:
     """Persist, bumping the version; keep the previous snapshot for audit."""
+    # Re-validate through the read path before writing: model_copy(update=..)
+    # skips validation, so without this a status flip could persist a profile
+    # that no endpoint can ever read back (stuck learning + 500s everywhere).
+    SystemProfile.model_validate(profile.model_dump(mode="json"))
     current = get_profile(profile.system_id)
     version = (current.version + 1) if current is not None else 1
     stored = profile.model_copy(update={"version": version})
@@ -94,6 +98,29 @@ def save_conflicts(system_id: str, conflicts: list) -> None:
     profiles_dir().mkdir(parents=True, exist_ok=True)
     conflicts_path(system_id).write_text(
         json.dumps(conflicts, indent=2), encoding="utf-8"
+    )
+
+
+def feedback_path(system_id: str) -> Path:
+    return profiles_dir() / f"{system_id}.feedback.json"
+
+
+def get_feedback(system_id: str) -> list:
+    """Pending + decided 'mark as normal' items (P8); [] when none."""
+    path = feedback_path(system_id)
+    if not path.exists():
+        return []
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    return items if isinstance(items, list) else []
+
+
+def save_feedback(system_id: str, items: list) -> None:
+    profiles_dir().mkdir(parents=True, exist_ok=True)
+    feedback_path(system_id).write_text(
+        json.dumps(items, indent=2), encoding="utf-8"
     )
 
 

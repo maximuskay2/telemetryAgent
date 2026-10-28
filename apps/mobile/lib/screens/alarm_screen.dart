@@ -39,7 +39,7 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
   bool _busy = false;
   String? _error;
 
-  Future<void> _decide(bool approve) async {
+  Future<void> _decide(bool approve, [bool markNormal = false]) async {
     final api = ref.read(apiProvider);
     if (api == null || _busy) return;
     setState(() {
@@ -47,7 +47,8 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       _error = null;
     });
     try {
-      final decided = await api.decide(widget.action.runId, approve);
+      final decided = await api.decide(widget.action.runId, approve,
+          markNormal: markNormal);
       await ref.read(alarmProvider.notifier).silence();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -111,7 +112,7 @@ class AlarmScreen extends StatelessWidget {
   final PendingAction action;
   final int secondsLeft;
   final int total;
-  final Future<void> Function(bool approve) onDecide;
+  final Future<void> Function(bool approve, bool markNormal) onDecide;
   final Future<void> Function() onSilence;
   final bool busy;
   final String? error;
@@ -187,19 +188,20 @@ class AlarmScreen extends StatelessWidget {
                   Expanded(
                     child: ElevatedButton(
                       onPressed:
-                          busy ? null : () => onDecide(false),
+                          busy ? null : () => onDecide(false, false),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Accents.fail,
                         foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 18),
                       ),
-                      child: Text(busy ? '…' : 'DISAPPROVE'),
+                      child: Text(busy ? '…' : 'NOT NOW'),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: busy ? null : () => onDecide(true),
+                      onPressed:
+                          busy ? null : () => onDecide(true, false),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Accents.ok,
                         side: const BorderSide(color: Accents.ok),
@@ -209,6 +211,20 @@ class AlarmScreen extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+            Padding(
+              padding:
+                  const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+              child: OutlinedButton(
+                onPressed:
+                    busy ? null : () => onDecide(false, true),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Accents.warn,
+                  side: const BorderSide(color: Accents.warn),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('NOT NOW + THIS IS NORMAL'),
               ),
             ),
             TextButton(

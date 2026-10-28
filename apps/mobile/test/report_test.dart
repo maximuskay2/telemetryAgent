@@ -227,4 +227,104 @@ void main() {
           findsOneWidget);
     });
   });
+
+  group('gate decision', () {
+    test('parses verdict, reason, citation, and checks', () {
+      final detail = RunReport.fromDetailJson({
+        'run_id': 'r',
+        'domain': 'appliance',
+        'result': {'status': 'PASS'},
+        'steps': [],
+        'gate': {
+          'decision': 'act',
+          'reason': 'Hot cabinet: temp_c 7.5 > 5.5 for 1500s',
+          'citation': 'coldchain_spec_sheet.pdf p.2',
+          'checks': [
+            {'name': 'hard_limit', 'result': 'pass', 'detail': 'no breach'},
+            {'name': 'impact', 'result': 'trigger', 'detail': 'hot cabinet'},
+          ],
+        },
+      });
+      final gate = detail.gate!;
+      expect(gate.decision, 'act');
+      expect(gate.label, 'Escalated');
+      expect(gate.reason, contains('Hot cabinet'));
+      expect(gate.citation, contains('coldchain_spec_sheet.pdf'));
+      expect(gate.checks, hasLength(2));
+      expect(gate.checks.last.name, 'impact');
+    });
+
+    test('labels suppress and observe verdicts', () {
+      expect(
+          const GateDecision(decision: 'suppress', reason: '', citation: '')
+              .label,
+          'Suppressed');
+      expect(
+          const GateDecision(decision: 'observe', reason: '', citation: '')
+              .label,
+          'Watching');
+    });
+
+    test('list rows carry the verdict without detail', () {
+      final row = RunReport.fromListJson({
+        'run_id': 'r',
+        'domain': 'software',
+        'status': 'PASS',
+        'gate_decision': 'suppress',
+      });
+      expect(row.gate!.decision, 'suppress');
+      expect(row.gate!.label, 'Suppressed');
+      final plain = RunReport.fromListJson({
+        'run_id': 'r2',
+        'domain': 'software',
+        'status': 'PASS',
+      });
+      expect(plain.gate, isNull);
+    });
+
+    testWidgets('gate card shows reason and citation', (tester) async {
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final detail = RunReport.fromDetailJson({
+        'run_id': 'r',
+        'domain': 'appliance',
+        'result': {'status': 'PASS'},
+        'steps': [],
+        'gate': {
+          'decision': 'suppress',
+          'reason': 'Mode defrost explains it',
+          'citation': 'coldchain_spec_sheet.pdf p.1',
+          'checks': [],
+        },
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(
+              body: ReportBody(
+                report: RunReport(
+                  runId: 'r',
+                  domain: 'appliance',
+                  status: 'PASS',
+                  gate: GateDecision(
+                    decision: 'suppress',
+                    reason: 'Mode defrost explains it',
+                    citation: 'coldchain_spec_sheet.pdf p.1',
+                  ),
+                ),
+                onOpenPr: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(detail.gate!.label, 'Suppressed');
+      expect(find.text('GATE: SUPPRESSED'), findsOneWidget);
+      expect(find.textContaining('Mode defrost explains it'),
+          findsOneWidget);
+      expect(find.textContaining('coldchain_spec_sheet.pdf p.1'),
+          findsOneWidget);
+    });
+  });
 }

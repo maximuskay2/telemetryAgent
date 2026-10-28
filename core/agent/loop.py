@@ -9,8 +9,9 @@ from core.infer import baseten_client, fireworks_client, meta_client
 from core.infer.meta_client import DIAGNOSIS_MODEL, ESCALATION_MODEL
 from core.schemas.remediation import ApplianceResult, ExecutionResult, VerificationResult
 from core.schemas.telemetry import ApplianceTelemetry, SoftwareTelemetry
+from core.setup.gate import gate_has_impact
 from core.verify.safety_rules import validate_runbook
-from core.verify.sandbox import verify_fix, verify_patch
+from core.verify.sandbox import ORIGINAL_PASS_PREFIX, verify_fix, verify_patch
 
 EventCallback = Callable[[dict], None]
 MAX_DETAIL_CHARS = 2000
@@ -63,8 +64,13 @@ def run_loop(
     escalate,
     max_attempts: int = 3,
     on_event: Optional[EventCallback] = None,
+    early_stop: Optional[Callable[[Any], Optional[Any]]] = None,
 ):
-    """Shared diagnose → generate → verify → act loop with final-attempt escalation."""
+    """Shared diagnose → generate → verify → act loop with final-attempt escalation.
+
+    `early_stop` (P6) sees the diagnosis right after the diagnose step; a
+    non-None return ends the run immediately with that outcome.
+    """
     max_attempts = max(1, max_attempts)
     started = time.perf_counter()
     diagnosis = diagnose(telemetry)
@@ -72,6 +78,10 @@ def run_loop(
                      "duration_ms": _ms(started),
                      "detail": _diagnosis_detail(diagnosis),
                      "suggestions": list(getattr(diagnosis, "suggested_actions", None) or [])})
+    if early_stop is not None:
+        stopped = early_stop(diagnosis)
+        if stopped is not None:
+            return stopped
     feedback = None
     for attempt in range(1, max_attempts + 1):
         generator = escalate if attempt == max_attempts else generate_fix
@@ -155,6 +165,8 @@ def run_software_loop(
     run_id: Optional[str] = None,
     contract: Optional[str] = None,
     harness: Optional[str] = None,
+    reference: str = "",
+    gate: Optional[dict] = None,
 ) -> ExecutionResult:
     """Software loop; `open_pr` opens the fix PR and returns its URL.
 
@@ -166,9 +178,13 @@ def run_software_loop(
     `harness` is repo-owned pytest executed against each patch in the sandbox
     before fail-to-pass, so a patch that ignores the contract fails fast with
     actionable feedback instead of deploying.
+
+    P6: `reference` is profile reference data shown to the diagnosing model;
+    `gate` is the gate decision that started the run. A diagnosis of
+    expected behaviour with no gate impact ends the run as NO_ACTION.
     """
     run_id = run_id or uuid4().hex[:8]
-    state = {"model": "none"}
+    state: dict[str, Any] = {"model": "none"}
 
     def emit(event: dict) -> None:
         _emit(on_event, {"model": state["model"], "domain": "software",
@@ -176,7 +192,29 @@ def run_software_loop(
 
     def diagnose(_telemetry) -> Any:
         state["model"] = f"meta:{DIAGNOSIS_MODEL}"
+        if reference:
+            return meta_client.diagnose(
+                telemetry.model_dump_json(), reference=reference
+            )
         return meta_client.diagnose(telemetry.model_dump_json())
+
+    def early_stop(diagnosis: Any) -> Optional[ExecutionResult]:
+        if not getattr(diagnosis, "is_expected", False):
+            return None
+        if gate_has_impact(gate):
+            return None
+        reason = (
+            getattr(diagnosis, "expected_reason", "")
+            or "No action: normal behaviour"
+        )
+        return ExecutionResult(
+            status="NO_ACTION",
+            stdout=reason,
+            stderr="",
+            attempts=0,
+            model_used=state["model"],
+            run_id=run_id,
+        )
 
     def generate_fix(diagnosis, feedback):
         last_error = "No patch provider is configured; set BASETEN_API_KEY or MODEL_API_KEY."
@@ -204,9 +242,13 @@ def run_software_loop(
                     feedback="Interface harness failed:\n" + head["feedback"],
                 )
         if original_code:
-            return VerificationResult(
-                **verify_fix(original_code, patch.patch_code, patch.test_code)
+            outcome = verify_fix(
+                original_code, patch.patch_code, patch.test_code
             )
+            state["checked_original"] = True
+            if not outcome["feedback"].startswith(ORIGINAL_PASS_PREFIX):
+                state["saw_failing_original"] = True
+            return VerificationResult(**outcome)
         return VerificationResult(**verify_patch(patch.patch_code, patch.test_code))
 
     def act(patch, diagnosis, result, attempts: int) -> ExecutionResult:
@@ -231,13 +273,21 @@ def run_software_loop(
         )
 
     outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,
-                       max_attempts, emit)
+                       max_attempts, emit, early_stop)
     if isinstance(outcome, ExecutionResult):
         return outcome
+    feedback = outcome.get("feedback") or ""
+    if (
+        original_code
+        and state.get("checked_original")
+        and not state.get("saw_failing_original")
+    ):
+        human = "Possibly intended behaviour, needs human."
+        feedback = f"{human}\n{feedback}" if feedback else human
     return ExecutionResult(
         status="FAIL",
         stdout="",
-        stderr=outcome.get("feedback") or "",
+        stderr=feedback,
         attempts=outcome["attempts"],
         model_used=state["model"],
         run_id=run_id,
@@ -250,11 +300,18 @@ def run_appliance_loop(
     on_event: Optional[EventCallback] = None,
     send_alert: Optional[Callable[..., Any]] = None,
     run_id: Optional[str] = None,
+    reference: str = "",
+    gate: Optional[dict] = None,
+    profile: Any = None,
 ) -> ApplianceResult:
     """Appliance loop through the same shared core: diagnose → runbook → safety-check → alert.
 
     When `send_alert` is None the alert step is skipped (alert stays None).
     Production callers pass `core.actions.notify.send_alert`.
+
+    P6: `reference` is profile reference data for the model, `gate` is the
+    gate decision that started the run, and `profile` tightens runbook
+    safety validation with the system's own limits.
     """
     run_id = run_id or uuid4().hex[:8]
     state = {"model": "none"}
@@ -265,7 +322,28 @@ def run_appliance_loop(
 
     def diagnose(_telemetry) -> Any:
         state["model"] = f"meta:{DIAGNOSIS_MODEL}"
+        if reference:
+            return meta_client.diagnose(
+                telemetry.model_dump_json(), reference=reference
+            )
         return meta_client.diagnose(telemetry.model_dump_json())
+
+    def early_stop(diagnosis: Any) -> Optional[ApplianceResult]:
+        if not getattr(diagnosis, "is_expected", False):
+            return None
+        if gate_has_impact(gate):
+            return None
+        reason = (
+            getattr(diagnosis, "expected_reason", "")
+            or "No action: normal behaviour"
+        )
+        return ApplianceResult(
+            status="NO_ACTION",
+            feedback=reason,
+            attempts=0,
+            model_used=state["model"],
+            run_id=run_id,
+        )
 
     def generate_fix(diagnosis, feedback):
         last_error = "No runbook provider is configured; set BASETEN_API_KEY or MODEL_API_KEY."
@@ -283,7 +361,9 @@ def run_appliance_loop(
         return meta_client.generate_runbook(diagnosis, feedback, model=ESCALATION_MODEL)
 
     def verify(runbook) -> VerificationResult:
-        violations = validate_runbook(runbook, telemetry.appliance_type)
+        violations = validate_runbook(
+            runbook, telemetry.appliance_type, profile=profile
+        )
         if violations:
             return VerificationResult(passed=False, feedback="\n".join(violations))
         return VerificationResult(
@@ -309,7 +389,7 @@ def run_appliance_loop(
         )
 
     outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,
-                       max_attempts, emit)
+                       max_attempts, emit, early_stop)
     if isinstance(outcome, ApplianceResult):
         return outcome
     return ApplianceResult(
@@ -330,6 +410,8 @@ def run_diagnostic_loop(
     run_id: Optional[str] = None,
     contract: Optional[str] = None,
     harness: Optional[str] = None,
+    reference: str = "",
+    gate: Optional[dict] = None,
 ) -> ExecutionResult:
     telemetry = SoftwareTelemetry(source_id="api", raw_log=log_text)
     return run_software_loop(
@@ -341,4 +423,6 @@ def run_diagnostic_loop(
         run_id=run_id,
         contract=contract,
         harness=harness,
+        reference=reference,
+        gate=gate,
     )

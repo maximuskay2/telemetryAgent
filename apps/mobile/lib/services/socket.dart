@@ -147,6 +147,7 @@ class FeedItem {
       return FeedItem(
         source: _sourceFor(event.kind),
         message: sentence,
+        level: _levelFor(event),
         at: DateTime.now(),
       );
     }
@@ -169,12 +170,30 @@ class FeedItem {
         return 'fix';
       case 'scenario_step':
         return 'scenario';
+      case 'gate_decision':
+        return 'gate';
       case 'action_pending':
       case 'action_tick':
       case 'action_resolved':
         return 'action';
       default:
         return kind;
+    }
+  }
+
+  /// Gate verdicts colour the feed row: grey when suppressed, amber when
+  /// watching, red when escalated. Everything else stays INFO.
+  static String _levelFor(SimEvent event) {
+    if (event.kind != 'gate_decision') return 'INFO';
+    switch (event.payload['decision']) {
+      case 'suppress':
+        return 'DEBUG';
+      case 'observe':
+        return 'WARNING';
+      case 'act':
+        return 'ERROR';
+      default:
+        return 'INFO';
     }
   }
 }

@@ -1,11 +1,12 @@
-"""Shop log watcher: autonomous grab with `target="inventory"` (Sim 2).
+"""Shop log watcher: autonomous grab gated by the setup profile (Sim 2, P5).
 
 Tails the shop log with the shared rule engine: retry clusters fire early
-warnings, Deadlock/ERROR/Traceback lines fire incidents. Each hit sends its
-context window to the agent loop and publishes a `watcher_trigger` SimEvent
-so the dashboard shows what was grabbed. WARNING/ERROR lines are also
-forwarded to /api/logs for the Stream panel, rate-limited to 5/s with errors
-first. Send failures are logged, never fatal.
+warnings, Deadlock/ERROR/Traceback lines fire incidents. Each hit posts a
+candidate to the gate (`POST /api/incidents/candidate`) — the gate decides
+suppress / observe / act against the system's profile — and publishes a
+`watcher_trigger` SimEvent so the dashboard shows what was grabbed.
+WARNING/ERROR lines are also forwarded to /api/logs for the Stream panel,
+rate-limited to 5/s with errors first. Send failures are logged, never fatal.
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ from core.watch.watcher import (
     build_window,
     collect_after,
     match_line,
+    post_candidate,
     post_log,
     publish_sim_event,
-    send_run,
     should_send,
 )
 
@@ -50,6 +51,7 @@ def run(
     api: str,
     target: str = "inventory",
     source: str = "watcher",
+    system_id: str = "shop",
     debounce_minutes: float = 10.0,
     before: int = 30,
     after: int = 10,
@@ -72,7 +74,10 @@ def run(
     last_sent: Dict[str, float] = {}
     tracker = RetryClusterTracker()
     def forward_sender(message: str, level: str) -> None:
-        post_log(api, message, source=forward_source, level=level)
+        post_log(
+            api, message, source=forward_source, level=level,
+            system_id=system_id,
+        )
 
     forwarder = LogForwarder(
         api,
@@ -116,9 +121,16 @@ def run(
                 except RuntimeError as exc:
                     print(f"[watch] trigger publish failed: {exc}", flush=True)
                 try:
-                    send_run(api, window, source=source, target=target)
+                    post_candidate(
+                        api,
+                        system_id=system_id,
+                        rule=hit.rule,
+                        fingerprint=fp,
+                        signature=line.strip(),
+                        window=window,
+                    )
                 except RuntimeError as exc:
-                    print(f"[watch] run send failed: {exc}", flush=True)
+                    print(f"[watch] candidate post failed: {exc}", flush=True)
                 quiet_until = time.time() + quiet_s
                 buffer.append(line)
                 buffer.extend(after_lines)
@@ -138,6 +150,7 @@ def main(argv=None) -> None:
     parser.add_argument("--api", default="http://localhost:8001", help="API base URL")
     parser.add_argument("--target", default="inventory", help="Run target constant")
     parser.add_argument("--source", default="watcher", help="Run source label")
+    parser.add_argument("--system-id", default="shop", help="Setup system the log belongs to")
     parser.add_argument("--debounce-minutes", type=float, default=10.0)
     parser.add_argument("--before", type=int, default=30, help="Context lines before")
     parser.add_argument("--after", type=int, default=10, help="Context lines after")
@@ -157,6 +170,7 @@ def main(argv=None) -> None:
         args.api,
         target=args.target,
         source=args.source,
+        system_id=args.system_id,
         debounce_minutes=args.debounce_minutes,
         before=args.before,
         after=args.after,

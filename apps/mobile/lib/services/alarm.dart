@@ -43,6 +43,17 @@ class AlarmHardware {
     audioAttributesUsage: AudioAttributesUsage.alarm,
   );
 
+  /// Quiet channel for gate "watching" verdicts: no sound, no vibration,
+  /// no full-screen intent — the feed row carries the detail.
+  static const _quietChannel = AndroidNotificationChannel(
+    'telemetry_watch',
+    'Watching',
+    description: 'Quiet gate observations',
+    importance: Importance.low,
+    playSound: false,
+    enableVibration: false,
+  );
+
   static final _notifications = FlutterLocalNotificationsPlugin();
   static bool _channelReady = false;
 
@@ -56,6 +67,7 @@ class AlarmHardware {
       if (android != null) {
         await android.requestNotificationsPermission();
         await android.createNotificationChannel(_channel);
+        await android.createNotificationChannel(_quietChannel);
       }
       _channelReady = true;
       return true;
@@ -104,6 +116,42 @@ class AlarmHardware {
       await _notifications.cancel(id: action.runId.hashCode);
     } catch (_) {
       // Already gone.
+    }
+  }
+
+  /// Quiet heads-up for a gate "watching" verdict. Suppressed candidates
+  /// never notify; escalated ones ring through the normal alarm flow.
+  static Future<void> notifyQuiet({
+    required String title,
+    required String body,
+    String tag = 'gate-observe',
+  }) async {
+    try {
+      await ensureChannel();
+      await _notifications.show(
+        id: tag.hashCode,
+        title: title,
+        body: body,
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            _quietChannel.id,
+            _quietChannel.name,
+            channelDescription: _quietChannel.description,
+            importance: Importance.low,
+            priority: Priority.low,
+            autoCancel: true,
+            ongoing: false,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: false,
+            interruptionLevel: InterruptionLevel.passive,
+          ),
+        ),
+        payload: tag,
+      );
+    } catch (_) {
+      // The feed row still carries the verdict.
     }
   }
 

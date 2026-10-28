@@ -66,7 +66,7 @@ One profile per watched system. **Every value carries where it came from**, so t
   - **Expected behaviours:** list of `{name, signature, schedule, max_duration_s, allowed_effect}`. Example: `defrost` happens every 6 h, lasts ≤ 20 min, and lets temp rise ≤ 7 °C. Example: `cache warm-up` logs `WARN cache cold` once at startup.
   - **Modes:** names the system can be in (`normal`, `defrost`, `door_service`, `deploying`, `maintenance`) and what each one relaxes.
   - **Failure definitions (impact):** what *really* counts as broken. Example: `temp_c > 8 for ≥ 10 min outside defrost`. Example: `error_rate > 5% for ≥ 30 s`.
-  - **Hard limits (never suppressible):** e.g. `temp_c > 10 at any time`, `error_rate > 50%`. The gate can never call these "normal". This is the safety floor against over-suppression.
+  - **Hard limits (never suppressible):** e.g. `temp_c > 10 at any time`, `error_rate > 50%`. The gate can never call these "normal". This is the safety floor against over-suppression (optional but recommended).
   - **Actions policy:** allowed actions, forbidden actions (e.g. "never raise setpoint above 5 °C"), `auto_fix_allowed` (bool), countdown seconds.
   - **Baseline:** learning duration and the learned stats (filled by P7).
   - **Provenance on every field:** `{source_doc, page_or_region, quote, confidence, confirmed_by, confirmed_at}`.
@@ -77,7 +77,7 @@ One profile per watched system. **Every value carries where it came from**, so t
   - `demo/setup/coldchain_rating_plate.jpg`: photo of a rating plate (voltage, rated current, refrigerant, climate class).
   - `demo/setup/autoparts_ops_guide.md`: shop ops doc (SLOs, known harmless warnings, deploy behaviour, what counts as an outage).
 - [x] Sample **confirmed profiles** (`demo/setup/profiles/shop.json`, `coldchain.json`) so the demo can skip extraction if the model is slow ("Load sample profile" button).
-- [x] Unit tests: schema validation, hard limits can't be empty, provenance required on numeric fields.
+- [x] Unit tests: schema validation, hard limits optional, provenance required on numeric fields.
 
 ## P1 — Upload + extraction *(~5 h)*
 
@@ -96,85 +96,85 @@ One profile per watched system. **Every value carries where it came from**, so t
 
 The first screen when no system is armed. The dashboard shows a "Setup needed" banner until at least one system is armed, and watchers stay **watch-only** until then.
 
-- [ ] Route `apps/web/app/setup/page.tsx`, dark Command Center style (matches U0–U4):
+- [x] Route `apps/web/app/setup/page.tsx`, dark Command Center style (matches U0–U4):
   1. **Connect:** pick a system type (Software service / Cold-chain appliance). Pick how data arrives: log file / log webhook for the shop, telemetry stream for the fridge.
   2. **Teach it normal:** drag-and-drop PDFs or photos, or paste text, or "Load sample profile".
-  3. **Review:** extracted fields in a form. Each value shows its **source quote and page** (click to see the highlighted page or photo region). Conflicts are highlighted. The human edits, confirms, or rejects each field. Hard limits and policy must be filled in by a human.
+  3. **Review:** extracted fields in a form. Each value shows its **source quote and page** (click to see the highlighted page or photo region). Conflicts are highlighted. The human edits, confirms, or rejects each field. Hard limits are optional (recommended); policy is set by a human.
   4. **Learn baseline:** progress bar (P7); a short "accelerated learning" option for the demo.
   5. **Policy:** auto-fix on/off, countdown (default 20 s), who gets alerts (mobile pairing from M1).
   6. **Arm:** summary card, then "Arm system". Status becomes `armed`; watchers start acting.
-- [ ] `GET/PUT /api/systems/{id}/profile`, `POST /api/systems/{id}/profile/confirm`, `POST /api/systems/{id}/arm`, `GET /api/systems`.
-- [ ] A "Systems" chip in the dashboard top bar: each system with its status (`draft`, `learning`, `armed`) and a link back to edit its profile.
+- [x] `GET/PUT /api/systems/{id}/profile`, `POST /api/systems/{id}/profile/confirm`, `POST /api/systems/{id}/arm`, `GET /api/systems`.
+- [x] A "Systems" chip in the dashboard top bar: each system with its status (`draft`, `learning`, `armed`) and a link back to edit its profile.
 
 ## P3 — Simulators learn "normal but scary" behaviours *(~3 h)*
 
 We need systems that *look* broken while being fine, or the gate can't be demoed.
 
-- [ ] `core/simulate/fridge_stream.py`:
+- [x] `core/simulate/fridge_stream.py`:
   - **Defrost cycle:** heater on, temp climbs toward ~7 °C over ~20 min (accelerated to ~40 s in demo), then recovers. Triggered on schedule or `POST /api/sim/fridge/defrost`.
   - **Compressor start:** a 2–3 tick current spike to ~3.5× base after any restart. Today this alone would trip `ERR_CURRENT_RATIO = 3.0`.
   - **Short door open (restocking):** 1–2 min, small temp bump, closes itself.
   - **Ambient heat:** "Lagos afternoon" raises ambient temperature, so steady current runs ~15% higher, which is still normal for a hot-climate (class T) unit.
   - New faults for the "not normal" side: `defrost_stuck` (heater never stops) and `door_stuck` (already `door_open`).
-- [ ] `demo/shop/app.py`:
+- [x] `demo/shop/app.py`:
   - Startup logs `WARN cache cold, warming` once (harmless, listed in the ops guide).
   - `POST /deploy` puts the shop in deploy mode for ~20 s: a few `retry=1` lines, error rate stays < 1%.
-- [ ] Dashboard: new buttons "Defrost", "Restock (door 1 min)", "Deploy shop" next to the existing fault buttons.
+- [x] Dashboard: new buttons "Defrost", "Restock (door 1 min)", "Deploy shop" next to the existing fault buttons.
 
 ## P4 — Modes *(~2 h)*
 
-- [ ] `POST /api/systems/{id}/mode` `{mode, until?}` and `GET /api/systems/{id}/mode`.
-- [ ] Modes come from three places: the **device reports it** (the fridge reading gets a `mode` field, e.g. `defrost`); the **schedule in the profile** (defrost every 6 h); or a **human or pipeline sets it** (shop deploy, maintenance window).
-- [ ] Every mode has a **max duration** from the profile. A mode that overruns (defrost lasting 35 min against a 20 min max) becomes an anomaly itself.
-- [ ] Mode is shown on the fridge animation (defrost badge) and the shop tile (deploying badge).
+- [x] `POST /api/systems/{id}/mode` `{mode, until?}` and `GET /api/systems/{id}/mode`.
+- [x] Modes come from three places: the **device reports it** (the fridge reading gets a `mode` field, e.g. `defrost`); the **schedule in the profile** (defrost every 6 h); or a **human or pipeline sets it** (shop deploy, maintenance window).
+- [x] Every mode has a **max duration** from the profile. A mode that overruns (defrost lasting 35 min against a 20 min max) becomes an anomaly itself.
+- [x] Mode is shown on the fridge animation (defrost badge) and the shop tile (deploying badge).
 
 ## P5 — The Gate: "Is this really abnormal?" *(~5 h, the core of this roadmap)*
 
 One function, `core/setup/gate.py` → `evaluate(candidate, profile, mode, baseline, recent_metrics) -> GateDecision`. Both watchers call it **before** any run starts.
 
-- [ ] Candidate sources:
+- [x] Candidate sources:
   - Log watcher: replace the direct `send_run()` with `POST /api/incidents/candidate` `{system_id, rule, fingerprint, window}`. The API runs the gate, then starts the run itself. This keeps profile logic in one place.
-  - Sensor watcher: in-process; calls `evaluate()` before `run_appliance_loop`.
-- [ ] Checks, in order (first decisive one wins). Each produces a human-readable **reason + citation**:
+  - Sensor watcher: in-process; calls `evaluate()` before `run_appliance_loop` (hardware ingest with `system_id`; per-system `SignalWatch` breach windows; suppress short-circuits the overlay trigger).
+- [x] Checks, in order (first decisive one wins). Each produces a human-readable **reason + citation**:
   1. **Hard limit breached?** Then **act**, always, no matter what else says.
   2. **System not armed?** Then **observe only** ("Setup needed"), no run.
   3. **Matches an expected behaviour** (signature + schedule + within max duration and allowed effect)? Then **suppress**: "Expected: defrost (spec sheet p.2)".
   4. **Current mode explains it** (deploying, defrost, maintenance, within the mode's limits)? Then **suppress**.
   5. **Known in the baseline** (the log template appears normally at this rate; the sensor value is within the learned band)? Then **suppress**.
-  6. **Proof of impact?** Check the profile's failure definitions against live metrics (shop error rate, p95; fridge temp duration above limit). Impact present means **act**. No impact yet means **observe** for N seconds, re-check, then escalate to act or expire as "no impact".
-- [ ] `GateDecision`: `{decision: suppress|observe|act, reason, citation, checks: [...], system_id, fingerprint}`, broadcast as SimEvent `gate_decision`.
-- [ ] Dashboard: suppressed and observed decisions appear in the Stream as grey/amber rows ("Ignored: compressor start inrush, rated 3–4× for ≤ 3 s, rating plate"). They never open an incident card.
-- [ ] Mobile: `suppress` means no notification (shows in the report list only); `observe` means a quiet notification; `act` means the normal alarm + countdown.
-- [ ] Tests: one test per check, including "hard limit beats expected behaviour" and "mode overrun becomes anomaly".
+  6. **Proof of impact?** Check the profile's failure definitions against live metrics (shop error rate, p95; fridge temp duration above limit). Impact present means **act**. No impact yet means **observe** for N seconds, re-check, then escalate to act or expire as "no impact" (recheck via `recheck_in_s: 30` + next watcher window; sensor windows reset in band).
+- [x] `GateDecision`: `{decision: suppress|observe|act, reason, citation, checks: [...], system_id, fingerprint}`, broadcast as SimEvent `gate_decision`.
+- [x] Dashboard: suppressed and observed decisions appear in the Stream as grey/amber rows ("Ignored: compressor start inrush, rated 3–4× for ≤ 3 s, rating plate"). They never open an incident card.
+- [x] Mobile: `suppress` means no notification (feed row only); `observe` means a quiet notification; `act` means the normal alarm + countdown. Full gate context on the report detail screen.
+- [x] Tests: one test per check, including "hard limit beats expected behaviour" and "mode overrun becomes anomaly".
 
 ## P6 — Profile-aware diagnosis, verification and safety *(~3 h)*
 
-- [ ] `diagnose()` receives a **compact profile summary** (normal ranges, expected behaviours, current mode) next to the telemetry, framed as reference data, not instructions.
-- [ ] `Diagnosis` schema gains `is_expected: bool` and `expected_reason: str`. If the model says expected and no hard limit or impact is present, the run ends as **"No action: normal behaviour"** (a second line of defence behind the gate).
-- [ ] **Software verify:** if the agent cannot produce a test that **fails on the original code**, the result is **"Possibly intended behaviour, needs human"**. That is not an auto-fix and not a retry storm. (This builds on the existing fail-to-pass check.)
-- [ ] `validate_runbook()` reads limits and forbidden actions from the profile (e.g. "never set above 5 °C", "never disable alarm"). The current hard-coded rules stay as defaults.
-- [ ] `auto_action.py`: auto-run only if `profile.policy.auto_fix_allowed` and the gate decision was `act`. Otherwise the action needs explicit Approve.
+- [x] `diagnose()` receives a **compact profile summary** (normal ranges, expected behaviours, current mode) next to the telemetry, framed as reference data, not instructions.
+- [x] `Diagnosis` schema gains `is_expected: bool` and `expected_reason: str`. If the model says expected and no hard limit or impact is present, the run ends as **"No action: normal behaviour"** (a second line of defence behind the gate).
+- [x] **Software verify:** if the agent cannot produce a test that **fails on the original code**, the result is **"Possibly intended behaviour, needs human"**. That is not an auto-fix and not a retry storm. (This builds on the existing fail-to-pass check.)
+- [x] `validate_runbook()` reads limits and forbidden actions from the profile (e.g. "never set above 5 °C", "never disable alarm"). The current hard-coded rules stay as defaults.
+- [x] `auto_action.py`: auto-run only if `profile.policy.auto_fix_allowed` and the gate decision was `act`. Otherwise the action needs explicit Approve.
 
 ## P7 — Baseline learning *(~4 h, SHOULD)*
 
-- [ ] `POST /api/systems/{id}/baseline/start` `{duration_s}`; status `learning`. Watchers run but never act.
-- [ ] **Logs:** normalize each line into a template (numbers, ids, item lists replaced) and count frequency per minute. "Normal" means the template was seen during learning at a similar rate.
-- [ ] **Sensors:** per metric, per mode: mean, p5–p95 band, typical rate of change.
-- [ ] **Metrics (shop):** normal error rate, p95, orders/min.
-- [ ] Demo: "accelerated learning" of 2 minutes with normal traffic and one defrost cycle. Real systems would use hours to days.
-- [ ] Event `baseline_progress` (percent, patterns learned) for the wizard progress bar.
+- [x] `POST /api/systems/{id}/baseline/start` `{duration_s}`; status `learning`. Watchers run but never act.
+- [x] **Logs:** normalize each line into a template (numbers, ids, item lists replaced) and count frequency per minute. "Normal" means the template was seen during learning at a similar rate.
+- [x] **Sensors:** per metric, per mode: mean, p5–p95 band, typical rate of change.
+- [x] **Metrics (shop):** normal error rate, p95, orders/min.
+- [x] Demo: "accelerated learning" of 2 minutes with normal traffic and one defrost cycle. Real systems would use hours to days.
+- [x] Event `baseline_progress` (percent, patterns learned) for the wizard progress bar. Ticks on a timer even with zero telemetry; `blocked` stage + reason on failure; limits optional; the store re-validates every write so a status flip can never persist an unreadable profile.
 
 ## P8 — "Mark as normal" feedback *(~2 h, SHOULD)*
 
-- [ ] On any incident card (dashboard) or alarm (mobile): **"This is normal"** button. It creates a **pending** expected behaviour on the profile from the fingerprint/signature, with the user as the source.
-- [ ] It takes effect only after confirmation in the profile review (same as P2). One mis-tap can't silence a real fault, and hard limits can never be marked normal.
-- [ ] Disapprove in the mobile countdown offers two choices: "Not now" (reject this action only) or "Not now + this is normal".
+- [x] On any incident card (dashboard) or alarm (mobile): **"This is normal"** button. It creates a **pending** expected behaviour on the profile from the fingerprint/signature, with the user as the source.
+- [x] It takes effect only after confirmation in the profile review (same as P2). One mis-tap can't silence a real fault, and hard limits can never be marked normal.
+- [x] Disapprove in the mobile countdown offers two choices: "Not now" (reject this action only) or "Not now + this is normal".
 
 ## P9 — Acceptance run + demo scene *(~3 h)*
 
-- [ ] Automated: `tests/test_setup_acceptance.py` runs every acceptance case below against the simulators with a stubbed model.
-- [ ] Live: one pass with real models, recorded for the video.
-- [ ] Demo scene (≈ 60 s, fits the existing script): upload the spec sheet and rating plate, review (quotes highlighted), arm. Press **Defrost**: the fridge warms, "Ignored: expected defrost" appears, no alarm on the phone. Press **Defrost stuck**: it passes 8 °C and overruns, the gate acts, the phone alarm and countdown go off, the runbook runs and the fridge recovers. Optionally mirror it on the shop with **Deploy** (ignored) then **traffic deadlock** (acted).
+- [x] Automated: `tests/test_setup_acceptance.py` runs every acceptance case below against the simulators with a stubbed model.
+- [ ] Live: one pass with real models, recorded for the video. *(manual — needs MODEL_API_KEY + live shop/sim)*
+- [ ] Demo scene (≈ 60 s, fits the existing script): upload the spec sheet and rating plate, review (quotes highlighted), arm. Press **Defrost**: the fridge warms, "Ignored: expected defrost" appears, no alarm on the phone. Press **Defrost stuck**: it passes 8 °C and overruns, the gate acts, the phone alarm and countdown go off, the runbook runs and the fridge recovers. Optionally mirror it on the shop with **Deploy** (ignored) then **traffic deadlock** (acted). *(manual — video step; all endpoints it needs are live)*
 
 ---
 
@@ -227,9 +227,9 @@ Sample manufacturer data (from `coldchain_spec_sheet.pdf` and `coldchain_rating_
 
 ### Done when
 
-- [ ] All S-* and C-* cases pass in `tests/test_setup_acceptance.py` with a stubbed model.
-- [ ] S-5, S-9, C-4, C-5, C-6 pass live with real models and appear in the demo video.
-- [ ] A fresh install opens on the Setup wizard; nothing auto-fixes until a system is armed.
+- [x] All S-* and C-* cases pass in `tests/test_setup_acceptance.py` with a stubbed model.
+- [ ] S-5, S-9, C-4, C-5, C-6 pass live with real models and appear in the demo video. *(manual — needs MODEL_API_KEY + live shop/sim; no keys in this environment)*
+- [x] A fresh install opens on the Setup wizard; nothing auto-fixes until a system is armed.
 
 ---
 

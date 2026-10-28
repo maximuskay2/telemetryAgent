@@ -55,8 +55,29 @@ input[type="file"] { width: auto; max-width: 190px; padding: 8px 10px; font-size
 input[type="file"]::file-selector-button { cursor: pointer; border: 0; border-radius: 4px; padding: 6px 10px; margin-right: 10px; background: #22302a; color: var(--green); font: 700 11px var(--sans); }
 #target { max-width: 150px; }
 .notice { color: #f3cf7e; font: 11px var(--mono); margin: 0; }
+.learnbar { height: 8px; border-radius: 5px; background: #1c2426; overflow: hidden; margin: 12px 0 8px; }
+.learnbar > span { display: block; height: 100%; background: linear-gradient(90deg, #7dd3a8, #f3cf7e); transition: width .5s ease; }
 .run-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .veto { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; font: 12px var(--mono); color: var(--text); }
+.wsteps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.wstep { background: #111719; color: var(--muted); border: 1px solid var(--line); border-radius: 20px; padding: 6px 14px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+.wstep.active { color: var(--green); border-color: #a5efc066; }
+.wgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; padding-bottom: 12px; }
+.wfield { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+.wfield input, .wfield select { background: #0b1011; border: 1px solid var(--line); border-radius: 6px; color: var(--text); padding: 8px 10px; font: 13px var(--sans); outline: none; }
+.wfield input:focus, .wfield select:focus { border-color: #5a9d73; }
+.wentry { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.wentry .wgrid { padding-bottom: 6px; }
+.wquote { color: var(--muted); font: 11px var(--mono); margin: 4px 0 8px; }
+.wpick { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; font-size: 13px; }
+.wpick code { font: 11px var(--mono); color: var(--text); }
+.wtextarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #0b1011; color: var(--text); padding: 10px 12px; font: 12px/1.6 var(--mono); outline: none; }
+.buttonlink { text-decoration: none; display: inline-block; }
+.setupbanner { display: flex; align-items: center; gap: 12px; border: 1px solid #f3cf7e66; border-radius: 8px; padding: 12px 18px; margin-bottom: 18px; color: #f3cf7e; font: 13px var(--sans); }
+.syschip { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font: 11px var(--mono); border: 1px solid var(--line); border-radius: 20px; padding: 6px 10px; text-decoration: none; }
+.syschip.armed { color: var(--green); border-color: #a5efc066; }
+.syschip.learning { color: #f3cf7e; border-color: #f3cf7e66; }
+.fridge-badge { fill: #7dd3fc; font: 600 13px var(--mono); text-anchor: middle; letter-spacing: 2px; }
 .via { color: var(--green); font: 11px var(--mono); border: 1px solid #a5efc066; border-radius: 20px; padding: 4px 10px; }
 .lane { display: flex; list-style: none; margin: 0; padding: 14px 0 4px; }
 .lstep { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; text-align: center; min-width: 0; }
@@ -142,6 +163,7 @@ h2 { font-size: 18px; letter-spacing: -.03em; margin: 0; }
 .event .tag { display: inline-block; margin-right: 8px; padding: 1px 7px; border-radius: 10px; border: 1px solid #c4b5fd55; color: #c4b5fd; font-size: 10px; }
 .level.warning { color: #f3cf7e; }
 .level.error, .level.critical { color: #ff887f; }
+.level.debug { color: #8a8f98; }
 .composer { display: grid; grid-template-columns: auto minmax(110px, .5fr) auto minmax(180px, 1.4fr) auto; align-items: center; gap: 12px; padding: 17px 0; }
 label { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
 input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; background: #111719; color: var(--text); padding: 11px 12px; font: 12px var(--mono); outline: none; }

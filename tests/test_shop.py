@@ -132,6 +132,29 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("inventory acquire raised AttributeError", text)
 
+    def test_startup_logs_cache_warm_once(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+            shop = self._shop(tmp)
+            try:
+                with open(os.path.join(tmp, "shop.log"), encoding="utf-8") as f:
+                    text = f.read()
+            finally:
+                shop.log.close()
+        self.assertEqual(text.count("WARN cache cold, warming"), 1)
+
+    def test_deploy_logs_drain_retries(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+            shop = self._shop(tmp)
+            try:
+                shop.start_deploy(duration_s=20)
+                self.assertTrue(shop.deploying)
+                with open(os.path.join(tmp, "shop.log"), encoding="utf-8") as f:
+                    text = f.read()
+            finally:
+                shop.log.close()
+        self.assertEqual(text.count("(deploy drain)"), 4)
+        self.assertIn("retry=1", text)
+
     def test_release_error_logged_not_raised(self) -> None:
         with tempfile.TemporaryDirectory(prefix="shop") as tmp:
             bad = os.path.join(tmp, "bad_release.py")

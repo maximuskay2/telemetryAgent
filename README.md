@@ -41,9 +41,32 @@ Every step streams to a Next.js dashboard over WebSockets.
 
 - **Web dashboard (main product):** a Next.js app in the browser where engineers
   watch both incident panels live.
-- **Mobile extras (next version):** a phone-friendly alert page and a small
-  owner-facing alert screen for the appliance path. These are planned for after
-  the core build is complete; see [`roadmap.md`](./roadmap.md).
+- **Mobile app:** a Flutter app (`apps/mobile/`) with the veto countdown,
+  alarm screen, run reports and the activity feed; see
+  [`mobile-roadmap.md`](./mobile-roadmap.md).
+- **Setup wizard:** `/setup` on the dashboard. Upload spec docs, review the
+  extracted profile, learn a baseline, set policy, and arm the system; see
+  [`setup-roadmap.md`](./setup-roadmap.md).
+
+## Setup: teach it normal
+
+Every monitored system gets a profile: normal ranges, expected behaviours,
+modes, failure definitions, hard limits, and policy (`core/schemas/profile.py`).
+Upload docs at `POST /api/systems/{id}/documents` — extraction quotes every
+value, flags conflicts instead of guessing, and never lets documents set
+policy or hard limits. `POST /api/systems/{id}/baseline/start` learns what
+normal looks like (log templates, per-mode sensor bands, shop metrics);
+while learning, watchers run but never act.
+
+After arming, every watcher hit passes the gate
+(`POST /api/incidents/candidate`, `core/setup/gate.py`): hard limits always
+act; expected behaviours, current modes, and the baseline suppress with a
+cited reason; anything else needs proof of impact or it stays a quiet
+observe. Runs that start carry the gate decision, the model sees a profile
+summary, "expected" diagnoses end as `NO_ACTION`, and auto-apply needs both
+an `act` verdict and `policy.auto_fix_allowed`. Wrong calls get parked with
+"This is normal" (dashboard, phone, or `POST /api/systems/{id}/feedback`)
+and take effect only after profile-review confirmation.
 
 ## Meta models and partners
 
@@ -78,6 +101,9 @@ This list is updated as features land.
 - Appliance path: synthetic fridge/freezer telemetry with injectable faults (`core/simulate/appliance.py`), runbook generation, deterministic safety validation (`core/verify/safety_rules.py`) and SMS/work-order alerts (`core/actions/notify.py`) through the same loop.
 - Log ingestion: dashboard upload/paste with sample loader, allowlisted target files so verification is fail-to-pass against the real buggy file, and an autonomous log watcher (`core/watch/`) with warning/error/crash triggers, context windows, and per-fingerprint debounce.
 - Live demo service under concurrent load plus a one-command autonomous demo (`demo/target-service/run_service.py`, `demo/live.sh`).
+- Demo shop + virtual fridge simulators with fault injection and deploy/reset controls (`demo/shop/`, `/api/sim/*`).
+- Flutter mobile app with veto countdown, alarms, reports and feed (`apps/mobile/`).
+- Setup flow: profile schema + extraction with quotes/conflicts, 6-step wizard, simulator normal-but-scary behaviours, modes, the gate, baseline learning and mark-as-normal feedback (`core/setup/`, `demo/setup/`, `tests/test_setup_acceptance.py`).
 
 ## Requirements
 

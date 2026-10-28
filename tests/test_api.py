@@ -145,6 +145,22 @@ class CorsTests(unittest.TestCase):
             os.environ.pop("CORS_ORIGIN_REGEX", None)
             self.assertIn("localhost", cors_origin_regex())
 
+    def test_preflight_allows_put_and_delete(self) -> None:
+        with TestClient(app) as client:
+            for method in ("PUT", "DELETE"):
+                response = client.options(
+                    "/api/systems/x/profile",
+                    headers={
+                        "Origin": "http://localhost:3000",
+                        "Access-Control-Request-Method": method,
+                        "Access-Control-Request-Headers": "Content-Type",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, method)
+                self.assertIn(
+                    "access-control-allow-origin", response.headers
+                )
+
 
 class PairingTests(unittest.TestCase):
     def test_pairing_returns_lan_url(self) -> None:
@@ -153,6 +169,17 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         api_url = response.json()["api_url"]
         self.assertRegex(api_url, r"^http://[\d.]+:\d+$")
+
+    def test_pairing_ignores_stray_port_env(self) -> None:
+        with patch.dict(os.environ, {"PORT": "8000"}):
+            with TestClient(
+                app, base_url="http://testserver:8001"
+            ) as client:
+                response = client.get("/api/pairing")
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            response.json()["api_url"], r"^http://[\d.]+:8001$"
+        )
 
 
 class RunFailureTests(unittest.TestCase):

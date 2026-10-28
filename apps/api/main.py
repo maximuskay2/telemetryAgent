@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-import asyncio
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Repo-root .env first: plain `uvicorn` starts (outside scripts/demo.sh,
+# which sources .env itself) must see MODEL_API_KEY and friends, and several
+# core modules bind env vars at import time. Explicit process env still wins.
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
+import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import partial
-from pathlib import Path
-from typing import Dict, Literal, Optional, Set
+from typing import Any, Dict, Literal, Optional, Set
 from uuid import uuid4
 
 from fastapi import (
@@ -25,6 +34,7 @@ from pydantic import BaseModel, Field
 from core.actions.auto_action import (
     PendingAction,
     action_summary_for,
+    auto_apply_for,
     auto_enabled,
     mobile_token,
     window_seconds,
@@ -35,6 +45,7 @@ from core.schemas.events import AgentStep, LogEvent, LogInput, SimEvent
 from core.schemas.profile import SystemProfile
 from core.setup import extract as setup_extract
 from core.setup import store as setup_store
+from core.setup.sensor_watch import SignalWatch
 from core.schemas.remediation import (
     ApplianceResult,
     ApplianceRunRequest,
@@ -49,6 +60,8 @@ from core.watch.sensor_watcher import SensorHit, SensorWatcher
 # Sim 4 world: one live fridge + sensor watcher per API process.
 fridge = VirtualFridge()
 sensor_watcher = SensorWatcher()
+# P5: one breach-window tracker per setup system with sensor ingest.
+signal_watches: Dict[str, SignalWatch] = {}
 fridge_task: Optional[asyncio.Task] = None
 
 # Sim 7: hardware sensor nodes (Wokwi/ESP32) get their own watcher instances
@@ -193,7 +206,7 @@ app = FastAPI(title="Telemetry Agent API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=cors_origin_regex(),
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -221,6 +234,7 @@ class EventHub:
 
 
 hub = EventHub()
+logger = logging.getLogger(__name__)
 
 
 @app.get("/api/health")
@@ -238,6 +252,11 @@ async def ingest_log(payload: LogInput) -> LogEvent:
         level=payload.level or infer_level(payload.message),
     )
     await hub.broadcast(event)
+    if payload.system_id:
+        learner = baseline_learners.get(payload.system_id)
+        if learner is not None:
+            learner.observe_log(payload.message)
+            await _baseline_progress(payload.system_id)
     return event
 
 
@@ -318,6 +337,8 @@ async def run_agent(payload: RunRequest) -> ExecutionResult:
             run_id,
             contract,
             harness,
+            payload.reference,
+            payload.gate,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -383,7 +404,11 @@ async def run_appliance(payload: ApplianceRunRequest) -> ApplianceResult:
 
 
 async def _run_appliance_from_telemetry(
-    telemetry: ApplianceTelemetry, source: str
+    telemetry: ApplianceTelemetry,
+    source: str,
+    reference: str = "",
+    gate: Optional[dict] = None,
+    profile=None,
 ) -> ApplianceResult:
     """Shared by the readings endpoint and the sensor-watcher trigger path."""
     from core.actions.notify import send_alert
@@ -392,7 +417,15 @@ async def _run_appliance_from_telemetry(
     run_id = uuid4().hex[:8]
     on_event = _step_bridge(asyncio.get_running_loop(), source)
     result = await asyncio.to_thread(
-        run_appliance_loop, telemetry, 3, on_event, send_alert, run_id
+        run_appliance_loop,
+        telemetry,
+        3,
+        on_event,
+        send_alert,
+        run_id,
+        reference,
+        gate,
+        profile,
     )
     message = ""
     if result.alert is not None:
@@ -431,15 +464,39 @@ async def run_appliance_readings(
 @app.post("/api/sim/events", response_model=SimEvent)
 async def sim_event(event: SimEvent) -> SimEvent:
     await hub.broadcast(event)
+    if event.kind == "shop_metrics":
+        await _feed_shop_metrics(event.payload)
     return event
 
 
+async def _feed_shop_metrics(payload: dict) -> None:
+    """Attribute ambient shop snapshots to learning software systems (P7)."""
+    try:
+        error_rate = float(payload.get("error_rate", 0.0))
+        p95 = float(payload.get("p95_ms", 0.0))
+        orders = float(payload.get("orders_per_min", 0.0))
+    except (TypeError, ValueError):
+        return
+    for system_id, learner in list(baseline_learners.items()):
+        profile = setup_store.get_profile(system_id)
+        if profile is None or profile.kind != "software":
+            continue
+        learner.observe_shop(error_rate, p95, orders)
+        await _baseline_progress(system_id)
+
+
 class FridgeFaultIn(BaseModel):
-    fault: Literal["door_open", "condenser_fouling", "power_surge", "rapid_restart"]
+    fault: Literal[
+        "door_open",
+        "condenser_fouling",
+        "power_surge",
+        "rapid_restart",
+        "defrost_stuck",
+    ]
 
 
 class FridgeActionIn(BaseModel):
-    action: Literal["close_door", "clean_condenser", "reset"]
+    action: Literal["close_door", "clean_condenser", "reset", "end_defrost"]
 
 
 def ensure_fridge_stream() -> None:
@@ -468,13 +525,23 @@ async def _broadcast_sensor_trigger(hit: SensorHit) -> None:
     )
 
 
-async def _run_watcher_appliance(watcher: SensorWatcher) -> None:
+async def _run_watcher_appliance(
+    watcher: SensorWatcher,
+    gate: Optional[dict] = None,
+    reference: str = "",
+    profile=None,
+) -> None:
     try:
         telemetry = watcher.telemetry()
     except ValueError:
         return
     try:
-        await _run_appliance_from_telemetry(telemetry, "watcher")
+        await _run_appliance_from_telemetry(
+            telemetry, "watcher", reference=reference, gate=gate,
+            profile=profile,
+        )
+        if gate is not None and appliance_runs:
+            appliance_runs[next(reversed(appliance_runs))]["gate"] = gate
     except RuntimeError as exc:
         done = AgentStep(
             step="done",
@@ -488,16 +555,169 @@ async def _run_watcher_appliance(watcher: SensorWatcher) -> None:
         await hub.broadcast(done)
 
 
+async def _evaluate_overlay_hit(
+    system_id: str,
+    hit: SensorHit,
+    reading: SensorReading,
+) -> Optional[dict]:
+    """Gate-check a legacy overlay hit for a setup system (P9/C-6).
+
+    The raw SensorWatcher rules (current-spike, temp-warning, …) predate
+    profiles; on a setup system the gate gets a veto before the run
+    starts. Returns the gate payload, or None without a profile.
+    """
+    from core.setup import gate as setup_gate
+    from core.setup import modes as setup_modes
+    from core.setup.modes import ModeState
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        return None
+    state = setup_modes.current_mode(
+        system_id, profile, _device_mode_for(profile)
+    )
+    watch = signal_watches.get(system_id)
+    durations: dict[str, float] = {}
+    if watch is not None:
+        durations = {
+            name: max(0.0, reading.ts - item.first_breach)
+            for name, item in watch.windows.items()
+        }
+    candidate = setup_gate.Candidate(
+        system_id=system_id,
+        source="sensor",
+        rule=hit.rule,
+        fingerprint=f"{system_id}:{hit.rule}",
+        signature=hit.detail,
+        metrics={
+            "temp_c": reading.temperature_c,
+            "current_a": reading.current_a,
+            "vibration_g": reading.vibration_g,
+        },
+        durations=durations,
+        mode=state.mode,
+    )
+    body = {
+        **setup_gate.evaluate(candidate, profile, state).payload(),
+        "rule": hit.rule,
+        "signature": hit.detail,
+    }
+    _mark_learning_incident(system_id, body)
+    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    return body
+
+
 async def _evaluate_sensor_reading(
-    watcher: SensorWatcher, reading: SensorReading
-) -> Optional[SensorHit]:
-    """Shared trigger path for the virtual fridge and hardware ingest."""
+    watcher: SensorWatcher,
+    reading: SensorReading,
+    gate: Optional[dict] = None,
+    reference: str = "",
+    profile=None,
+    veto=None,
+) -> tuple[Optional[SensorHit], Optional[dict]]:
+    """Shared trigger path for the virtual fridge and hardware ingest.
+
+    `veto(hit)` gets first refusal on overlay hits; a suppress verdict
+    drops the hit. Returns (hit-or-None, gate payload or None).
+    """
     hit = watcher.observe(reading)
     if hit is None:
-        return None
+        return None, None
+    if veto is not None:
+        veto_body = await veto(hit)
+        if veto_body is not None and veto_body["decision"] == "suppress":
+            return None, veto_body
+        if veto_body is not None:
+            gate = veto_body
     await _broadcast_sensor_trigger(hit)
-    asyncio.get_running_loop().create_task(_run_watcher_appliance(watcher))
-    return hit
+    asyncio.get_running_loop().create_task(
+        _run_watcher_appliance(watcher, gate, reference, profile)
+    )
+    return hit, gate
+
+
+async def _evaluate_sensor_candidate(
+    system_id: str,
+    payload: "TelemetryIngestIn",
+    reading: SensorReading,
+) -> tuple[Optional[dict], str, Any]:
+    """Gate one hardware reading through the system's profile (P5).
+
+    Returns (gate decision payload or None, profile reference text, profile).
+    Broadcasts `gate_decision` so the dashboard colours the outcome.
+    """
+    from core.setup import gate as setup_gate
+    from core.setup import modes as setup_modes
+    from core.setup.context import profile_summary
+    from core.setup.modes import ModeState
+
+    watch = signal_watches.get(system_id)
+    if watch is None:
+        watch = SignalWatch(system_id)
+        signal_watches[system_id] = watch
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        state = ModeState()
+    else:
+        state = setup_modes.current_mode(
+            system_id, profile, _device_mode_for(profile)
+        )
+    found = None
+    for metric, value in (
+        ("temp_c", payload.temperature_c),
+        ("current_a", payload.current_a),
+        ("vibration_g", payload.vibration_g),
+    ):
+        got = watch.feed(metric, value, reading.ts)
+        if got is not None:
+            found = got
+    door_s = watch.feed_door(payload.door_open, reading.ts)
+    if door_s > 0:
+        if found is None:
+            found = setup_gate.Candidate(
+                system_id=system_id,
+                source="sensor",
+                rule="door_open",
+                fingerprint=f"{system_id}:door:open",
+                signature=f"door open {door_s:.0f}s",
+                metrics={
+                    "door_open_s": door_s,
+                    "temp_c": payload.temperature_c,
+                },
+                durations={"door_open_s": door_s},
+            )
+        else:
+            found.metrics["door_open_s"] = door_s
+            found.durations["door_open_s"] = door_s
+    learner = baseline_learners.get(system_id)
+    if (
+        learner is not None
+        and profile is not None
+        and profile.status == "learning"
+    ):
+        learner.observe_sensor(
+            "temp_c", payload.temperature_c, state.mode, reading.ts
+        )
+        learner.observe_sensor(
+            "current_a", payload.current_a, state.mode, reading.ts
+        )
+        learner.observe_sensor(
+            "vibration_g", payload.vibration_g, state.mode, reading.ts
+        )
+        await _baseline_progress(system_id)
+    if found is None:
+        return None, "", profile
+    found.mode = state.mode
+    decision = setup_gate.evaluate(found, profile, state)
+    body = {
+        **decision.payload(),
+        "rule": found.rule,
+        "signature": found.signature,
+    }
+    _mark_learning_incident(system_id, body)
+    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    reference = profile_summary(profile, state.mode) if profile else ""
+    return body, reference, profile
 
 
 async def _fridge_loop() -> None:
@@ -522,8 +742,12 @@ async def fridge_state() -> dict:
 
 
 @app.get("/api/pairing")
-async def pairing() -> dict:
-    """LAN URL for phone pairing (M1): best-effort local IP + API port."""
+async def pairing(request: Request) -> dict:
+    """LAN URL for phone pairing (M1): best-effort local IP + API port.
+
+    The port comes from the request itself, so a stray PORT in the
+    environment can never point the phone at the wrong server.
+    """
     import socket
 
     ip = "127.0.0.1"
@@ -534,12 +758,16 @@ async def pairing() -> dict:
         probe.close()
     except OSError:
         pass
-    port = os.environ.get("PORT", "8001")
+    port = request.base_url.port or int(os.environ.get("PORT", "8001"))
     return {"api_url": f"http://{ip}:{port}"}
 
 
 class TelemetryIngestIn(BaseModel):
     source_id: str = Field(min_length=1, max_length=100)
+    system_id: Optional[str] = Field(
+        default=None,
+        description="Setup system to gate this reading through (P5)",
+    )
     appliance_type: Literal["fridge", "freezer"] = "fridge"
     temperature_c: float
     current_a: float = Field(ge=0)
@@ -583,12 +811,48 @@ async def ingest_appliance_reading(payload: TelemetryIngestIn) -> dict:
             },
         )
     )
-    hit = await _evaluate_sensor_reading(watcher, reading)
+    gate_body: Optional[dict] = None
+    reference = ""
+    run_profile = None
+    if payload.system_id:
+        gate_body, reference, run_profile = await _evaluate_sensor_candidate(
+            payload.system_id, payload, reading
+        )
+        if gate_body is not None and gate_body["decision"] == "suppress":
+            return {
+                "source_id": payload.source_id,
+                "accepted": True,
+                "buffered": watcher.buffered,
+                "triggered": None,
+                "gate": gate_body,
+            }
+    if run_profile is not None and run_profile.status == "learning":
+        # Watchers run but never act while the baseline learns (P7).
+        hit = None
+    else:
+        veto = None
+        if (
+            payload.system_id
+            and run_profile is not None
+            and gate_body is None
+        ):
+            async def veto(hit: SensorHit) -> Optional[dict]:
+                assert payload.system_id is not None
+                return await _evaluate_overlay_hit(
+                    payload.system_id, hit, reading
+                )
+
+        hit, veto_body = await _evaluate_sensor_reading(
+            watcher, reading, gate_body, reference, run_profile, veto
+        )
+        if veto_body is not None:
+            gate_body = veto_body
     return {
         "source_id": payload.source_id,
         "accepted": True,
         "buffered": watcher.buffered,
         "triggered": hit.rule if hit else None,
+        "gate": gate_body,
     }
 
 
@@ -606,6 +870,81 @@ async def fridge_action(payload: FridgeActionIn) -> dict:
         sensor_watcher.reset()
     ensure_fridge_stream()
     return fridge.snapshot()
+
+
+class FridgeDefrostIn(BaseModel):
+    duration_ticks: int = Field(default=20, ge=1, le=200)
+
+
+@app.post("/api/sim/fridge/defrost")
+async def fridge_defrost(payload: FridgeDefrostIn) -> dict:
+    """Start a normal defrost cycle (P3 demo behaviour)."""
+    fridge.start_defrost(payload.duration_ticks)
+    ensure_fridge_stream()
+    return fridge.snapshot()
+
+
+class FridgeRestockIn(BaseModel):
+    ticks: int = Field(default=2, ge=1, le=10)
+
+
+@app.post("/api/sim/fridge/restock")
+async def fridge_restock(payload: FridgeRestockIn) -> dict:
+    """Short door opening that closes itself (P3 demo behaviour)."""
+    fridge.open_door(payload.ticks)
+    ensure_fridge_stream()
+    return fridge.snapshot()
+
+
+class FridgeAmbientIn(BaseModel):
+    hot: bool = True
+
+
+@app.post("/api/sim/fridge/ambient")
+async def fridge_ambient(payload: FridgeAmbientIn) -> dict:
+    """Lagos afternoon on/off: class-T steady load runs ~15% higher."""
+    fridge.set_ambient_hot(payload.hot)
+    ensure_fridge_stream()
+    return fridge.snapshot()
+
+
+class ShopDeployIn(BaseModel):
+    duration_s: float = Field(default=20.0, ge=1.0, le=300.0)
+
+
+@app.post("/api/sim/shop/deploy")
+async def shop_deploy(payload: ShopDeployIn) -> dict:
+    """Put the demo shop in deploy mode (P3 demo behaviour)."""
+    import httpx
+
+    try:
+        response = httpx.post(
+            f"{shop_base_url().rstrip('/')}/deploy",
+            json={"duration_s": payload.duration_s},
+            timeout=10.0,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"shop unreachable: {exc}"
+        ) from exc
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"shop rejected deploy ({response.status_code})",
+        )
+    # Pipeline-set mode: the shop's system (if any) is deploying, so the
+    # gate excuses drain retries until the window ends.
+    from core.setup import modes as setup_modes
+
+    for profile in setup_store.list_profiles():
+        if profile.kind != "software":
+            continue
+        if any(entry.mode == "deploying" for entry in profile.modes):
+            setup_modes.set_mode(
+                profile.system_id, "deploying",
+                duration_s=payload.duration_s,
+            )
+    return response.json()
 
 
 class ApplyFixIn(BaseModel):
@@ -748,6 +1087,18 @@ async def fridge_apply_runbook(payload: ApplyRunbookIn, request: Request) -> dic
 action_ticker_task: Optional[asyncio.Task] = None
 
 
+def _policy_allows(entry: dict) -> Optional[bool]:
+    """Profile auto-fix policy for a gate-started run; None when unknown."""
+    gate = entry.get("gate") or {}
+    system_id = gate.get("system_id") if gate else None
+    if not system_id:
+        return None
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        return None
+    return profile.policy.auto_fix_allowed
+
+
 async def _maybe_open_action(run_id: str, domain: str) -> Optional[PendingAction]:
     """Open a veto window when a finished run is eligible; idempotent."""
     store = software_runs if domain == "software" else appliance_runs
@@ -767,6 +1118,7 @@ async def _maybe_open_action(run_id: str, domain: str) -> Optional[PendingAction
         action=summary,
         opened_at=now,
         deadline=now + window_seconds(),
+        auto_apply=auto_apply_for(entry, _policy_allows(entry)),
     )
     pending_actions[run_id] = action
     await hub.broadcast(
@@ -791,6 +1143,10 @@ async def _settle_window(run_id: str) -> Optional[PendingAction]:
     if not auto_enabled():
         action.state = "expired"
         action.detail = "auto-apply disabled; approval required"
+        action.resolved_at = time.time()
+    elif not action.auto_apply:
+        action.state = "expired"
+        action.detail = "profile requires explicit approval; window expired"
         action.resolved_at = time.time()
     else:
         apply = (
@@ -877,6 +1233,10 @@ async def _action_ticker() -> None:
 
 class DecisionIn(BaseModel):
     device: str = Field(default="phone", min_length=1, max_length=64)
+    mark_normal: bool = Field(
+        default=False,
+        description="Also park a pending 'this is normal' vote (P8)",
+    )
 
 
 @app.post("/api/actions/{run_id}/approve")
@@ -900,9 +1260,12 @@ async def disapprove_action(
     _require_mobile_token(request)
     try:
         action = await _decide_action(run_id, False, payload.device)
+        feedback = None
+        if payload.mark_normal:
+            feedback = _create_feedback_from_run(run_id, payload.device)
     except _ApplyError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return action.model_dump(mode="json")
+    return {**action.model_dump(mode="json"), "feedback": feedback}
 
 
 @app.get("/api/actions")
@@ -948,6 +1311,7 @@ async def list_runs() -> dict:
             result = entry["result"]
             steps = run_steps.get(run_id, [])
             decision = pending_actions.get(run_id)
+            gate = entry.get("gate") or {}
             runs.append(
                 {
                     "run_id": run_id,
@@ -958,6 +1322,7 @@ async def list_runs() -> dict:
                     "source": steps[0].source if steps else "",
                     "n_steps": len(steps),
                     "decision": decision.state if decision else None,
+                    "gate_decision": gate.get("decision"),
                 }
             )
     return {"runs": runs}
@@ -976,6 +1341,7 @@ async def get_run(run_id: str) -> dict:
         "result": entry["result"].model_dump(mode="json"),
         "steps": [s.model_dump(mode="json") for s in run_steps.get(run_id, [])],
         "decision": decision.model_dump(mode="json") if decision else None,
+        "gate": entry.get("gate"),
     }
 
 
@@ -1145,6 +1511,11 @@ async def get_profile(system_id: str) -> dict:
     return {
         "profile": profile.model_dump(mode="json"),
         "conflicts": setup_store.get_conflicts(system_id),
+        "feedback": [
+            item
+            for item in setup_store.get_feedback(system_id)
+            if item.get("status") == "pending"
+        ],
     }
 
 
@@ -1244,8 +1615,10 @@ async def confirm_profile(system_id: str, payload: ConfirmIn) -> dict:
     ):
         for entry in data.get(section, []):
             provenance = entry.setdefault("provenance", {})
-            provenance.setdefault("confirmed_by", payload.confirmed_by)
-            provenance.setdefault("confirmed_at", stamped)
+            if not provenance.get("confirmed_by"):
+                provenance["confirmed_by"] = payload.confirmed_by
+            if not provenance.get("confirmed_at"):
+                provenance["confirmed_at"] = stamped
     data["status"] = "confirmed"
     try:
         confirmed = SystemProfile.model_validate(data)
@@ -1287,6 +1660,594 @@ async def arm_system(system_id: str) -> dict:
         )
     )
     return stored.model_dump(mode="json")
+
+
+class ModeIn(BaseModel):
+    mode: str = Field(max_length=60, description="Empty string clears")
+    duration_s: Optional[float] = Field(default=None, ge=1.0, le=86400.0)
+    until: Optional[float] = None
+
+
+def _device_mode_for(profile) -> str:
+    """Live device-reported mode (fridge defrost); "" otherwise."""
+    if profile.kind == "appliance" and fridge.snapshot().get(
+        "defrost_active"
+    ):
+        return "defrost"
+    return ""
+
+
+@app.post("/api/systems/{system_id}/mode")
+async def set_system_mode(system_id: str, payload: ModeIn) -> dict:
+    """Human/pipeline mode set; unknown names are rejected (P4)."""
+    from core.setup import modes as setup_modes
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    if payload.mode and all(
+        entry.mode != payload.mode for entry in profile.modes
+    ):
+        raise HTTPException(
+            status_code=400, detail=f"unknown mode: {payload.mode}"
+        )
+    record = setup_modes.set_mode(
+        system_id, payload.mode,
+        duration_s=payload.duration_s, until=payload.until,
+    )
+    return record
+
+
+@app.get("/api/systems/{system_id}/mode")
+async def get_system_mode(system_id: str) -> dict:
+    """Effective mode from manual/device sources, with overrun flag."""
+    from core.setup import modes as setup_modes
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    state = setup_modes.current_mode(
+        system_id, profile, _device_mode_for(profile)
+    )
+    return {
+        "mode": state.mode,
+        "source": state.source,
+        "since": state.since,
+        "until": state.until,
+        "max_duration_s": state.max_duration_s,
+        "overrun": state.overrun,
+    }
+
+
+baseline_learners: Dict[str, "BaselineLearner"] = {}
+baseline_sessions: Dict[str, dict] = {}
+
+
+class BaselineStartIn(BaseModel):
+    duration_s: float = Field(default=120.0, ge=5.0, le=86400.0)
+
+
+class BaselineSensorIn(BaseModel):
+    metric: str = Field(min_length=1, max_length=60)
+    value: float
+    mode: str = ""
+
+
+class BaselineShopIn(BaseModel):
+    error_rate: float = 0.0
+    p95_ms: float = 0.0
+    orders_per_min: float = 0.0
+
+
+class BaselineObserveIn(BaseModel):
+    logs: list[str] = Field(default_factory=list)
+    sensors: list[BaselineSensorIn] = Field(default_factory=list)
+    shop: Optional[BaselineShopIn] = None
+
+
+async def _baseline_progress(system_id: str) -> None:
+    """Throttled `baseline_progress` broadcast (every 5% of the window)."""
+    learner = baseline_learners.get(system_id)
+    session = baseline_sessions.get(system_id)
+    if learner is None or session is None:
+        return
+    duration = session["duration_s"]
+    percent = min(99.9, 100.0 * learner.elapsed_s() / duration)
+    if percent - session.get("last_pct", 0.0) < 5.0:
+        return
+    session["last_pct"] = percent
+    await hub.broadcast(
+        SimEvent(
+            kind="baseline_progress",
+            payload={
+                "system_id": system_id,
+                "percent": round(percent, 1),
+                "patterns": learner.patterns_learned(),
+            },
+        )
+    )
+
+
+async def _finish_baseline(
+    system_id: str, expected_start: Optional[float] = None
+) -> Optional[dict]:
+    """Compile the learner into the profile; None when nothing to finish."""
+    learner = baseline_learners.get(system_id)
+    session = baseline_sessions.get(system_id)
+    if learner is None or session is None:
+        return None
+    if (
+        expected_start is not None
+        and session["started_at"] != expected_start
+    ):
+        return None
+    profile = setup_store.get_profile(system_id)
+    baseline_learners.pop(system_id, None)
+    baseline_sessions.pop(system_id, None)
+    if profile is None:
+        return None
+    finished = learner.finish()
+    stored = setup_store.save_profile(
+        profile.model_copy(
+            update={"baseline": finished, "status": session["return_to"]}
+        )
+    )
+    await hub.broadcast(
+        SimEvent(
+            kind="baseline_progress",
+            payload={
+                "system_id": system_id,
+                "percent": 100.0,
+                "patterns": len(finished.log_templates)
+                + len(finished.sensor_bands),
+                "stage": "finished",
+            },
+        )
+    )
+    return stored.model_dump(mode="json")
+
+
+def _mark_learning_incident(system_id: str, body: dict) -> None:
+    """Remember hard-limit hits so learning can't finish dirty (P9)."""
+    learner = baseline_learners.get(system_id)
+    if learner is None:
+        return
+    if any(
+        check.get("name") == "hard_limit"
+        and check.get("result") == "trigger"
+        for check in body.get("checks", [])
+        if isinstance(check, dict)
+    ):
+        learner.hard_limit_hit = True
+
+
+def _baseline_blocked(system_id: str) -> Optional[str]:
+    learner = baseline_learners.get(system_id)
+    if learner is not None and learner.hard_limit_hit:
+        return "a hard limit was hit during learning; restart learning"
+    return None
+
+
+async def _finish_baseline_after(
+    system_id: str, started_at: float, duration_s: float
+) -> None:
+    # Tick progress through the window: broadcasts used to fire only when
+    # telemetry arrived, so a quiet system sat at 0% until the window ended.
+    tick = min(2.0, max(0.05, duration_s / 4.0))
+    deadline = started_at + duration_s
+    try:
+        while time.time() < deadline:
+            await asyncio.sleep(
+                min(tick, max(0.01, deadline - time.time()))
+            )
+            if (
+                baseline_sessions.get(system_id, {}).get("started_at")
+                != started_at
+            ):
+                return  # superseded by a newer run, or finished early
+            await _baseline_progress(system_id)
+        blocked = _baseline_blocked(system_id)
+        if blocked is not None:
+            await hub.broadcast(
+                SimEvent(
+                    kind="baseline_progress",
+                    payload={
+                        "system_id": system_id,
+                        "percent": 100.0,
+                        "patterns": 0,
+                        "stage": "blocked",
+                        "reason": blocked,
+                    },
+                )
+            )
+            return
+        await _finish_baseline(system_id, expected_start=started_at)
+    except Exception as exc:
+        logger.exception("baseline learning failed for %s", system_id)
+        await hub.broadcast(
+            SimEvent(
+                kind="baseline_progress",
+                payload={
+                    "system_id": system_id,
+                    "percent": 100.0,
+                    "patterns": 0,
+                    "stage": "blocked",
+                    "reason": f"learning failed: {exc}",
+                },
+            )
+        )
+        return
+
+
+@app.post("/api/systems/{system_id}/baseline/start")
+async def start_baseline(system_id: str, payload: BaselineStartIn) -> dict:
+    """Start baseline learning; the system observes but never acts (P7)."""
+    from core.setup.baseline import BaselineLearner
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    learner = BaselineLearner(system_id)
+    baseline_learners[system_id] = learner
+    previous = baseline_sessions.get(system_id, {}).get(
+        "return_to", profile.status
+    )
+    session = {
+        "started_at": learner.started_at,
+        "duration_s": payload.duration_s,
+        "return_to": previous if previous != "learning" else "confirmed",
+        "last_pct": 0.0,
+    }
+    baseline_sessions[system_id] = session
+    if profile.status != "learning":
+        setup_store.save_profile(
+            profile.model_copy(update={"status": "learning"})
+        )
+    await hub.broadcast(
+        SimEvent(
+            kind="baseline_progress",
+            payload={
+                "system_id": system_id,
+                "percent": 0.0,
+                "patterns": 0,
+                "stage": "started",
+            },
+        )
+    )
+    asyncio.get_running_loop().create_task(
+        _finish_baseline_after(
+            system_id, learner.started_at, payload.duration_s
+        )
+    )
+    return {
+        "system_id": system_id,
+        "status": "learning",
+        "started_at": learner.started_at,
+        "ends_at": learner.started_at + payload.duration_s,
+    }
+
+
+@app.post("/api/systems/{system_id}/baseline/finish")
+async def finish_baseline(system_id: str) -> dict:
+    """Stop learning early and compile the baseline (demo + tests)."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    blocked = _baseline_blocked(system_id)
+    if blocked is not None:
+        raise HTTPException(status_code=400, detail=blocked)
+    done = await _finish_baseline(system_id)
+    if done is None:
+        raise HTTPException(status_code=400, detail="not learning")
+    return done
+
+
+@app.get("/api/systems/{system_id}/baseline")
+async def get_baseline(system_id: str) -> dict:
+    """Learning session (if any) plus the stored baseline (wizard step 4)."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    session = baseline_sessions.get(system_id)
+    learner = baseline_learners.get(system_id)
+    percent = 0.0
+    patterns = 0
+    blocked = False
+    if learner is not None and session is not None:
+        percent = min(
+            99.9, 100.0 * learner.elapsed_s() / session["duration_s"]
+        )
+        patterns = learner.patterns_learned()
+        blocked = bool(learner.hard_limit_hit)
+    return {
+        "status": profile.status,
+        "session": (
+            {
+                "started_at": session["started_at"],
+                "duration_s": session["duration_s"],
+                "percent": round(percent, 1),
+                "patterns": patterns,
+                "blocked": blocked,
+            }
+            if session is not None
+            else None
+        ),
+        "baseline": profile.baseline.model_dump(mode="json"),
+    }
+
+
+@app.post("/api/systems/{system_id}/baseline/observe")
+async def observe_baseline(system_id: str, payload: BaselineObserveIn) -> dict:
+    """Feed logs / sensors / shop metrics to an active learner (P7)."""
+    learner = baseline_learners.get(system_id)
+    if learner is None:
+        raise HTTPException(status_code=400, detail="not learning")
+    for line in payload.logs:
+        learner.observe_log(line)
+    for sensor in payload.sensors:
+        learner.observe_sensor(sensor.metric, sensor.value, sensor.mode)
+    if payload.shop is not None:
+        learner.observe_shop(
+            payload.shop.error_rate,
+            payload.shop.p95_ms,
+            payload.shop.orders_per_min,
+        )
+    await _baseline_progress(system_id)
+    return {
+        "system_id": system_id,
+        "observations": learner.observations,
+        "patterns": learner.patterns_learned(),
+    }
+
+
+class FeedbackIn(BaseModel):
+    fingerprint: str = Field(min_length=1, max_length=200)
+    signature: str = Field(min_length=1, max_length=2000)
+    rule: str = ""
+    metrics: dict[str, float] = Field(default_factory=dict)
+    created_by: str = ""
+
+
+def _feedback_hard_limit_breach(profile, metrics: dict) -> Optional[str]:
+    """Name of a breached hard limit, or None when the item is markable."""
+    for limit in profile.hard_limits:
+        value = metrics.get(limit.metric)
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        breached = (
+            number > limit.threshold
+            if limit.op == ">"
+            else number < limit.threshold
+        )
+        if breached:
+            return f"{limit.metric} {limit.op} {limit.threshold:g}"
+    return None
+
+
+@app.post("/api/systems/{system_id}/feedback")
+async def create_feedback(system_id: str, payload: FeedbackIn) -> dict:
+    """Park a 'this is normal' vote as pending (P8); review confirms it."""
+    from datetime import datetime, timezone
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    breach = _feedback_hard_limit_breach(profile, payload.metrics)
+    if breach is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"hard limits can never be marked normal ({breach})",
+        )
+    item = {
+        "id": uuid4().hex[:8],
+        "fingerprint": payload.fingerprint,
+        "signature": payload.signature,
+        "rule": payload.rule,
+        "metrics": dict(payload.metrics),
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": payload.created_by,
+    }
+    items = setup_store.get_feedback(system_id)
+    items.append(item)
+    setup_store.save_feedback(system_id, items)
+    return item
+
+
+@app.get("/api/systems/{system_id}/feedback")
+async def list_feedback(system_id: str) -> dict:
+    """Pending + decided feedback items for the profile review (P8)."""
+    if setup_store.get_profile(system_id) is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    return {"feedback": setup_store.get_feedback(system_id)}
+
+
+@app.post("/api/systems/{system_id}/feedback/{fid}/confirm")
+async def confirm_feedback(system_id: str, fid: str) -> dict:
+    """Confirm a pending item: it becomes an expected behaviour (P8)."""
+    from core.schemas.profile import ExpectedBehaviour, Provenance
+
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    items = setup_store.get_feedback(system_id)
+    item = next((entry for entry in items if entry.get("id") == fid), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="unknown feedback id")
+    if item.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="already decided")
+    breach = _feedback_hard_limit_breach(profile, item.get("metrics") or {})
+    if breach is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"hard limits can never be marked normal ({breach})",
+        )
+    label = item.get("rule") or item.get("fingerprint", "")[:8]
+    behaviour = ExpectedBehaviour(
+        name=f"Marked normal: {label}",
+        signature=item.get("signature", ""),
+        provenance=Provenance(
+            source_doc="user",
+            page_or_region=item.get("created_by") or "operator",
+            quote=f"marked normal by {item.get('created_by') or 'operator'}",
+        ),
+    )
+    stored = setup_store.save_profile(
+        profile.model_copy(
+            update={
+                "expected_behaviours": [
+                    *profile.expected_behaviours,
+                    behaviour,
+                ]
+            }
+        )
+    )
+    item["status"] = "confirmed"
+    setup_store.save_feedback(system_id, items)
+    return stored.model_dump(mode="json")
+
+
+@app.delete("/api/systems/{system_id}/feedback/{fid}")
+async def reject_feedback(system_id: str, fid: str) -> dict:
+    """Reject a pending item; it stays on record as rejected (P8)."""
+    if setup_store.get_profile(system_id) is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    items = setup_store.get_feedback(system_id)
+    item = next((entry for entry in items if entry.get("id") == fid), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="unknown feedback id")
+    if item.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="already decided")
+    item["status"] = "rejected"
+    setup_store.save_feedback(system_id, items)
+    return {"status": "rejected"}
+
+
+def _create_feedback_from_run(run_id: str, device: str) -> dict:
+    """Pending 'this is normal' from a run's gate context (P8)."""
+    entry = software_runs.get(run_id)
+    if entry is None:
+        entry = appliance_runs.get(run_id)
+    if entry is None:
+        raise _ApplyError(404, "unknown run_id")
+    gate = entry.get("gate") or {}
+    system_id = gate.get("system_id")
+    fingerprint = gate.get("fingerprint")
+    signature = gate.get("signature")
+    if not system_id or not fingerprint or not signature:
+        raise _ApplyError(400, "run has no gate context to mark normal")
+    from datetime import datetime, timezone
+
+    item = {
+        "id": uuid4().hex[:8],
+        "fingerprint": fingerprint,
+        "signature": signature,
+        "rule": gate.get("rule", ""),
+        "metrics": {},
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": device,
+    }
+    items = setup_store.get_feedback(system_id)
+    items.append(item)
+    setup_store.save_feedback(system_id, items)
+    return {"system_id": system_id, "feedback": item}
+
+
+class CandidateIn(BaseModel):
+    system_id: str = Field(min_length=1, max_length=100)
+    source: str = Field(default="log", pattern=r"^(log|sensor)$")
+    rule: str = Field(min_length=1, max_length=200)
+    fingerprint: str = ""
+    signature: str = ""
+    window: str = ""
+    template: str = ""
+    metrics: dict[str, float] = Field(default_factory=dict)
+    durations: dict[str, float] = Field(default_factory=dict)
+    mode: str = ""
+
+
+@app.post("/api/incidents/candidate")
+async def post_incident_candidate(payload: CandidateIn) -> dict:
+    """The gate (P5): suppress / observe / act for one watcher candidate.
+
+    Checks the system's profile in order; on `act` a run starts with the
+    full gate decision attached (`run["gate"]`). Never 404s on an unknown
+    system: watchers keep posting and the gate asks for setup instead.
+    """
+    from core.setup import gate as setup_gate
+    from core.setup import modes as setup_modes
+    from core.setup.context import profile_summary
+    from core.setup.modes import ModeState
+
+    profile = setup_store.get_profile(payload.system_id)
+    if profile is None:
+        state = ModeState()
+    else:
+        state = setup_modes.current_mode(
+            payload.system_id, profile, _device_mode_for(profile)
+        )
+    candidate = setup_gate.Candidate(
+        system_id=payload.system_id,
+        source=payload.source,
+        rule=payload.rule,
+        fingerprint=payload.fingerprint,
+        signature=payload.signature,
+        window=payload.window,
+        template=payload.template,
+        metrics=dict(payload.metrics),
+        durations=dict(payload.durations),
+        mode=payload.mode or state.mode,
+    )
+    decision = setup_gate.evaluate(candidate, profile, state)
+    body = {
+        **decision.payload(),
+        "rule": payload.rule,
+        "signature": payload.signature,
+    }
+    _mark_learning_incident(payload.system_id, body)
+    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    if decision.decision != "act":
+        return {"decision": body, "run_id": None}
+    reference = (
+        profile_summary(profile, state.mode) if profile is not None else ""
+    )
+    if profile is not None and profile.kind == "appliance":
+        reading = SensorReading(
+            ts=time.time(),
+            temperature_c=payload.metrics.get("temp_c", 4.0),
+            current_a=payload.metrics.get("current_a", 1.2),
+            vibration_g=payload.metrics.get("vibration_g", 0.0),
+            door_open=bool(payload.metrics.get("door_open", 0.0)),
+            mode=state.mode,
+        )
+        telemetry = ApplianceTelemetry(
+            source_id=payload.system_id,
+            appliance_type=profile.appliance_type or "fridge",
+            readings=[reading],
+        )
+        result = await _run_appliance_from_telemetry(
+            telemetry, "gate", reference=reference, gate=body,
+            profile=profile,
+        )
+        run_id = next(reversed(appliance_runs))
+        appliance_runs[run_id]["gate"] = body
+        return {"decision": body, "run_id": run_id, "status": result.status}
+    request = RunRequest(
+        log_text=payload.window or payload.signature or payload.rule,
+        source="gate",
+        target="inventory",
+        reference=reference,
+        gate=body,
+    )
+    result = await run_agent(request)
+    run_id = next(reversed(software_runs))
+    software_runs[run_id]["gate"] = body
+    return {"decision": body, "run_id": run_id, "status": result.status}
 
 
 class SampleIn(BaseModel):

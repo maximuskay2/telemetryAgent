@@ -64,6 +64,20 @@ def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
         sandbox.terminate()
 
 
+ORIGINAL_PASS_PREFIX = "Test passes on the original code; not a regression test.\n"
+
+
+def fails_on_original(code: str, test_code: str, runner=None) -> tuple[bool, str]:
+    """Run the test against the given code; return (failed, feedback).
+
+    A test that fails here can be a regression test; one that passes cannot.
+    Shared by `verify_fix` and the software loop's P6 tracking.
+    """
+    run = runner or verify_patch
+    before = run(code, test_code)
+    return not before["passed"], before["feedback"]
+
+
 def verify_fix(original_code: str, patch_code: str, test_code: str, runner=None) -> dict:
     """Fail-to-pass check: the test must FAIL on the original and PASS on the patch.
 
@@ -72,13 +86,9 @@ def verify_fix(original_code: str, patch_code: str, test_code: str, runner=None)
     if not original_code or not patch_code or not test_code:
         raise ValueError("original_code, patch_code and test_code must be non-empty strings")
     run = runner or verify_patch
-    before = run(original_code, test_code)
-    if before["passed"]:
-        return {
-            "passed": False,
-            "feedback": "Test passes on the original code; not a regression test.\n"
-            + before["feedback"],
-        }
+    failed, feedback = fails_on_original(original_code, test_code, run)
+    if not failed:
+        return {"passed": False, "feedback": ORIGINAL_PASS_PREFIX + feedback}
     after = run(patch_code, test_code)
     if not after["passed"]:
         return {"passed": False, "feedback": after["feedback"]}

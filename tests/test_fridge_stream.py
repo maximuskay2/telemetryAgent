@@ -32,6 +32,79 @@ class FridgeStreamTest(unittest.TestCase):
         self.assertTrue(all(r.door_open for r in readings))
         self.assertGreater(readings[-1].temperature_c, 5.0)
 
+    def test_defrost_climbs_then_recovers(self) -> None:
+        fridge = VirtualFridge(seed=21)
+        fridge.defrost_schedule = False
+        fridge.start_defrost(duration_ticks=20)
+        first_half = run(fridge, 10)
+        self.assertTrue(fridge.snapshot()["defrost_active"])
+        second_half = run(fridge, 10)
+        peak = max(
+            [r.temperature_c for r in first_half + second_half]
+        )
+        self.assertGreater(peak, 5.5)
+        self.assertLess(peak, 7.5)
+        self.assertFalse(fridge.snapshot()["defrost_active"])
+        recovered = run(fridge, 30)[-1].temperature_c
+        self.assertAlmostEqual(
+            recovered, BASE_TEMP_C["fridge"], delta=1.0
+        )
+
+    def test_defrost_runs_on_schedule(self) -> None:
+        fridge = VirtualFridge(seed=22)
+        run(fridge, 359)
+        self.assertFalse(fridge.snapshot()["defrost_active"])
+        fridge.tick()
+        self.assertTrue(fridge.snapshot()["defrost_active"])
+
+    def test_defrost_stuck_blows_past_limit(self) -> None:
+        fridge = VirtualFridge(seed=23)
+        fridge.apply_fault("defrost_stuck")
+        temps = [r.temperature_c for r in run(fridge, 40)]
+        self.assertGreater(temps[-1], 8.0)
+        self.assertTrue(fridge.snapshot()["defrost_stuck"])
+        fridge.apply_action("end_defrost")
+        self.assertFalse(fridge.snapshot()["defrost_active"])
+
+    def test_restart_draws_inrush(self) -> None:
+        fridge = VirtualFridge(seed=24)
+        base = BASE_CURRENT_A["fridge"]
+        fridge.restart()
+        spike = [r.current_a for r in run(fridge, 3)]
+        self.assertTrue(all(a > 3.0 * base for a in spike))
+        settled = run(fridge, 3)[-1].current_a
+        self.assertLess(settled, 2.0 * base)
+
+    def test_restock_closes_itself(self) -> None:
+        fridge = VirtualFridge(seed=25)
+        fridge.open_door(ticks=2)
+        first = fridge.tick()
+        second = fridge.tick()
+        third = fridge.tick()
+        self.assertTrue(first.door_open)
+        self.assertFalse(second.door_open)
+        self.assertFalse(third.door_open)
+
+    def test_ambient_hot_raises_steady_current(self) -> None:
+        cool = VirtualFridge(seed=26)
+        hot = VirtualFridge(seed=26)
+        hot.set_ambient_hot(True)
+        cool_avg = sum(r.current_a for r in run(cool, 10)) / 10
+        hot_avg = sum(r.current_a for r in run(hot, 10)) / 10
+        self.assertAlmostEqual(hot_avg / cool_avg, 1.15, delta=0.05)
+
+    def test_reset_triggers_inrush(self) -> None:
+        fridge = VirtualFridge(seed=27)
+        fridge.apply_action("reset")
+        self.assertTrue(fridge.snapshot()["inrush_active"])
+
+    def test_reading_carries_defrost_mode(self) -> None:
+        fridge = VirtualFridge(seed=28)
+        fridge.defrost_schedule = False
+        self.assertEqual(fridge.tick().mode, "")
+        fridge.start_defrost(duration_ticks=5)
+        self.assertEqual(fridge.tick().mode, "defrost")
+
     def test_door_open_warms_freezer_into_warning_band(self) -> None:
         fridge = VirtualFridge(appliance_type="freezer", seed=11)
         fridge.apply_fault("door_open")

@@ -89,7 +89,9 @@
   "modes": [
     {
       "mode": "defrost",
-      "relaxes": ["temp_c up to 7 C"],
+      "relaxes": [
+        "temp_c up to 7 C"
+      ],
       "max_duration_s": 1200,
       "provenance": {
         "source_doc": "coldchain_spec_sheet.pdf",
@@ -102,7 +104,10 @@
     },
     {
       "mode": "door_service",
-      "relaxes": ["door open", "small temp bump"],
+      "relaxes": [
+        "door open",
+        "small temp bump"
+      ],
       "max_duration_s": 600,
       "provenance": {
         "source_doc": "manual",
@@ -121,12 +126,30 @@
       "op": ">",
       "threshold": 8,
       "duration_s": 600,
-      "except_modes": ["defrost"],
+      "except_modes": [
+        "defrost"
+      ],
       "provenance": {
         "source_doc": "coldchain_spec_sheet.pdf",
         "page_or_region": "p.1",
         "quote": "Alarm: temperature above 8 C for 10 minutes or longer.",
         "confidence": 0.95,
+        "confirmed_by": "demo",
+        "confirmed_at": "2026-10-28T00:00:00Z"
+      }
+    },
+    {
+      "name": "overcurrent",
+      "metric": "current_a",
+      "op": ">",
+      "threshold": 4.8,
+      "duration_s": 30.0,
+      "except_modes": [],
+      "provenance": {
+        "source_doc": "coldchain_spec_sheet.pdf",
+        "page_or_region": "p.2",
+        "quote": "Inrush above 4x, or lasting longer than 3 seconds, is a fault.",
+        "confidence": 0.9,
         "confirmed_by": "demo",
         "confirmed_at": "2026-10-28T00:00:00Z"
       }
@@ -148,11 +171,20 @@
     }
   ],
   "policy": {
-    "allowed_actions": ["end defrost", "close door work order", "clean condenser work order"],
-    "forbidden_actions": ["raise setpoint above 5 C", "disable temperature alarm"],
+    "allowed_actions": [
+      "end defrost",
+      "close door work order",
+      "clean condenser work order"
+    ],
+    "forbidden_actions": [
+      "raise setpoint above 5 C",
+      "disable temperature alarm"
+    ],
     "auto_fix_allowed": true,
     "countdown_s": 20,
-    "alert_contacts": ["phone"]
+    "alert_contacts": [
+      "phone"
+    ]
   },
   "baseline": {
     "status": "none",

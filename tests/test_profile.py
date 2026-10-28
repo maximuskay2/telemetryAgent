@@ -54,18 +54,19 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(profile.status, "draft")
         self.assertEqual(profile.version, 1)
 
-    def test_confirmed_needs_hard_limits(self) -> None:
-        with self.assertRaises(ValidationError):
-            SystemProfile(
-                system_id="x-1", name="X", kind="software",
-                status="confirmed",
-            )
+    def test_confirmed_without_hard_limits_is_valid(self) -> None:
+        profile = SystemProfile(
+            system_id="x-1", name="X", kind="software",
+            status="confirmed",
+        )
+        self.assertEqual(profile.status, "confirmed")
+        self.assertEqual(profile.hard_limits, [])
 
-    def test_armed_needs_hard_limits(self) -> None:
-        with self.assertRaises(ValidationError):
-            SystemProfile(
-                system_id="x-1", name="X", kind="software", status="armed"
-            )
+    def test_armed_without_hard_limits_is_valid(self) -> None:
+        profile = SystemProfile(
+            system_id="x-1", name="X", kind="software", status="armed"
+        )
+        self.assertEqual(profile.status, "armed")
 
     def test_appliance_type_rules(self) -> None:
         with self.assertRaises(ValidationError):
@@ -151,6 +152,18 @@ class StoreTests(unittest.TestCase):
                     "{nope", encoding="utf-8"
                 )
                 self.assertEqual(len(store.list_profiles()), 1)
+
+    def test_save_refuses_unreadable_status_flip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                first = store.save_profile(_profile(status="draft"))
+                bad = first.model_copy(update={"status": "archived"})
+                with self.assertRaises(ValidationError):
+                    store.save_profile(bad)
+                loaded = store.get_profile("shop-1")
+                assert loaded is not None
+                self.assertEqual(loaded.status, "draft")
+                self.assertEqual(loaded.version, 1)
 
 
 if __name__ == "__main__":
