@@ -1,6 +1,6 @@
 # James status
-Current block: T-R1 backend half (proof support; John's N-R3/N-R4 in flight)
-Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 (36aaa4f), J-R4 (8157049), J-R5 proof app + docs (this commit)
+Current block: DONE — all J-R* blocks on main; T-R1 backend half complete (joint run waits on John's N-R3/N-R4 + NEEDS below)
+Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 (36aaa4f), J-R4 (8157049), J-R5 (3ca8b64), T-R1 backend check (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -43,6 +43,7 @@ Decisions (ambiguities I resolved):
 - J-R5: DOCUMENTATION.md got exactly the two link lines (§17); production-devices.md link dangles until John's doc lands.
 - Note for John: test_software_options_empty_until_jr4 now fails because J-R4 IS on main (software_options returns 2 safety-gated options by design). Your file, your call — the "until R4" expectation has flipped.
 - J-R5 gate: python 619/620 (only John's stale test above), smoke GREEN, web GREEN, flutter 45/45 GREEN on the identical mobile tree earlier (this run's step 4 waited on John's concurrent flutter lock; J-R5 touches no mobile code). Merged with these two documented exceptions.
-Contract changes requested: (none)
+- T-R1 backend: James↔John options integration verified over HTTP (3 safe options with PR URL; pause closes safety with reason; execute-while-paused 409s). Backend proof (PR #9, ×5 dedupe, draft #10) already recorded in roadmap §8.
+Contract changes requested: (none — §3.4 untouched throughout)
 NEEDS FROM AKINGBADE: create public maximuskay2/telemetryAgent-proof-app from examples/proof-app/ + deploy on Railway; RAILWAY_TOKEN + staging service id for live mutation verify
 BLOCKED: (none)
