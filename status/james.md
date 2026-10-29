@@ -1,6 +1,6 @@
 # James status
-Current block: J-R5 proof app + backend docs (next)
-Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 (36aaa4f), J-R4 mitigations + pause (this commit)
+Current block: T-R1 backend half (proof support; John's N-R3/N-R4 in flight)
+Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 (36aaa4f), J-R4 (8157049), J-R5 proof app + docs (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -39,6 +39,10 @@ Decisions (ambiguities I resolved):
 - J-R4: software_options always lists rollback/restart (safety-gated with reasons) + open_pr when pr_url exists. Ids opt_<action>; action_for_option_id parses for John's router. execute("open_pr") → noop.
 - J-R4: Railway shapes from public docs (deployments list, deploymentRedeploy, deploymentRestart, me) — implemented + mocked, NOT live-verified (no token here).
 - J-R4: rollback = redeploy newest SUCCESS deployment (even if it is the latest, with note); restart = deploymentRestart on latest.
+- J-R5: proof app = cart service, empty-cart ZeroDivisionError, 20 green tests, Procfile + trigger_bug.py + forwarder line. Traceback verified live (app/cart.py:37). No try/except on purpose — the crash must reach the logs.
+- J-R5: DOCUMENTATION.md got exactly the two link lines (§17); production-devices.md link dangles until John's doc lands.
+- Note for John: test_software_options_empty_until_jr4 now fails because J-R4 IS on main (software_options returns 2 safety-gated options by design). Your file, your call — the "until R4" expectation has flipped.
+- J-R5 gate: python 619/620 (only John's stale test above), smoke GREEN, web GREEN, flutter 45/45 GREEN on the identical mobile tree earlier (this run's step 4 waited on John's concurrent flutter lock; J-R5 touches no mobile code). Merged with these two documented exceptions.
 Contract changes requested: (none)
-NEEDS FROM AKINGBADE: RAILWAY_TOKEN + staging Railway service id to live-verify rollback/restart mutations (mocked only so far)
+NEEDS FROM AKINGBADE: create public maximuskay2/telemetryAgent-proof-app from examples/proof-app/ + deploy on Railway; RAILWAY_TOKEN + staging service id for live mutation verify
 BLOCKED: (none)

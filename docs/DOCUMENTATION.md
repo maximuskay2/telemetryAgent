@@ -482,3 +482,8 @@ telemetry-agent/
 ├── docs/                         PRD.md, DOCUMENTATION.md
 └── *.md                          about, roadmap, simulation/mobile/setup roadmaps
 ```
+
+## 17. Production route (real integrations)
+
+- [production-backend.md](production-backend.md): connections, ingest, repo-fix pipeline, mitigations.
+- [production-devices.md](production-devices.md): device options, firmware, the `/connect` wizard half of the proof run.
