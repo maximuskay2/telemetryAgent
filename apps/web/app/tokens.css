@@ -1,0 +1,19 @@
+/* Classic palette tokens — the single source of truth for web + phone.
+ * These are the pre-redesign dashboard colors (mint green on near-black).
+ * Phone copies these hex values into apps/mobile/lib/theme.dart.
+ * See docs/design.md for the status vocabulary. */
+
+:root {
+  --bg: #0b0e10;
+  --surface: #111719;
+  --surface-2: #0d1314;
+  --border: #252d2f;
+  --text: #e7eeea;
+  --text-muted: #879694;
+  --text-faint: #667371;
+  --brand: #a5efc0;
+  --brand-cyan: #a5efc0;
+  --ok: #a5efc0;
+  --warn: #f3cf7e;
+  --crit: #ff887f;
+}

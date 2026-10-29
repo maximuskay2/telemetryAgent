@@ -227,6 +227,57 @@ class GrabFlowTests(unittest.TestCase):
                     after=0, after_timeout_s=0.0, forward=False, quiet_s=60.0)
         self.assertEqual(post.call_count, 1)
 
+    def test_suppressed_candidate_sets_no_quiet(self) -> None:
+        handle, path = tempfile.mkstemp(prefix="logwatch")
+        with os.fdopen(handle, "w") as f:
+            f.write(
+                "ERROR order=a1 service=shop items=axle,chain\n"
+                "ERROR order=b2 service=shop items=piston,muffler\n"
+                "ERROR order=c3 service=shop items=axle,shock\n"
+            )
+        self.addCleanup(os.unlink, path)
+
+        class Stop(Exception):
+            pass
+
+        suppress = {"decision": {"decision": "suppress"}, "run_id": None}
+        act = {"decision": {"decision": "act"}, "run_id": "abc123"}
+        with patch(
+            "core.watch.log_watcher.post_candidate",
+            side_effect=[suppress, act, act],
+        ) as post, patch(
+            "core.watch.log_watcher.publish_sim_event"
+        ), patch("core.watch.log_watcher.time.sleep", side_effect=Stop):
+            with self.assertRaises(Stop):
+                run(path, "http://api:8001", from_start=True, poll_s=0.01,
+                    after=0, after_timeout_s=0.0, forward=False, quiet_s=60.0)
+        # First suppresses (no quiet), second acts (quiet), third is quiet.
+        self.assertEqual(post.call_count, 2)
+
+    def test_failed_post_sets_quiet(self) -> None:
+        handle, path = tempfile.mkstemp(prefix="logwatch")
+        with os.fdopen(handle, "w") as f:
+            f.write(
+                "ERROR order=a1 service=shop items=axle,chain\n"
+                "ERROR order=b2 service=shop items=piston,muffler\n"
+            )
+        self.addCleanup(os.unlink, path)
+
+        class Stop(Exception):
+            pass
+
+        with patch(
+            "core.watch.log_watcher.post_candidate",
+            side_effect=RuntimeError("timed out, run may be going"),
+        ) as post, patch(
+            "core.watch.log_watcher.publish_sim_event"
+        ), patch("core.watch.log_watcher.time.sleep", side_effect=Stop):
+            with self.assertRaises(Stop):
+                run(path, "http://api:8001", from_start=True, poll_s=0.01,
+                    after=0, after_timeout_s=0.0, forward=False, quiet_s=60.0)
+        # Unknown outcome: assume a run started, don't pile up.
+        self.assertEqual(post.call_count, 1)
+
 
 class ClassifyForwardTests(unittest.TestCase):
     def test_levels(self) -> None:

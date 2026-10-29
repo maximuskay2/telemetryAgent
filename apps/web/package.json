@@ -9,10 +9,16 @@
     "demo": "bash ../../scripts/demo.sh"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "geist": "^1.8.2",
+    "lucide-react": "^1.63.0",
+    "motion": "^14.7.1",
     "next": "^16.4.3",
+    "postcss": "^8.5.23",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",

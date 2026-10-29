@@ -10,6 +10,7 @@ class PendingAction {
     this.decidedBy,
     this.resolvedAt,
     this.detail = '',
+    this.autoApply = true,
   });
 
   final String runId;
@@ -21,6 +22,7 @@ class PendingAction {
   final String? decidedBy;
   final double? resolvedAt;
   final String detail;
+  final bool autoApply;
 
   bool get isOpen => state == 'pending';
 
@@ -41,6 +43,7 @@ class PendingAction {
       decidedBy: json['decided_by'] as String?,
       resolvedAt: (json['resolved_at'] as num?)?.toDouble(),
       detail: json['detail'] as String? ?? '',
+      autoApply: json['auto_apply'] as bool? ?? true,
     );
   }
 }

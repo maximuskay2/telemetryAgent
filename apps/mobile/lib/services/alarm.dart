@@ -176,12 +176,12 @@ class AlarmHardware {
 
   void _startBuzz() {
     _buzzTimer?.cancel();
-    final period = _urgent ? 1 : 2;
-    _buzzTimer = Timer.periodic(Duration(seconds: period), (_) async {
+    // A short tick every second; a double-strong pattern in the last 5 s.
+    _buzzTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       try {
         if (await Vibration.hasVibrator()) {
           await Vibration.vibrate(
-              pattern: _urgent ? [0, 600, 100, 600] : [0, 400, 200, 400]);
+              pattern: _urgent ? [0, 600, 100, 600] : [0, 80]);
         }
       } catch (_) {
         // No vibrator, no problem.

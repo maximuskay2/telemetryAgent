@@ -13,16 +13,18 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 import asyncio
 import logging
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Dict, Literal, Optional, Set
+from typing import Any, Deque, Dict, Literal, Optional, Set
 from uuid import uuid4
 
 from fastapi import (
     FastAPI,
     File,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     WebSocket,
@@ -99,6 +101,14 @@ run_steps: Dict[str, list] = {}
 pending_actions: Dict[str, PendingAction] = {}
 _MAX_STEPS_PER_RUN = 50
 
+# S1: gate decision log — the last 200 decisions so counts survive refresh.
+gate_decisions: Deque[dict] = deque(maxlen=200)
+
+
+def _record_gate_decision(system_id: str, body: dict) -> None:
+    """Append a gate decision payload with its timestamp (S1)."""
+    gate_decisions.append({**body, "system_id": system_id, "ts": time.time()})
+
 
 def _record_step(step: AgentStep) -> None:
     if not step.run_id:
@@ -147,6 +157,13 @@ scenario_state: Dict[str, object] = {
     "total": 0,
     "current": "",
 }
+
+# Latest shop snapshot (1/s while the shop runs) + when errors began.
+# Software log candidates carry no metrics of their own; the candidate
+# endpoint passes these as ambient readings so hard limits and failure
+# definitions can evaluate (tour step 1→2 needs this to act).
+latest_shop_metrics: Dict[str, float] = {}
+shop_error_since: Optional[float] = None
 
 
 def spawn_shop_load(shoppers: int, rate: float, duration: int) -> int:
@@ -253,10 +270,11 @@ async def ingest_log(payload: LogInput) -> LogEvent:
     )
     await hub.broadcast(event)
     if payload.system_id:
-        learner = baseline_learners.get(payload.system_id)
+        system_id = _resolve_system_id(payload.system_id)
+        learner = baseline_learners.get(system_id)
         if learner is not None:
             learner.observe_log(payload.message)
-            await _baseline_progress(payload.system_id)
+            await _baseline_progress(system_id)
     return event
 
 
@@ -339,6 +357,7 @@ async def run_agent(payload: RunRequest) -> ExecutionResult:
             harness,
             payload.reference,
             payload.gate,
+            payload.target or "",
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -463,8 +482,21 @@ async def run_appliance_readings(
 
 @app.post("/api/sim/events", response_model=SimEvent)
 async def sim_event(event: SimEvent) -> SimEvent:
+    global shop_error_since
     await hub.broadcast(event)
     if event.kind == "shop_metrics":
+        try:
+            rate = float(event.payload.get("error_rate", 0.0))
+        except (TypeError, ValueError):
+            rate = 0.0
+        latest_shop_metrics.clear()
+        latest_shop_metrics.update(
+            {"error_rate": rate, "ts": time.time()}
+        )
+        if rate > 0 and shop_error_since is None:
+            shop_error_since = time.time()
+        elif rate == 0:
+            shop_error_since = None
         await _feed_shop_metrics(event.payload)
     return event
 
@@ -603,6 +635,7 @@ async def _evaluate_overlay_hit(
         "signature": hit.detail,
     }
     _mark_learning_incident(system_id, body)
+    _record_gate_decision(system_id, body)
     await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
     return body
 
@@ -715,6 +748,7 @@ async def _evaluate_sensor_candidate(
         "signature": found.signature,
     }
     _mark_learning_incident(system_id, body)
+    _record_gate_decision(system_id, body)
     await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
     reference = profile_summary(profile, state.mode) if profile else ""
     return body, reference, profile
@@ -992,6 +1026,12 @@ async def _deploy_patch_for_run(run_id: str) -> dict:
             f"shop rejected reload ({response.status_code}): "
             f"{response.text[:200]}",
         )
+    try:
+        # R4: restart on the verified patch so stuck pre-fix threads
+        # can't wedge the "green again" moment. Best effort by design.
+        httpx.post(f"{shop_base_url().rstrip('/')}/restart", timeout=2.0)
+    except Exception:  # noqa: BLE001 - the hot-swapped shop already works
+        pass
     await hub.broadcast(
         SimEvent(
             kind="fix_applied",
@@ -1335,6 +1375,7 @@ async def get_run(run_id: str) -> dict:
     if entry is None:
         raise HTTPException(status_code=404, detail="unknown run_id")
     decision = pending_actions.get(run_id)
+    verification = getattr(entry["result"], "verification", None)
     return {
         "run_id": run_id,
         "domain": domain,
@@ -1342,7 +1383,26 @@ async def get_run(run_id: str) -> dict:
         "steps": [s.model_dump(mode="json") for s in run_steps.get(run_id, [])],
         "decision": decision.model_dump(mode="json") if decision else None,
         "gate": entry.get("gate"),
+        "verification": (
+            verification.model_dump(mode="json")
+            if verification is not None
+            else None
+        ),
     }
+
+
+@app.get("/api/gate/decisions")
+async def gate_decision_log(
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """Last gate decisions, newest first, with decision counts (S1)."""
+    items = list(gate_decisions)[-limit:][::-1]
+    counts = {"suppress": 0, "observe": 0, "act": 0}
+    for item in gate_decisions:
+        name = item.get("decision")
+        if name in counts:
+            counts[name] += 1
+    return {"decisions": items, "counts": counts}
 
 
 class SystemCreateIn(BaseModel):
@@ -1392,11 +1452,23 @@ async def upload_documents(
     system_id: str, files: list[UploadFile] = File(...)
 ) -> dict:
     """Upload spec docs; extract a draft profile (P1, stub-able model)."""
-    from core.infer import meta_client
-
     profile = setup_store.get_profile(system_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        filename = Path(upload.filename or "upload").name
+        data = await upload.read(setup_extract.MAX_FILE_BYTES + 1)
+        payload.append((filename, data))
+    return await _extract_documents(system_id, profile, payload)
+
+
+async def _extract_documents(
+    system_id: str, profile, files: list[tuple[str, bytes]]
+) -> dict:
+    """Shared extraction path: visitor uploads and demo server copies (J2)."""
+    from core.infer import meta_client
+
     if len(files) > setup_extract.MAX_FILES:
         raise HTTPException(
             status_code=400,
@@ -1407,14 +1479,12 @@ async def upload_documents(
     partials: list = []
     rejected: list[str] = []
     needs_manual: list[str] = []
-    for upload in files:
-        filename = Path(upload.filename or "upload").name
+    for filename, data in files:
         kind = setup_extract.classify_file(filename)
         if kind is None:
             raise HTTPException(
                 status_code=400, detail=f"unsupported file type: {filename}"
             )
-        data = await upload.read(setup_extract.MAX_FILE_BYTES + 1)
         if len(data) > setup_extract.MAX_FILE_BYTES:
             raise HTTPException(
                 status_code=400, detail=f"{filename} exceeds the 10 MB limit"
@@ -1660,6 +1730,350 @@ async def arm_system(system_id: str) -> dict:
         )
     )
     return stored.model_dump(mode="json")
+
+
+@app.post("/api/systems/{system_id}/disarm")
+async def disarm_system(system_id: str) -> dict:
+    """Armed → confirmed: watchers stop acting; setup can run again."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    if profile.status != "armed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"only armed systems disarm (now {profile.status})",
+        )
+    stored = setup_store.save_profile(
+        profile.model_copy(update={"status": "confirmed"})
+    )
+    await hub.broadcast(
+        SimEvent(
+            kind="setup_progress",
+            payload={"system_id": system_id, "stage": "disarmed"},
+        )
+    )
+    return stored.model_dump(mode="json")
+
+
+@app.delete("/api/systems/{system_id}")
+async def delete_system_endpoint(system_id: str) -> dict:
+    """Delete a system and everything setup stored for it."""
+    if not setup_store.delete_system(system_id):
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    await hub.broadcast(
+        SimEvent(
+            kind="setup_progress",
+            payload={"system_id": system_id, "stage": "deleted"},
+        )
+    )
+    return {"deleted": system_id}
+
+
+# J1: guided-demo world. The journey always uses these two demo-tagged
+# systems; user systems created in /setup are never touched here.
+DEMO_SHOP_NAME = "AutoParts Lagos"
+DEMO_FREEZER_NAME = "Cold-chain Freezer"
+
+
+def _demo_profile(kind: str) -> Optional[object]:
+    """First demo-tagged profile of this kind, if one exists."""
+    for profile in setup_store.list_profiles():
+        if (
+            profile.kind == kind
+            and profile.environment.get("demo") == "true"
+        ):
+            return profile
+    return None
+
+
+# The log watcher posts as `--system-id shop` (its default), but setup gives
+# the shop a generated id like `autoparts-lagos-1a2b`.
+WATCHER_SHOP_ID = "shop"
+
+
+def _resolve_system_id(system_id: str) -> str:
+    """Map the watcher's default shop id onto the set-up shop system."""
+    if system_id != WATCHER_SHOP_ID or setup_store.get_profile(system_id):
+        return system_id
+    shop = _demo_profile("software")
+    if shop is None:
+        software = [
+            p for p in setup_store.list_profiles() if p.kind == "software"
+        ]
+        shop = software[0] if len(software) == 1 else None
+    return shop.system_id if shop is not None else system_id
+
+
+@app.post("/api/demo/bootstrap")
+async def demo_bootstrap() -> dict:
+    """Ensure the two demo systems exist (idempotent); never deletes."""
+    shop = _demo_profile("software")
+    if shop is None:
+        shop = setup_store.save_profile(
+            SystemProfile(
+                system_id=_slug_system_id(DEMO_SHOP_NAME),
+                name=DEMO_SHOP_NAME,
+                kind="software",
+                environment={"demo": "true"},
+            )
+        )
+    freezer = _demo_profile("appliance")
+    if freezer is None:
+        freezer = setup_store.save_profile(
+            SystemProfile(
+                system_id=_slug_system_id(DEMO_FREEZER_NAME),
+                name=DEMO_FREEZER_NAME,
+                kind="appliance",
+                appliance_type="freezer",
+                environment={"demo": "true"},
+            )
+        )
+    return {
+        "shop": shop.model_dump(mode="json"),
+        "freezer": freezer.model_dump(mode="json"),
+    }
+
+
+def _demo_system_status(profile) -> dict:
+    """One pollable row for the guided setup (J1 status shape)."""
+    learner = baseline_learners.get(profile.system_id)
+    session = baseline_sessions.get(profile.system_id)
+    percent = 0.0
+    patterns = 0
+    if learner is not None and session is not None:
+        percent = min(
+            99.9, 100.0 * learner.elapsed_s() / session["duration_s"]
+        )
+        patterns = learner.patterns_learned()
+    return {
+        "system_id": profile.system_id,
+        "status": profile.status,
+        "baseline_status": profile.baseline.status,
+        "baseline_pct": round(percent, 1),
+        "baseline_patterns": patterns,
+        "auto_fix_allowed": profile.policy.auto_fix_allowed,
+    }
+
+
+def _latest_pr_url() -> Optional[str]:
+    """Newest non-empty PR url across stored runs, if any."""
+    for store in (software_runs, appliance_runs):
+        for run_id in reversed(list(store)):
+            result = store[run_id].get("result")
+            url = getattr(result, "pr_url", "") or ""
+            if url:
+                return url
+    return None
+
+
+@app.get("/api/demo/status")
+async def demo_status() -> dict:
+    """One call the journey polls: demo systems + world state."""
+    shop = _demo_profile("software")
+    freezer = _demo_profile("appliance")
+    # run_steps is the one insertion-ordered store across both domains.
+    last_run = next(reversed(run_steps), None)
+    return {
+        "shop": _demo_system_status(shop) if shop is not None else None,
+        "freezer": _demo_system_status(freezer)
+        if freezer is not None
+        else None,
+        "scenario_playing": bool(scenario_state.get("playing")),
+        "last_run_id": last_run,
+        "pr_url": _latest_pr_url(),
+    }
+
+
+# J2: the manuals live on the server; the visitor has nothing to upload.
+DEMO_DOCS: dict[str, tuple[str, ...]] = {
+    "software": ("autoparts_ops_guide.md",),
+    "appliance": ("coldchain_spec_sheet.pdf", "coldchain_rating_plate.jpg"),
+}
+DEMO_DOC_TIMEOUT_S = 45.0
+
+
+@app.post("/api/demo/{system_id}/documents")
+async def demo_documents(system_id: str) -> dict:
+    """Read the server's demo manuals through the real extraction path.
+
+    Same events and body as /documents. On failure or a 45 s timeout,
+    falls back to the saved reading (sample) and reports fallback: true.
+    """
+    profile = setup_store.get_profile(system_id)
+    if profile is None or profile.environment.get("demo") != "true":
+        raise HTTPException(status_code=404, detail="unknown demo system")
+    if profile.kind == "software":
+        # J2 fallback-only (blessed cut): live extraction of the ops
+        # guide yields loose expected-behaviour signatures that make
+        # the gate suppress the hero deadlock storm. The hand-verified
+        # reading acts correctly, and the UI says which one it shows.
+        stored = _load_sample_profile(system_id, profile, "shop")
+        await hub.broadcast(
+            SimEvent(
+                kind="setup_progress",
+                payload={
+                    "system_id": system_id,
+                    "stage": "extracted",
+                    "conflicts": 0,
+                    "fallback": True,
+                },
+            )
+        )
+        return {
+            "profile": stored.model_dump(mode="json"),
+            "conflicts": [],
+            "rejected": [],
+            "needs_manual": [],
+            "fallback": True,
+        }
+    demo_dir = (
+        Path(__file__).resolve().parent.parent.parent / "demo" / "setup"
+    )
+    files = [
+        (name, (demo_dir / name).read_bytes())
+        for name in DEMO_DOCS[profile.kind]
+    ]
+    try:
+        body = await asyncio.wait_for(
+            _extract_documents(system_id, profile, files),
+            timeout=DEMO_DOC_TIMEOUT_S,
+        )
+    except (asyncio.TimeoutError, HTTPException, OSError):
+        body = None
+    if body is not None:
+        # Extraction may rename the system or rewrite tags; the demo
+        # keeps its D1 identity (name + demo tag) either way.
+        kept = setup_store.get_profile(system_id)
+        if kept is not None and (
+            kept.name != profile.name
+            or kept.environment != profile.environment
+        ):
+            kept = setup_store.save_profile(
+                kept.model_copy(
+                    update={
+                        "name": profile.name,
+                        "environment": profile.environment,
+                    }
+                )
+            )
+            body = {
+                **body,
+                "profile": kept.model_dump(mode="json"),
+            }
+        return {**body, "fallback": False}
+    sample = "shop" if profile.kind == "software" else "coldchain"
+    stored = _load_sample_profile(system_id, profile, sample)
+    await hub.broadcast(
+        SimEvent(
+            kind="setup_progress",
+            payload={
+                "system_id": system_id,
+                "stage": "extracted",
+                "conflicts": 0,
+                "fallback": True,
+            },
+        )
+    )
+    return {
+        "profile": stored.model_dump(mode="json"),
+        "conflicts": [],
+        "rejected": [],
+            "needs_manual": [],
+            "fallback": True,
+        }
+    return {**body, "fallback": False}
+
+
+class DemoLearnIn(BaseModel):
+    duration_s: float = Field(default=120.0, ge=5.0, le=600.0)
+
+
+demo_learn_tasks: Dict[str, "asyncio.Task"] = {}
+
+
+def _demo_freezer_round(frac: float, rounds: int) -> tuple[float, float, str]:
+    """Normal freezer readings with a defrost hump mid-window (J3)."""
+    if 0.40 <= frac <= 0.65:
+        peak = 1.0 - abs(frac - 0.525) / 0.125
+        temp = 4.0 + 2.5 * max(0.0, peak)
+        current = 1.1 + 2.0 * max(0.0, peak)
+        return round(temp, 2), current, "defrost"
+    temp = 4.0 + 0.2 * (rounds % 3 - 1)
+    current = 3.8 if rounds == 0 else 1.1
+    return round(temp, 2), current, ""
+
+
+async def _drive_demo_learning(
+    system_id: str,
+    kind: str,
+    ends_at: float,
+    interval_s: float = 2.0,
+    gentle_load: bool = True,
+) -> None:
+    """Gentle normal traffic for a demo learning window, server-side (J3).
+
+    Ported from demo/setup/accelerated_learn.py: synthetic observations go
+    straight into the learner (never through the watchers), plus one real
+    low-rate shop load. Stops when the window ends or is finished early.
+    """
+    learner = baseline_learners.get(system_id)
+    if learner is None:
+        return
+    order = 1000
+    rounds = 0
+    start = time.time()
+    span = max(1.0, ends_at - start)
+    if kind == "software" and gentle_load:
+        try:
+            spawn_shop_load(
+                shoppers=1, rate=2.0, duration=int(ends_at - start)
+            )
+        except OSError:
+            logger.warning("demo learn: gentle shop load failed to spawn")
+    while time.time() < ends_at:
+        if baseline_learners.get(system_id) is not learner:
+            return
+        if kind == "software":
+            order += 1
+            learner.observe_log(
+                f"INFO order=a{order} items=axle,chain latency_ms=42"
+            )
+            if rounds % 10 == 5:
+                learner.observe_log(
+                    f"WARN order=a{order} retry=1 backoff_ms=250"
+                )
+            learner.observe_shop(0.005, 120.0, 30.0)
+        else:
+            frac = (time.time() - start) / span
+            temp, current, mode = _demo_freezer_round(frac, rounds)
+            learner.observe_sensor("temp_c", temp, mode)
+            learner.observe_sensor("current_a", current, mode)
+            learner.observe_sensor("vibration_g", 0.02, mode)
+        rounds += 1
+        await _baseline_progress(system_id)
+        await asyncio.sleep(interval_s)
+
+
+@app.post("/api/demo/{system_id}/learn")
+async def demo_learn(
+    system_id: str, payload: Optional[DemoLearnIn] = None
+) -> dict:
+    """Start a 120 s demo learning window with gentle normal traffic (J3)."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None or profile.environment.get("demo") != "true":
+        raise HTTPException(status_code=404, detail="unknown demo system")
+    previous = demo_learn_tasks.pop(system_id, None)
+    if previous is not None and not previous.done():
+        previous.cancel()
+    duration = payload.duration_s if payload is not None else 120.0
+    started = await start_baseline(
+        system_id, BaselineStartIn(duration_s=duration)
+    )
+    task = asyncio.get_running_loop().create_task(
+        _drive_demo_learning(system_id, profile.kind, started["ends_at"])
+    )
+    demo_learn_tasks[system_id] = task
+    return {**started, "driver": "demo-gentle"}
 
 
 class ModeIn(BaseModel):
@@ -2184,15 +2598,16 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
     from core.setup.context import profile_summary
     from core.setup.modes import ModeState
 
-    profile = setup_store.get_profile(payload.system_id)
+    system_id = _resolve_system_id(payload.system_id)
+    profile = setup_store.get_profile(system_id)
     if profile is None:
         state = ModeState()
     else:
         state = setup_modes.current_mode(
-            payload.system_id, profile, _device_mode_for(profile)
+            system_id, profile, _device_mode_for(profile)
         )
     candidate = setup_gate.Candidate(
-        system_id=payload.system_id,
+        system_id=system_id,
         source=payload.source,
         rule=payload.rule,
         fingerprint=payload.fingerprint,
@@ -2203,13 +2618,32 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
         durations=dict(payload.durations),
         mode=payload.mode or state.mode,
     )
-    decision = setup_gate.evaluate(candidate, profile, state)
+    ambient_metrics: dict[str, float] = {}
+    ambient_durations: dict[str, float] = {}
+    if profile is not None and profile.kind == "software":
+        snap_ts = latest_shop_metrics.get("ts", 0.0)
+        if snap_ts and time.time() - snap_ts <= 30.0:
+            rate = latest_shop_metrics.get("error_rate", 0.0)
+            ambient_metrics = {
+                "error_rate": rate,
+                "order_error_rate": rate,
+            }
+            if shop_error_since is not None:
+                breached = max(0.0, time.time() - shop_error_since)
+                ambient_durations = {
+                    "error_rate": breached,
+                    "order_error_rate": breached,
+                }
+    decision = setup_gate.evaluate(
+        candidate, profile, state, ambient_metrics, ambient_durations
+    )
     body = {
         **decision.payload(),
         "rule": payload.rule,
         "signature": payload.signature,
     }
-    _mark_learning_incident(payload.system_id, body)
+    _mark_learning_incident(system_id, body)
+    _record_gate_decision(system_id, body)
     await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
     if decision.decision != "act":
         return {"decision": body, "run_id": None}
@@ -2226,7 +2660,7 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
             mode=state.mode,
         )
         telemetry = ApplianceTelemetry(
-            source_id=payload.system_id,
+            source_id=system_id,
             appliance_type=profile.appliance_type or "fridge",
             readings=[reading],
         )
@@ -2254,39 +2688,46 @@ class SampleIn(BaseModel):
     sample: str = Field(pattern=r"^(shop|coldchain)$")
 
 
+def _load_sample_profile(system_id: str, profile, sample: str):
+    """Load a pre-read sample profile as this system's draft (J2 reuse)."""
+    sample_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "demo"
+        / "setup"
+        / "profiles"
+        / f"{sample}.json"
+    )
+    try:
+        loaded = SystemProfile.model_validate_json(
+            sample_path.read_text(encoding="utf-8")
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if loaded.kind != profile.kind:
+        raise HTTPException(
+            status_code=400,
+            detail=f"sample is {loaded.kind}, system is {profile.kind}",
+        )
+    draft = loaded.model_copy(
+        update={
+            "system_id": system_id,
+            "name": profile.name,
+            "status": "draft",
+            "environment": profile.environment,
+        }
+    )
+    stored = setup_store.save_profile(draft)
+    setup_store.save_conflicts(system_id, [])
+    return stored
+
+
 @app.post("/api/systems/{system_id}/profile/sample")
 async def load_sample_profile(system_id: str, payload: SampleIn) -> dict:
     """Skip extraction in the demo: load a pre-confirmed sample as draft."""
     profile = setup_store.get_profile(system_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
-    sample_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "demo"
-        / "setup"
-        / "profiles"
-        / f"{payload.sample}.json"
-    )
-    try:
-        sample = SystemProfile.model_validate_json(
-            sample_path.read_text(encoding="utf-8")
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    if sample.kind != profile.kind:
-        raise HTTPException(
-            status_code=400,
-            detail=f"sample is {sample.kind}, system is {profile.kind}",
-        )
-    draft = sample.model_copy(
-        update={
-            "system_id": system_id,
-            "name": profile.name,
-            "status": "draft",
-        }
-    )
-    stored = setup_store.save_profile(draft)
-    setup_store.save_conflicts(system_id, [])
+    stored = _load_sample_profile(system_id, profile, payload.sample)
     return stored.model_dump(mode="json")
 
 
@@ -2402,6 +2843,13 @@ async def sim_reset() -> dict:
         summary["shop"] = "buggy" if response.status_code < 400 else "reload-failed"
     except httpx.HTTPError:
         summary["shop"] = "unreachable"
+    try:
+        # R4: a fresh worker clears wedged lock threads; the buggy
+        # inventory reloaded above survives via INVENTORY_PATH.
+        httpx.post(f"{shop_base_url().rstrip('/')}/restart", timeout=2.0)
+        summary["shop_worker"] = "restarted"
+    except Exception:  # noqa: BLE001 - restart is best-effort
+        summary["shop_worker"] = "restart-skipped"
     fridge.apply_action("reset")
     sensor_watcher.reset()
     external_watchers.clear()
@@ -2409,7 +2857,9 @@ async def sim_reset() -> dict:
     appliance_runs.clear()
     run_steps.clear()
     pending_actions.clear()
+    gate_decisions.clear()
     summary["fridge"] = "reset"
+    summary["gate_log"] = "cleared"
     return summary
 
 

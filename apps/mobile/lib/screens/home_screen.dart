@@ -6,6 +6,7 @@ import '../models/run_report.dart';
 import '../providers.dart';
 import '../services/socket.dart';
 import '../theme.dart';
+import '../widgets/widgets.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
 
@@ -156,27 +157,57 @@ class ReportsTab extends ConsumerWidget {
   }
 }
 
-class RunRow extends StatelessWidget {
+BadgeState _badgeFor(RunReport report) {
+  if (report.gate?.decision == 'suppress') return BadgeState.ignored;
+  if (report.gate?.decision == 'observe') return BadgeState.observing;
+  switch (report.decision) {
+    case 'pending':
+      return BadgeState.incident;
+    case 'approved':
+    case 'auto_applied':
+      return BadgeState.verified;
+    case 'disapproved':
+      return BadgeState.incident;
+    case 'failed':
+      return BadgeState.incident;
+    default:
+      break;
+  }
+  if (report.status == 'PASS') return BadgeState.verified;
+  if (report.status == 'FAIL') return BadgeState.incident;
+  return BadgeState.observing;
+}
+
+class RunRow extends ConsumerWidget {
   const RunRow({super.key, required this.report});
 
   final RunReport report;
 
   @override
-  Widget build(BuildContext context) {
-    final passed = report.status == 'PASS';
+  Widget build(BuildContext context, WidgetRef ref) {
+    final systems = ref.watch(systemsProvider).asData?.value ?? const [];
+    var systemName = report.domain;
+    for (final system in systems) {
+      if (system.kind == report.domain) {
+        systemName = system.name;
+        break;
+      }
+    }
+    final meta = [
+      systemName,
+      if (report.source.isNotEmpty) 'via ${report.source}',
+      if (report.modelUsed.isNotEmpty) report.modelUsed,
+      if (report.stepCount > 0) '${report.stepCount} steps',
+    ].join(' · ');
     return Card(
       child: ListTile(
-        leading: Icon(
-          passed ? Icons.check_circle : Icons.error,
-          color: passed ? Accents.ok : Accents.fail,
-        ),
+        leading: StatusBadge(_badgeFor(report)),
         title: Text(
           shortRunId(report.runId),
-          style: const TextStyle(fontFamily: 'monospace'),
+          style: const TextStyle(fontFamily: 'GeistMono'),
         ),
         subtitle: Text(
-          '${report.domain} · ${report.decision ?? 'no window'}'
-          '${report.modelUsed.isNotEmpty ? ' · ${report.modelUsed}' : ''}',
+          meta,
           style: const TextStyle(color: Accents.muted, fontSize: 12),
         ),
         trailing: const Icon(Icons.chevron_right),

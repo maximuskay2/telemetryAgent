@@ -26,6 +26,20 @@ def _local_fallback(patch_code: str, test_code: str, timeout: int) -> dict:
     return verify_patch_local(patch_code, test_code, timeout=timeout)
 
 
+def selected_runner() -> str:
+    """Backend `verify_patch` would use right now (reporting only).
+
+    Mirrors the selection at the top of `verify_patch`; keep in sync.
+    """
+    if os.environ.get("TA_VERIFY", "").lower() == "local":
+        return "local"
+    try:
+        import modal  # noqa: F401
+    except ImportError:
+        return "local"
+    return "modal"
+
+
 def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
     """Write a generated patch and pytest suite into a Modal Sandbox and run pytest.
 
@@ -82,14 +96,28 @@ def verify_fix(original_code: str, patch_code: str, test_code: str, runner=None)
     """Fail-to-pass check: the test must FAIL on the original and PASS on the patch.
 
     `runner` defaults to `verify_patch` and is injectable for tests.
+    Besides `passed`/`feedback`, the result carries the per-side outputs
+    (`original`/`patched`) and the backend (`runner`) for the run drawer;
+    `runner` is None when a custom runner was injected.
     """
     if not original_code or not patch_code or not test_code:
         raise ValueError("original_code, patch_code and test_code must be non-empty strings")
     run = runner or verify_patch
+    backend = None if runner is not None else selected_runner()
     failed, feedback = fails_on_original(original_code, test_code, run)
     if not failed:
-        return {"passed": False, "feedback": ORIGINAL_PASS_PREFIX + feedback}
+        return {
+            "passed": False,
+            "feedback": ORIGINAL_PASS_PREFIX + feedback,
+            "original": {"passed": True, "output": feedback},
+            "patched": None,
+            "runner": backend,
+        }
     after = run(patch_code, test_code)
-    if not after["passed"]:
-        return {"passed": False, "feedback": after["feedback"]}
-    return {"passed": True, "feedback": after["feedback"]}
+    return {
+        "passed": after["passed"],
+        "feedback": after["feedback"],
+        "original": {"passed": False, "output": feedback},
+        "patched": {"passed": after["passed"], "output": after["feedback"]},
+        "runner": backend,
+    }

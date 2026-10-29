@@ -23,6 +23,38 @@ class VerificationResult(BaseModel):
     feedback: str = ""
 
 
+class VerifyAttempt(BaseModel):
+    """One side of fail-to-pass: did the test pass, and what did it print."""
+
+    passed: bool = False
+    output: str = ""
+
+
+class RunVerification(BaseModel):
+    """Fail-on-original → pass-on-patch evidence for the run drawer (S1).
+
+    Optional everywhere: older runs and runs without an original simply
+    leave it unset, and readers must tolerate missing pieces.
+    """
+
+    target: str = Field(default="", description="Verified target, e.g. inventory")
+    original_code: Optional[str] = Field(
+        default=None, description="Buggy original the test had to fail on"
+    )
+    test_code: Optional[str] = Field(
+        default=None, description="Final regression test from the passing attempt"
+    )
+    original: Optional[VerifyAttempt] = Field(
+        default=None, description="Test run against the original (should fail)"
+    )
+    patched: Optional[VerifyAttempt] = Field(
+        default=None, description="Test run against the patch (should pass)"
+    )
+    runner: Optional[str] = Field(
+        default=None, description="Sandbox backend that ran pytest: modal|local"
+    )
+
+
 class ExecutionResult(BaseModel):
     status: str = Field(pattern="^(PASS|FAIL|NO_ACTION)$")
     stdout: str
@@ -35,6 +67,9 @@ class ExecutionResult(BaseModel):
     run_id: str = Field(default="", description="Incident run identifier")
     patch_code: Optional[str] = Field(
         default=None, description="Verified fix module on PASS (Sim 5 deploy)"
+    )
+    verification: Optional[RunVerification] = Field(
+        default=None, description="Fail-to-pass evidence for the drawer (S1)"
     )
 
 

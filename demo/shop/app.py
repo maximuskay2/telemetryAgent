@@ -151,18 +151,34 @@ class Shop:
         normal retry path instead of 500ing.
         """
         box: dict = {}
+        finished = threading.Event()
+        guard = threading.Lock()
 
         def _run() -> None:
             try:
-                box["held"] = self.inventory.acquire_all(items)
+                held = self.inventory.acquire_all(items)
             except Exception as exc:  # noqa: BLE001 - reported via box
                 box["error"] = exc
+                return
+            with guard:
+                if finished.is_set():
+                    # We already timed out: release at once, never leak.
+                    try:
+                        self.inventory.release_all(held)
+                    except Exception:  # noqa: BLE001 - best effort
+                        pass
+                else:
+                    box["held"] = held
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
         thread.join(timeout=timeout_s)
-        if thread.is_alive():
-            return None, True
+        with guard:
+            if "held" in box:
+                return box["held"], False
+            if thread.is_alive():
+                finished.set()
+                return None, True
         error = box.get("error")
         if error is not None:
             self.log.log(
@@ -354,6 +370,36 @@ def reload(payload: ReloadIn) -> dict:
 
         return JSONResponse(status_code=400, content={"detail": str(exc)})
     return {"inventory": resolved}
+
+
+def _schedule_restart(inventory_path: str) -> None:
+    """Re-exec the worker after the response goes out (R4 cure).
+
+    Clears wedged lock-holder threads; INVENTORY_PATH keeps the active
+    module (buggy default or verified patch) across the restart.
+    """
+    import sys
+
+    def _do() -> None:
+        time.sleep(0.5)
+        try:
+            shop.log.close()
+        except Exception:  # noqa: BLE001 - best effort
+            pass
+        os.environ["INVENTORY_PATH"] = inventory_path
+        if "uvicorn" in sys.argv[0]:
+            argv = [sys.executable, "-m", "uvicorn"] + sys.argv[1:]
+        else:
+            argv = [sys.executable] + sys.argv
+        os.execv(sys.executable, argv)
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
+@app.post("/restart")
+def restart() -> dict:
+    _schedule_restart(shop.inventory_path)
+    return {"status": "restarting", "inventory": shop.inventory_path}
 
 
 def _metrics_loop(stop: threading.Event) -> None:

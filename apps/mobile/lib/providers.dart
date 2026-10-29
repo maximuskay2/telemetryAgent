@@ -194,7 +194,15 @@ final alarmProvider =
 
 /// M4 report filters (roadmap: open, auto-applied, approved, disapproved,
 /// failed — plus "all" for the unfiltered feed).
-enum ReportFilter { all, open, autoApplied, approved, disapproved, failed }
+enum ReportFilter {
+  all,
+  open,
+  autoApplied,
+  approved,
+  disapproved,
+  failed,
+  ignored,
+}
 
 extension ReportFilterMatch on ReportFilter {
   String get label {
@@ -211,6 +219,8 @@ extension ReportFilterMatch on ReportFilter {
         return 'Disapproved';
       case ReportFilter.failed:
         return 'Failed';
+      case ReportFilter.ignored:
+        return 'Ignored';
     }
   }
 
@@ -228,6 +238,8 @@ extension ReportFilterMatch on ReportFilter {
         return run.decision == 'disapproved';
       case ReportFilter.failed:
         return run.decision == 'failed' || run.status == 'FAIL';
+      case ReportFilter.ignored:
+        return run.gate?.decision == 'suppress';
     }
   }
 }
@@ -263,13 +275,15 @@ final runDetailProvider =
   return api.runDetail(runId);
 });
 
-/// Recent fridge temperatures captured from the live stream (for the mini
-/// chart on appliance reports; the server keeps no per-run history).
+/// Recent fridge readings captured from the live stream (for the charts
+/// on appliance reports; the server keeps no per-run history).
 class TempSample {
-  const TempSample(this.at, this.celsius);
+  const TempSample(this.at, this.celsius, this.amps, this.vibrationG);
 
   final DateTime at;
   final double celsius;
+  final double amps;
+  final double vibrationG;
 }
 
 class FridgeTempsNotifier extends Notifier<List<TempSample>> {
@@ -283,11 +297,15 @@ class FridgeTempsNotifier extends Notifier<List<TempSample>> {
       _subscription = socket.actions.listen((event) {
         if (event.kind != 'fridge_reading') return;
         final reading = event.payload['reading'];
-        final temp = reading is Map
-            ? (reading['temperature_c'] as num?)?.toDouble()
-            : null;
+        if (reading is! Map) return;
+        final temp = (reading['temperature_c'] as num?)?.toDouble();
         if (temp == null) return;
-        final next = [...state, TempSample(DateTime.now(), temp)];
+        final amps = (reading['current_a'] as num?)?.toDouble() ?? 0;
+        final vib = (reading['vibration_g'] as num?)?.toDouble() ?? 0;
+        final next = [
+          ...state,
+          TempSample(DateTime.now(), temp, amps, vib)
+        ];
         state = next.length > 120
             ? next.sublist(next.length - 120)
             : next;
@@ -301,3 +319,52 @@ class FridgeTempsNotifier extends Notifier<List<TempSample>> {
 final fridgeTempsProvider =
     NotifierProvider<FridgeTempsNotifier, List<TempSample>>(
         FridgeTempsNotifier.new);
+
+/// Monitored systems, for feed card names.
+final systemsProvider =
+    FutureProvider.autoDispose<List<SystemSummary>>((ref) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) return const [];
+  return api.systems();
+});
+
+/// Normal temperature band from a system's profile (normal_ranges first,
+/// hard limits as a net). Null when the profile has neither.
+final profileBandProvider = FutureProvider.autoDispose
+    .family<({double min, double max})?, String>((ref, systemId) async {
+  final api = ref.watch(apiProvider);
+  if (api == null || systemId.isEmpty) return null;
+  final profile = await api.profile(systemId);
+  bool isTemp(Object? metric) =>
+      metric == 'temp_c' || metric == 'temperature_c';
+  final ranges = profile['normal_ranges'];
+  if (ranges is List) {
+    for (final row in ranges.whereType<Map>()) {
+      final min = (row['min'] as num?)?.toDouble();
+      final max = (row['max'] as num?)?.toDouble();
+      if (isTemp(row['metric']) && min != null && max != null) {
+        return (min: min, max: max);
+      }
+    }
+  }
+  final limits = profile['hard_limits'];
+  if (limits is! List) return null;
+  var min = 2.0;
+  var max = 8.0;
+  var found = false;
+  for (final row in limits.whereType<Map>()) {
+    final threshold = row['threshold'] as num?;
+    final value = row['value'] as num?;
+    final limit = (threshold ?? value)?.toDouble();
+    if (!isTemp(row['metric']) || limit == null) continue;
+    final op = row['op'] as String?;
+    if (op == 'gt' || op == '>' || op == '>=') {
+      if (limit < max) max = limit;
+      found = true;
+    } else if (op == 'lt' || op == '<' || op == '<=') {
+      if (limit > min) min = limit;
+      found = true;
+    }
+  }
+  return found ? (min: min, max: max) : null;
+});

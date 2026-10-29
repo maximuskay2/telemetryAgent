@@ -73,6 +73,25 @@ class AgentApi {
     return RunReport.fromDetailJson(Map<String, dynamic>.from(body as Map));
   }
 
+  /// Monitored systems (for feed card names + profile bands).
+  Future<List<SystemSummary>> systems() async {
+    final body = await _getJson('/api/systems') as Map<String, dynamic>;
+    final systems = body['systems'];
+    if (systems is! List) return const [];
+    return systems
+        .whereType<Map>()
+        .map((s) => SystemSummary.fromJson(Map<String, dynamic>.from(s)))
+        .toList();
+  }
+
+  /// A system's profile (normal ranges feed the temperature band).
+  Future<Map<String, dynamic>> profile(String systemId) async {
+    final body =
+        await _getJson('/api/systems/$systemId/profile') as Map<String, dynamic>;
+    final profile = body['profile'];
+    return profile is Map ? Map<String, dynamic>.from(profile) : const {};
+  }
+
   Future<PendingAction> decide(String runId, bool approve,
       {bool markNormal = false}) async {
     final verb = approve ? 'approve' : 'disapprove';
@@ -119,6 +138,30 @@ class AgentApi {
   }
 
   void close() => _client.close();
+}
+
+/// One monitored system from GET /api/systems.
+class SystemSummary {
+  const SystemSummary({
+    required this.systemId,
+    required this.name,
+    required this.kind,
+    required this.status,
+  });
+
+  final String systemId;
+  final String name;
+  final String kind;
+  final String status;
+
+  factory SystemSummary.fromJson(Map<String, dynamic> json) {
+    return SystemSummary(
+      systemId: json['system_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      kind: json['kind'] as String? ?? '',
+      status: json['status'] as String? ?? '',
+    );
+  }
 }
 
 class ApiError implements Exception {

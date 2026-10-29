@@ -1,50 +1,82 @@
 import 'package:flutter/material.dart';
 
-/// Dark ops theme matching the Command Center dashboard.
-const _bg = Color(0xFF0B1011);
-const _panel = Color(0xFF111719);
-const _green = Color(0xFFA5EFC0);
-const _amber = Color(0xFFF3CF7E);
-const _red = Color(0xFFFF887F);
-const _violet = Color(0xFFC4B5FD);
-const _muted = Color(0xFF8A9494);
+// Design tokens: "Enterprise Obsidian". Source of truth is
+// apps/web/app/tokens.css — the hex values below are copied from there
+// (§3 of ui-roadmap.md). Keep them in sync by hand.
+class Obsidian {
+  static const bg = Color(0xFF09090B);
+  static const surface = Color(0xFF121215);
+  static const surface2 = Color(0xFF18181C);
+  static const border = Color(0xFF1E1E24);
+  static const text = Color(0xFFFAFAFA);
+  static const textMuted = Color(0xFFA1A1AA);
+  static const textFaint = Color(0xFF71717A);
+  static const brand = Color(0xFF6366F1);
+  static const brandCyan = Color(0xFF38BDF8);
+  static const ok = Color(0xFF10B981);
+  static const warn = Color(0xFFF59E0B);
+  static const crit = Color(0xFFEF4444);
+}
 
 final telemetryTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.dark,
-  scaffoldBackgroundColor: _bg,
+  scaffoldBackgroundColor: Obsidian.bg,
+  fontFamily: 'GeistSans',
   colorScheme: const ColorScheme.dark(
-    primary: _green,
-    onPrimary: _bg,
-    secondary: _violet,
-    surface: _panel,
-    onSurface: Colors.white,
-    error: _red,
+    primary: Obsidian.brandCyan,
+    onPrimary: Obsidian.bg,
+    secondary: Obsidian.brand,
+    surface: Obsidian.surface,
+    onSurface: Obsidian.text,
+    error: Obsidian.crit,
+    onError: Obsidian.bg,
   ),
   appBarTheme: const AppBarTheme(
-    backgroundColor: _bg,
-    foregroundColor: Colors.white,
+    backgroundColor: Obsidian.bg,
+    foregroundColor: Obsidian.text,
   ),
-  cardTheme: const CardThemeData(
-    color: _panel,
-    margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+  cardTheme: CardThemeData(
+    color: Obsidian.surface,
+    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: const BorderSide(color: Obsidian.border),
+    ),
+  ),
+  chipTheme: const ChipThemeData(
+    backgroundColor: Obsidian.surface2,
+    selectedColor: Obsidian.surface2,
+    labelStyle: TextStyle(color: Obsidian.text, fontSize: 12),
+    secondaryLabelStyle: TextStyle(color: Obsidian.text, fontSize: 12),
+    side: BorderSide(color: Obsidian.border),
+    shape: StadiumBorder(),
   ),
   elevatedButtonTheme: ElevatedButtonThemeData(
     style: ElevatedButton.styleFrom(
-      backgroundColor: _green,
-      foregroundColor: _bg,
+      backgroundColor: Obsidian.brandCyan,
+      foregroundColor: Obsidian.bg,
+    ),
+  ),
+  outlinedButtonTheme: OutlinedButtonThemeData(
+    style: OutlinedButton.styleFrom(
+      foregroundColor: Obsidian.text,
+      side: const BorderSide(color: Obsidian.border),
     ),
   ),
   textTheme: const TextTheme(
-    bodySmall: TextStyle(color: _muted, fontFamily: 'monospace'),
+    bodySmall: TextStyle(color: Obsidian.textMuted),
+    labelSmall: TextStyle(color: Obsidian.textFaint, fontSize: 11),
   ),
 );
 
 /// Status accent colors shared by the feed and countdown.
 class Accents {
-  static const ok = _green;
-  static const warn = _amber;
-  static const fail = _red;
-  static const model = _violet;
-  static const muted = _muted;
+  static const ok = Obsidian.ok;
+  static const warn = Obsidian.warn;
+  static const fail = Obsidian.crit;
+  static const crit = Obsidian.crit;
+  static const model = Obsidian.brandCyan;
+  static const muted = Obsidian.textMuted;
+  static const faint = Obsidian.textFaint;
 }

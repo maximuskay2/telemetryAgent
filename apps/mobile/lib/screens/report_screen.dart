@@ -10,6 +10,7 @@ import '../models/pending_action.dart';
 import '../models/run_report.dart';
 import '../providers.dart';
 import '../theme.dart';
+import '../widgets/widgets.dart';
 import 'alarm_screen.dart' show outcomeTitle;
 
 /// M4: one incident's Crash → Grab → Suggest → Verify → Fix story plus its
@@ -169,7 +170,7 @@ class ReportBody extends StatelessWidget {
                 SelectableText(
                   report.runId,
                   style: const TextStyle(
-                      fontFamily: 'monospace', color: Accents.muted),
+                      fontFamily: 'GeistMono', color: Accents.muted),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -211,6 +212,7 @@ class ReportBody extends StatelessWidget {
       sections.add(_Section(
         title: 'Diagnosis',
         meta: diagnose.model,
+        trailing: ProviderChip(model: diagnose.model),
         child: Text(diagnose.detail),
       ));
     }
@@ -249,6 +251,16 @@ class ReportBody extends StatelessWidget {
         child: _RunbookView(runbook: Map<String, dynamic>.from(runbook)),
       ));
     }
+    if (report.verifyLine.isNotEmpty) {
+      sections.add(_Section(
+        title: 'Verification evidence',
+        child: Text(
+          report.verifyLine,
+          style: const TextStyle(
+              color: Accents.ok, fontWeight: FontWeight.w600),
+        ),
+      ));
+    }
     final verifySteps =
         report.steps.where((s) => s.step == 'verify').toList();
     if (verifySteps.isNotEmpty) {
@@ -277,9 +289,9 @@ class ReportBody extends StatelessWidget {
       onOpenPr: onOpenPr,
     ));
     if (report.domain == 'appliance') {
-      sections.add(const _Section(
-        title: 'Temperature (live stream)',
-        child: _TempChart(),
+      sections.add(SectionCard(
+        title: 'Sensors (live stream)',
+        child: _SensorCharts(report: report),
       ));
     }
     return sections;
@@ -549,7 +561,7 @@ class _CodeView extends StatelessWidget {
           child: SelectableText(
             code,
             style: const TextStyle(
-                fontFamily: 'monospace', fontSize: 11, height: 1.5),
+                fontFamily: 'GeistMono', fontSize: 11, height: 1.5),
           ),
         ),
       ),
@@ -653,21 +665,122 @@ class _FinalAction extends StatelessWidget {
   }
 }
 
-class _TempChart extends ConsumerWidget {
-  const _TempChart();
+/// Swipeable temperature / current / vibration charts. The temperature
+/// page shades the profile's normal band when the run carries a system.
+class _SensorCharts extends ConsumerStatefulWidget {
+  const _SensorCharts({required this.report});
+
+  final RunReport report;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SensorCharts> createState() => _SensorChartsState();
+}
+
+class _SensorChartsState extends ConsumerState<_SensorCharts> {
+  int _page = 0;
+  final _controller = PageController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final samples = ref.watch(fridgeTempsProvider);
     if (samples.length < 2) {
       return const Text(
-        'Collecting live temperatures — open the fridge stream first.',
+        'Collecting live readings — open the fridge stream first.',
         style: TextStyle(color: Accents.muted),
       );
     }
+    var systemId = widget.report.gate?.systemId ?? '';
+    if (systemId.isEmpty) {
+      final systems = ref.watch(systemsProvider).asData?.value ?? const [];
+      for (final system in systems) {
+        if (system.kind == widget.report.domain) {
+          systemId = system.systemId;
+          break;
+        }
+      }
+    }
+    final band = systemId.isEmpty
+        ? null
+        : ref.watch(profileBandProvider(systemId)).asData?.value;
+    final pages = [
+      _ChartPage(
+        label: 'Temperature °C',
+        values: [for (final s in samples) s.celsius],
+        color: Accents.warn,
+        band: band,
+      ),
+      _ChartPage(
+        label: 'Current A',
+        values: [for (final s in samples) s.amps],
+        color: Obsidian.brandCyan,
+      ),
+      _ChartPage(
+        label: 'Vibration g',
+        values: [for (final s in samples) s.vibrationG],
+        color: Accents.ok,
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 150,
+          child: PageView(
+            controller: _controller,
+            onPageChanged: (page) => setState(() => _page = page),
+            children: pages,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < pages.length; i++)
+              Container(
+                width: 6,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i == _page ? Accents.ok : Obsidian.textFaint,
+                ),
+              ),
+          ],
+        ),
+        Text(
+          '${samples.length} samples',
+          style:
+              const TextStyle(color: Accents.muted, fontSize: 11),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChartPage extends StatelessWidget {
+  const _ChartPage({
+    required this.label,
+    required this.values,
+    required this.color,
+    this.band,
+  });
+
+  final String label;
+  final List<double> values;
+  final Color color;
+  final ({double min, double max})? band;
+
+  @override
+  Widget build(BuildContext context) {
     final spots = <FlSpot>[];
-    for (var i = 0; i < samples.length; i++) {
-      spots.add(FlSpot(i.toDouble(), samples[i].celsius));
+    for (var i = 0; i < values.length; i++) {
+      spots.add(FlSpot(i.toDouble(), values[i]));
     }
     var minY = spots.first.y;
     var maxY = spots.first.y;
@@ -675,12 +788,18 @@ class _TempChart extends ConsumerWidget {
       if (spot.y < minY) minY = spot.y;
       if (spot.y > maxY) maxY = spot.y;
     }
+    if (band != null) {
+      if (band!.min < minY) minY = band!.min;
+      if (band!.max > maxY) maxY = band!.max;
+    }
     final pad = (maxY - minY).clamp(0.5, 50.0) * 0.2 + 0.2;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          height: 120,
+        Text(label,
+            style: const TextStyle(
+                color: Accents.muted, fontSize: 11)),
+        Expanded(
           child: LineChart(
             LineChartData(
               gridData: const FlGridData(show: false),
@@ -689,11 +808,21 @@ class _TempChart extends ConsumerWidget {
               minY: minY - pad,
               maxY: maxY + pad,
               lineTouchData: const LineTouchData(enabled: false),
+              rangeAnnotations: RangeAnnotations(
+                horizontalRangeAnnotations: [
+                  if (band != null)
+                    HorizontalRangeAnnotation(
+                      y1: band!.min,
+                      y2: band!.max,
+                      color: Accents.ok.withAlpha(25),
+                    ),
+                ],
+              ),
               lineBarsData: [
                 LineChartBarData(
                   spots: spots,
                   isCurved: true,
-                  color: Accents.warn,
+                  color: color,
                   barWidth: 2,
                   dotData: const FlDotData(show: false),
                 ),
@@ -702,8 +831,7 @@ class _TempChart extends ConsumerWidget {
           ),
         ),
         Text(
-          'now ${samples.last.celsius.toStringAsFixed(1)}°C · '
-          '${samples.length} samples',
+          'now ${values.last.toStringAsFixed(2)}',
           style:
               const TextStyle(color: Accents.muted, fontSize: 11),
         ),

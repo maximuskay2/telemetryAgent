@@ -45,6 +45,28 @@ class VerifyFixTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_fix("", "patch", "test", runner=_runner_factory([]))
 
+    def test_outcome_carries_per_side_outputs(self) -> None:
+        runner = _runner_factory([
+            {"passed": False, "feedback": "assert order"},
+            {"passed": True, "feedback": "1 passed"},
+        ])
+        outcome = verify_fix("original", "patch", "test", runner=runner)
+        self.assertEqual(
+            outcome["original"], {"passed": False, "output": "assert order"}
+        )
+        self.assertEqual(
+            outcome["patched"], {"passed": True, "output": "1 passed"}
+        )
+        self.assertIsNone(outcome["runner"])
+
+    def test_rejected_test_has_no_patched_output(self) -> None:
+        runner = _runner_factory([{"passed": True, "feedback": "ok"}])
+        outcome = verify_fix("original", "patch", "test", runner=runner)
+        self.assertEqual(
+            outcome["original"], {"passed": True, "output": "ok"}
+        )
+        self.assertIsNone(outcome["patched"])
+
 
 class VerifyPatchTests(unittest.TestCase):
     def test_empty_inputs_rejected_without_touching_modal(self) -> None:

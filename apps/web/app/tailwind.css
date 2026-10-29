@@ -1,0 +1,101 @@
+/* Tailwind v4 without preflight (G3): theme + utilities only, so the
+ * existing pages (/ /setup /shop /classic) keep their exact look. Only
+ * files that use Tailwind classes are affected. */
+
+@layer theme, base, utilities;
+@import "./tokens.css";
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Minimal page reset (still no preflight, G3): the legacy sheet used to
+ * zero the body margin and paint the backdrop; now scoped to /classic. */
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Minimal element reset in `base` (below utilities): neutralize native
+ * button faces and heading margins that preflight would otherwise remove.
+ * Deliberately NOT the full preflight: no border-color, img, hr, or
+ * placeholder resets, so /classic-era markup is unaffected. */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  button {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  ul,
+  ol,
+  dl,
+  dd,
+  figure {
+    margin: 0;
+  }
+}
+
+/* S9: one visible focus ring for every interactive element. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 2px;
+}
+
+/* S9: honor reduced motion for pulses, rings and transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Traffic pulses: each dot is one real shop_order, travelling the map. */
+@keyframes mission-pulse-x {
+  from {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(640px);
+    opacity: 0;
+  }
+}
+
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-brand: var(--brand);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-crit: var(--crit);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+}

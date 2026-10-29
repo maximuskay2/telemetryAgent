@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Sparkline from "../components/Sparkline";
+import { Sparkline } from "../ui";
 
 type Product = { sku: string; name: string; price: number; stock: number };
 type Toast = { id: number; text: string; ok: boolean };
@@ -86,41 +86,81 @@ export default function ShopPage() {
     errorRate.length > 0 && errorRate[errorRate.length - 1] > 0.05;
 
   return (
-    <main className="shell">
-      <header className="topbar">
+    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 bg-bg p-4 text-text">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-ok/20 pb-3">
         <div>
-          <p className="eyebrow">AUTOPARTS LAGOS · LIVE SHOP</p>
-          <h1>Shop</h1>
+          <p className="text-[11px] font-semibold tracking-wide text-ok/80 uppercase">
+            AutoParts Lagos · Customer storefront
+          </p>
+          <h1 className="text-2xl font-bold text-text">Shop</h1>
         </div>
-        <div className={`status ${status === "open" ? "connected" : "disconnected"}`}>
-          <span className="status-dot" />
+        <nav aria-label="Demo navigation" className="flex items-center gap-2">
+          <a
+            href="/"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[13px] font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            ← Mission Control
+          </a>
+          <a
+            href="/start"
+            className="rounded-lg border border-brand/50 bg-brand/10 px-3 py-1.5 text-[13px] font-medium text-brand-cyan outline-none hover:bg-brand/20 focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Guided demo
+          </a>
+        </nav>
+        <p
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+            status === "open"
+              ? "border-ok/40 bg-ok/10 text-ok"
+              : "border-crit/40 bg-crit/10 text-crit"
+          }`}
+        >
+          <span
+            className={`size-1.5 rounded-full ${status === "open" ? "bg-ok" : "bg-crit"}`}
+          />
           {status}
-        </div>
+        </p>
       </header>
 
-      <section className={`panel shop-banner ${failing ? "failing" : ""}`}>
+      <section
+        aria-label="Live error rate"
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${
+          failing ? "border-crit/50 bg-crit/10" : "border-border bg-surface"
+        }`}
+      >
         <div>
-          <p className="eyebrow">ERROR RATE · LIVE</p>
-          <p className="bignum">
+          <p className="text-[11px] font-semibold tracking-wide text-text-faint uppercase">
+            Error rate · live
+          </p>
+          <p className="font-mono text-3xl tabular-nums text-text">
             {errorRate.length > 0
               ? `${((errorRate[errorRate.length - 1] ?? 0) * 100).toFixed(1)}%`
               : "—"}
           </p>
         </div>
-        <Sparkline values={errorRate} />
+        <span className={failing ? "text-crit" : "text-ok/70"}>
+          <Sparkline points={errorRate.length > 1 ? errorRate : [0, 0]} width={220} height={40} />
+        </span>
       </section>
 
-      <section className="product-grid">
+      <section
+        aria-label="Products"
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      >
         {products.map((product) => (
-          <article className="panel product" key={product.sku}>
-            <p className="eyebrow">{product.sku}</p>
-            <h2>{product.name}</h2>
-            <p className="price">${product.price.toFixed(2)}</p>
-            <p className="hint">stock: {product.stock}</p>
+          <article
+            key={product.sku}
+            className="flex flex-col gap-1 rounded-xl border border-border bg-surface p-4"
+          >
+            <p className="font-mono text-[11px] text-text-faint">{product.sku}</p>
+            <h2 className="text-base font-semibold">{product.name}</h2>
+            <p className="font-mono text-xl text-text">${product.price.toFixed(2)}</p>
+            <p className="text-xs text-text-muted">stock: {product.stock}</p>
             <button
               type="button"
               disabled={buying !== null}
               onClick={() => buy(product.sku)}
+              className="mt-2 cursor-pointer rounded-lg bg-ok px-3 py-2 text-sm font-semibold text-[#0b1710] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {buying === product.sku ? "Placing…" : "Buy"}
             </button>
@@ -128,16 +168,26 @@ export default function ShopPage() {
         ))}
       </section>
 
-      <div className="toasts" aria-live="polite">
+      <div className="flex flex-col gap-1" aria-live="polite">
         {toasts.map((t) => (
-          <p key={t.id} className={t.ok ? "toast ok" : "toast bad"}>
+          <p
+            key={t.id}
+            className={`rounded-lg border p-2 text-sm ${
+              t.ok
+                ? "border-ok/40 bg-ok/10 text-ok"
+                : "border-crit/40 bg-crit/10 text-crit"
+            }`}
+          >
             {t.text}
           </p>
         ))}
       </div>
 
-      <footer>
-        <a href="/">← Telemetry Agent</a> · shop {shopUrl}
+      <footer className="mt-auto text-xs text-text-faint">
+        <a href="/" className="hover:underline">
+          ← Telemetry Agent
+        </a>{" "}
+        · shop {shopUrl}
       </footer>
     </main>
   );

@@ -39,8 +39,11 @@ Every step streams to a Next.js dashboard over WebSockets.
 
 ## Interfaces
 
-- **Web dashboard (main product):** a Next.js app in the browser where engineers
-  watch both incident panels live.
+- **Web dashboard (main product):** Mission Control at `/` — shop topology,
+  freezer state, incident list with gate cards and detail drawer, agent trace
+  and veto ring. The pre-redesign dashboard stays at `/classic` for now.
+
+  ![Mission Control](docs/screenshots/mission.png)
 - **Mobile app:** a Flutter app (`apps/mobile/`) with the veto countdown,
   alarm screen, run reports and the activity feed; see
   [`mobile-roadmap.md`](./mobile-roadmap.md).

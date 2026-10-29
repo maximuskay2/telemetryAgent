@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:telemetry_agent/models/agent_step.dart';
 import 'package:telemetry_agent/models/pending_action.dart';
+import 'package:telemetry_agent/models/run_report.dart';
 import 'package:telemetry_agent/providers.dart';
 import 'package:telemetry_agent/screens/alarm_screen.dart';
 import 'package:telemetry_agent/services/alarm.dart';
@@ -35,13 +37,13 @@ void main() {
       expect(find.text('VETO WINDOW OPEN'), findsOneWidget);
       expect(find.text('17s'), findsOneWidget);
       expect(find.textContaining('Deploy the verified'), findsOneWidget);
-      await tester.tap(find.text('NOT NOW'));
+      await tester.tap(find.text('DISAPPROVE'));
       expect(decided, isFalse);
       expect(marked, isFalse);
-      await tester.tap(find.text('NOT NOW + THIS IS NORMAL'));
+      await tester.tap(find.text('Disapprove + this is normal'));
       expect(decided, isFalse);
       expect(marked, isTrue);
-      await tester.tap(find.text('APPROVE'));
+      await tester.tap(find.text('Approve now'));
       expect(decided, isTrue);
       expect(marked, isFalse);
     });
@@ -69,6 +71,56 @@ void main() {
         find.widgetWithText(ElevatedButton, '…'),
       );
       expect(off.onPressed, isNull);
+    });
+  });
+
+  group('AlarmScreen context', () {
+    testWidgets('approval-only variant shows diagnosis and evidence',
+        (tester) async {
+      final action = PendingAction(
+        runId: 'r-2',
+        domain: 'software',
+        action: 'Deploy the verified inventory patch',
+        openedAt: 1000,
+        deadline:
+            DateTime.now().millisecondsSinceEpoch / 1000 + 20,
+        autoApply: false,
+      );
+      const report = RunReport(
+        runId: 'r-2',
+        domain: 'software',
+        status: 'PASS',
+        steps: [
+          AgentStep(
+              step: 'diagnose', detail: 'Lock order bug in inventory'),
+          AgentStep(step: 'generate', attempt: 1),
+          AgentStep(step: 'verify', status: 'PASS'),
+          AgentStep(step: 'done', status: 'PASS'),
+        ],
+        verification: {
+          'runner': 'docker',
+          'original': {'passed': false, 'output': 'x'},
+          'patched': {'passed': true, 'output': 'y'},
+        },
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlarmScreen(
+            action: action,
+            secondsLeft: 14,
+            report: report,
+            onDecide: (_, _) async {},
+            onSilence: () async {},
+          ),
+        ),
+      );
+      expect(find.text('APPROVAL REQUIRED'), findsOneWidget);
+      expect(find.text('nothing applies without you'), findsOneWidget);
+      expect(find.text('Lock order bug in inventory'), findsOneWidget);
+      expect(
+          find.text('Verified: tests fail→pass in docker'),
+          findsOneWidget);
+      expect(find.text('SUGGEST'), findsOneWidget);
     });
   });
 

@@ -16,6 +16,7 @@ class RunReport {
     this.gate,
     this.steps = const [],
     this.result = const {},
+    this.verification,
   });
 
   final String runId;
@@ -30,6 +31,7 @@ class RunReport {
   final GateDecision? gate;
   final List<AgentStep> steps;
   final Map<String, dynamic> result;
+  final Map<String, dynamic>? verification;
 
   factory RunReport.fromListJson(Map<String, dynamic> json) {
     return RunReport(
@@ -56,6 +58,9 @@ class RunReport {
     final rawResult = json['result'];
     final rawDecision = json['decision'];
     final rawGate = json['gate'];
+    final rawVerification = json['verification'];
+    final nestedVerification =
+        rawResult is Map ? rawResult['verification'] : null;
     return RunReport(
       runId: json['run_id'] as String? ?? '',
       domain: json['domain'] as String? ?? '',
@@ -76,12 +81,38 @@ class RunReport {
       gate: rawGate is Map
           ? GateDecision.fromJson(Map<String, dynamic>.from(rawGate))
           : null,
+      // S1's optional fail-to-pass evidence: top-level sibling first, then
+      // the copy nested in result. Pre-S1 runs have neither (null-safe).
+      verification: rawVerification is Map
+          ? Map<String, dynamic>.from(rawVerification)
+          : nestedVerification is Map
+              ? Map<String, dynamic>.from(nestedVerification)
+              : null,
     );
   }
 
   /// Sum of streamed stage wall times, for the "pipeline took …" header.
   double get pipelineMs =>
       steps.fold(0.0, (total, step) => total + step.durationMs);
+
+  /// S1 evidence, all optional so pre-S1 reports still render.
+  String get verificationRunner =>
+      verification?['runner'] as String? ?? '';
+
+  bool get verifyFailedOnOriginal =>
+      (verification?['original'] as Map?)?['passed'] == false;
+
+  bool get verifyPassedOnPatch =>
+      (verification?['patched'] as Map?)?['passed'] == true;
+
+  /// "Verified: tests fail→pass in {runner}" or '' when no evidence.
+  String get verifyLine {
+    if (!verifyFailedOnOriginal || !verifyPassedOnPatch) return '';
+    final runner = verificationRunner;
+    return runner.isEmpty
+        ? 'Verified: tests fail→pass'
+        : 'Verified: tests fail→pass in $runner';
+  }
 }
 
 /// The setup gate's verdict for the candidate behind this run:
@@ -92,12 +123,14 @@ class GateDecision {
     required this.reason,
     required this.citation,
     this.checks = const [],
+    this.systemId = '',
   });
 
   final String decision;
   final String reason;
   final String citation;
   final List<GateCheck> checks;
+  final String systemId;
 
   factory GateDecision.fromJson(Map<String, dynamic> json) {
     final rawChecks = json['checks'];
@@ -105,6 +138,7 @@ class GateDecision {
       decision: json['decision'] as String? ?? '',
       reason: json['reason'] as String? ?? '',
       citation: json['citation'] as String? ?? '',
+      systemId: json['system_id'] as String? ?? '',
       checks: rawChecks is List
           ? rawChecks
               .whereType<Map>()

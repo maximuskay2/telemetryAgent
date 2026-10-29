@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import base64
 import os
+import re
+import time
 from typing import Mapping, NoReturn, Optional
 from uuid import uuid4
 
@@ -20,6 +22,11 @@ from core.schemas.remediation import GeneratedPatch
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
 MAX_BODY_OUTPUT_CHARS = 4000
+
+#: R2: within this window after a fix PR, further runs reuse its URL.
+PR_REUSE_WINDOW_S = 600.0
+_last_pr_at = 0.0
+_last_pr_url: Optional[str] = None
 
 
 def _token(explicit: Optional[str] = None) -> str:
@@ -175,9 +182,18 @@ def open_fix_pr(
     test_path: str = "test_solution.py",
 ) -> str:
     """Loop-compatible wrapper: build the PR title/body/files and open it."""
+    global _last_pr_at, _last_pr_url
     repo = repo or os.environ.get("GITHUB_DEMO_REPO", "")
     if not repo.strip() or "/" not in repo:
         raise RuntimeError("Set GITHUB_DEMO_REPO to the demo target as owner/repo.")
+    if (
+        client is None
+        and _last_pr_url is not None
+        and time.time() - _last_pr_at < PR_REUSE_WINDOW_S
+    ):
+        # R2: one demo storm must not open a PR per run; reuse the fresh one.
+        # Explicit clients (tests, scripts) always go through.
+        return _last_pr_url
     base = base or os.environ.get("GITHUB_BASE_BRANCH", "main")
     branch = branch or f"telemetry-agent/fix-{uuid4().hex[:8]}"
     output = (verification_feedback or "")[-MAX_BODY_OUTPUT_CHARS:]
@@ -190,13 +206,37 @@ def open_fix_pr(
         f"- **Generation model:** {model_used}\n\n"
         f"### Verification (pytest in Modal Sandbox)\n\n```\n{output}\n```\n"
     )
-    return open_pr(
+    url = open_pr(
         repo=repo,
         base=base,
         branch=branch,
         title=title,
         body=body,
-        files={code_path: patch.patch_code, test_path: patch.test_code},
+        files={
+            code_path: patch.patch_code,
+            test_path: retarget_imports(patch.test_code, code_path),
+        },
         token=token,
         client=client,
     )
+    if client is None:
+        _last_pr_at = time.time()
+        _last_pr_url = url
+    return url
+
+
+def retarget_imports(test_code: str, code_path: str) -> str:
+    """Point a test written against `solution` at the module the PR changes.
+
+    Generated tests import `solution` (the sandbox filename); in the target
+    repo the patch lands as `code_path`, so the test must import that module.
+    """
+    module = os.path.splitext(os.path.basename(code_path))[0]
+    if module == "solution":
+        return test_code
+    test_code = re.sub(r"^(\s*)from solution import", rf"\1from {module} import",
+                       test_code, flags=re.MULTILINE)
+    test_code = re.sub(r"^(\s*)import solution as ", rf"\1import {module} as ",
+                       test_code, flags=re.MULTILINE)
+    return re.sub(r"^(\s*)import solution\s*$", rf"\1import {module} as solution",
+                  test_code, flags=re.MULTILINE)

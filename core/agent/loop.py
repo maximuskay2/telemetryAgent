@@ -7,11 +7,21 @@ from uuid import uuid4
 
 from core.infer import baseten_client, fireworks_client, meta_client
 from core.infer.meta_client import DIAGNOSIS_MODEL, ESCALATION_MODEL
-from core.schemas.remediation import ApplianceResult, ExecutionResult, VerificationResult
+from core.schemas.remediation import (
+    ApplianceResult,
+    ExecutionResult,
+    RunVerification,
+    VerificationResult,
+)
 from core.schemas.telemetry import ApplianceTelemetry, SoftwareTelemetry
 from core.setup.gate import gate_has_impact
 from core.verify.safety_rules import validate_runbook
-from core.verify.sandbox import ORIGINAL_PASS_PREFIX, verify_fix, verify_patch
+from core.verify.sandbox import (
+    ORIGINAL_PASS_PREFIX,
+    selected_runner,
+    verify_fix,
+    verify_patch,
+)
 
 EventCallback = Callable[[dict], None]
 MAX_DETAIL_CHARS = 2000
@@ -37,6 +47,14 @@ def _diagnosis_detail(diagnosis: Any) -> str:
     cause = getattr(diagnosis, "likely_cause", "") or ""
     text = summary if not cause else f"{summary} — likely cause: {cause}"
     return _truncate(text)
+
+
+def _state_verification(state: dict) -> Optional[RunVerification]:
+    """Last attempt's fail-to-pass evidence, if verification ran (S1)."""
+    record = state.get("verification")
+    if not record:
+        return None
+    return RunVerification(**record)
 
 
 def _fix_detail(fix: Any) -> str:
@@ -167,6 +185,7 @@ def run_software_loop(
     harness: Optional[str] = None,
     reference: str = "",
     gate: Optional[dict] = None,
+    target: str = "",
 ) -> ExecutionResult:
     """Software loop; `open_pr` opens the fix PR and returns its URL.
 
@@ -248,8 +267,28 @@ def run_software_loop(
             state["checked_original"] = True
             if not outcome["feedback"].startswith(ORIGINAL_PASS_PREFIX):
                 state["saw_failing_original"] = True
+            state["verification"] = {
+                "target": target,
+                "original_code": original_code,
+                "test_code": patch.test_code,
+                "original": outcome.get("original"),
+                "patched": outcome.get("patched"),
+                "runner": outcome.get("runner"),
+            }
             return VerificationResult(**outcome)
-        return VerificationResult(**verify_patch(patch.patch_code, patch.test_code))
+        result = verify_patch(patch.patch_code, patch.test_code)
+        state["verification"] = {
+            "target": target,
+            "original_code": None,
+            "test_code": patch.test_code,
+            "original": None,
+            "patched": {
+                "passed": result.get("passed", False),
+                "output": result.get("feedback", ""),
+            },
+            "runner": result.get("runner") or selected_runner(),
+        }
+        return VerificationResult(**result)
 
     def act(patch, diagnosis, result, attempts: int) -> ExecutionResult:
         pr_url = None
@@ -270,6 +309,7 @@ def run_software_loop(
             pr_url=pr_url,
             run_id=run_id,
             patch_code=patch.patch_code,
+            verification=_state_verification(state),
         )
 
     outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,
@@ -291,6 +331,7 @@ def run_software_loop(
         attempts=outcome["attempts"],
         model_used=state["model"],
         run_id=run_id,
+        verification=_state_verification(state),
     )
 
 
@@ -412,6 +453,7 @@ def run_diagnostic_loop(
     harness: Optional[str] = None,
     reference: str = "",
     gate: Optional[dict] = None,
+    target: str = "",
 ) -> ExecutionResult:
     telemetry = SoftwareTelemetry(source_id="api", raw_log=log_text)
     return run_software_loop(
@@ -425,4 +467,5 @@ def run_diagnostic_loop(
         harness=harness,
         reference=reference,
         gate=gate,
+        target=target,
     )

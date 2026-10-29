@@ -532,3 +532,117 @@ class CandidateApiTests(unittest.TestCase):
                     )
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()["gate"])
+
+
+class GateLogTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from apps.api.main import gate_decisions
+
+        gate_decisions.clear()
+
+    def tearDown(self) -> None:
+        from apps.api.main import gate_decisions
+
+        gate_decisions.clear()
+
+    def _post_candidate(self, client, system_id, fingerprint, **over):
+        body = {
+            "system_id": system_id,
+            "rule": "deadlock",
+            "fingerprint": fingerprint,
+        }
+        body.update(over)
+        response = client.post("/api/incidents/candidate", json=body)
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_log_orders_counts_and_limits(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from apps.api.main import app
+        from core.setup import modes as setup_modes
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                setup_store.save_profile(armed_profile())
+                setup_modes.set_mode("sys-1", "defrost")
+                with TestClient(app) as client:
+                    self._post_candidate(client, "sys-unknown", "g1")
+                    self._post_candidate(client, "sys-unknown", "g2")
+                    suppressed = client.post(
+                        "/api/incidents/candidate",
+                        json={
+                            "system_id": "sys-1",
+                            "source": "sensor",
+                            "rule": "temp_c_high",
+                            "fingerprint": "g3",
+                            "metrics": {"temp_c": 6.5},
+                            "durations": {"temp_c": 120.0},
+                        },
+                    )
+                    self.assertEqual(
+                        suppressed.json()["decision"]["decision"], "suppress"
+                    )
+                    log = client.get("/api/gate/decisions")
+                    self.assertEqual(log.status_code, 200)
+                    body = log.json()
+                    self.assertEqual(
+                        [d["fingerprint"] for d in body["decisions"]],
+                        ["g3", "g2", "g1"],
+                    )
+                    self.assertEqual(
+                        body["counts"],
+                        {"suppress": 1, "observe": 2, "act": 0},
+                    )
+                    for item in body["decisions"]:
+                        self.assertIn("ts", item)
+                        self.assertIn("system_id", item)
+                    limited = client.get("/api/gate/decisions?limit=1")
+                    self.assertEqual(len(limited.json()["decisions"]), 1)
+                    self.assertEqual(
+                        limited.json()["decisions"][0]["fingerprint"], "g3"
+                    )
+                    self.assertEqual(
+                        limited.json()["counts"],
+                        {"suppress": 1, "observe": 2, "act": 0},
+                    )
+                    too_many = client.get("/api/gate/decisions?limit=999")
+                    self.assertEqual(too_many.status_code, 422)
+
+    def test_reset_clears_log(self) -> None:
+        import tempfile
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from apps.api.main import app
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    self._post_candidate(client, "sys-unknown", "g9")
+                    before = client.get("/api/gate/decisions").json()
+                    self.assertEqual(len(before["decisions"]), 1)
+                    reset = client.post("/api/sim/reset")
+                    self.assertEqual(reset.status_code, 200)
+                    after = client.get("/api/gate/decisions").json()
+                    self.assertEqual(after["decisions"], [])
+                    self.assertEqual(
+                        after["counts"],
+                        {"suppress": 0, "observe": 0, "act": 0},
+                    )
+
+    def test_ring_keeps_last_200(self) -> None:
+        from apps.api.main import _record_gate_decision, gate_decisions
+
+        for index in range(250):
+            _record_gate_decision(
+                "sys-1", {"decision": "observe", "n": index}
+            )
+        self.assertEqual(len(gate_decisions), 200)
+        self.assertEqual(gate_decisions[0]["n"], 50)
+        self.assertEqual(gate_decisions[-1]["n"], 249)

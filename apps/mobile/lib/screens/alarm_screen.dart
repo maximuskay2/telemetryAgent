@@ -1,12 +1,16 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/agent_step.dart';
 import '../models/pending_action.dart';
+import '../models/run_report.dart';
 import '../providers.dart';
 import '../services/api.dart';
 import '../theme.dart';
+import '../widgets/widgets.dart';
 
 /// Seconds left from the server deadline, corrected by the latest tick:
 /// a fresh tick (≤2 s old) wins over the local clock.
@@ -82,12 +86,15 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
         1,
         (widget.action.deadline - widget.action.openedAt).round());
     ref.read(alarmHardwareProvider).setUrgent(left <= 5);
+    final report =
+        ref.watch(runDetailProvider(widget.action.runId)).asData?.value;
     return AlarmScreen(
       action: widget.action,
       secondsLeft: left,
       total: total,
       busy: _busy,
       error: _error,
+      report: report,
       onDecide: _decide,
       onSilence: () async {
         await ref.read(alarmProvider.notifier).silence();
@@ -95,6 +102,23 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       },
     );
   }
+}
+
+/// Stepper flags from streamed steps: CRASH, GRAB, SUGGEST, VERIFY, FIX.
+List<bool> reachedFromSteps(List<AgentStep> steps) {
+  bool has(String name) => steps.any((s) => s.step == name);
+  return [
+    steps.isNotEmpty,
+    steps.isNotEmpty,
+    has('diagnose'),
+    has('verify'),
+    has('done'),
+  ];
+}
+
+String _oneLine(String text) {
+  final line = text.split('\n').first.trim();
+  return line.length > 140 ? '${line.substring(0, 140)}…' : line;
 }
 
 class AlarmScreen extends StatelessWidget {
@@ -107,6 +131,7 @@ class AlarmScreen extends StatelessWidget {
     this.total = 20,
     this.busy = false,
     this.error,
+    this.report,
   });
 
   final PendingAction action;
@@ -116,125 +141,198 @@ class AlarmScreen extends StatelessWidget {
   final Future<void> Function() onSilence;
   final bool busy;
   final String? error;
+  final RunReport? report;
 
   @override
   Widget build(BuildContext context) {
     final urgent = secondsLeft <= 5;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              color: Accents.fail,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              child: const Text(
-                'VETO WINDOW OPEN',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                  letterSpacing: 2,
-                ),
-              ),
+    final approvalOnly = !action.autoApply;
+    final bannerColor = approvalOnly ? Accents.warn : Accents.fail;
+    final steps = report?.steps ?? const <AgentStep>[];
+    AgentStep? diagnose;
+    for (final step in steps) {
+      if (step.step == 'diagnose') diagnose = step;
+    }
+    final diagnosis = diagnose == null
+        ? ''
+        : _oneLine(diagnose.detail.isNotEmpty
+            ? diagnose.detail
+            : diagnose.message);
+    final verifyLine = report?.verifyLine ?? '';
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(0, -0.6),
+              radius: 1.4,
+              colors: [
+                bannerColor.withAlpha(70),
+                Colors.black,
+              ],
             ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(24),
-                children: [
-                  Center(
-                    child: CountdownRing(
-                      secondsLeft: secondsLeft,
-                      total: total,
-                      urgent: urgent,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'until auto-apply',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Accents.muted),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    action.action,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 18),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${action.domain} · run ${action.runId}',
+          ),
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  color: bannerColor,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    approvalOnly
+                        ? 'APPROVAL REQUIRED'
+                        : 'VETO WINDOW OPEN',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        color: Accents.muted, fontFamily: 'monospace'),
-                  ),
-                  if (error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Accents.fail),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed:
-                          busy ? null : () => onDecide(false, false),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Accents.fail,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                      ),
-                      child: Text(busy ? '…' : 'NOT NOW'),
+                      color: Colors.black,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                      letterSpacing: 2,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed:
-                          busy ? null : () => onDecide(true, false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Accents.ok,
-                        side: const BorderSide(color: Accents.ok),
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                      ),
-                      child: const Text('APPROVE'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding:
-                  const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-              child: OutlinedButton(
-                onPressed:
-                    busy ? null : () => onDecide(false, true),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Accents.warn,
-                  side: const BorderSide(color: Accents.warn),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                child: const Text('NOT NOW + THIS IS NORMAL'),
-              ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.all(24),
+                    children: [
+                      Center(
+                        child: CountdownRing(
+                          secondsLeft: secondsLeft,
+                          total: total,
+                          urgent: urgent,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        approvalOnly
+                            ? 'nothing applies without you'
+                            : 'until auto-apply',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Accents.muted),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        action.action,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${action.domain} · run ${action.runId}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Accents.muted,
+                            fontFamily: 'GeistMono',
+                            fontSize: 12),
+                      ),
+                      if (diagnosis.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          diagnosis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Obsidian.text, fontSize: 14),
+                        ),
+                      ],
+                      if (steps.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Center(
+                          child: StepperRow(
+                            reached: reachedFromSteps(steps),
+                            appliance: action.domain == 'appliance',
+                          ),
+                        ),
+                      ],
+                      if (verifyLine.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          verifyLine,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              color: Accents.ok, fontSize: 13),
+                        ),
+                      ],
+                      if (error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          error!,
+                          textAlign: TextAlign.center,
+                          style:
+                              const TextStyle(color: Accents.fail),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                      left: 16, right: 16, top: 8),
+                  child: ElevatedButton(
+                    onPressed:
+                        busy ? null : () => onDecide(false, false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Accents.fail,
+                      foregroundColor: Colors.black,
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 18),
+                      textStyle: const TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
+                    child: Text(busy ? '…' : 'DISAPPROVE'),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                      left: 16, right: 16, top: 8),
+                  child: OutlinedButton(
+                    onPressed:
+                        busy ? null : () => onDecide(true, false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Accents.ok,
+                      side: const BorderSide(color: Accents.ok),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 16),
+                      textStyle: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text('Approve now'),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                      left: 16, right: 16, top: 8),
+                  child: OutlinedButton(
+                    onPressed:
+                        busy ? null : () => onDecide(false, true),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Accents.warn,
+                      side: const BorderSide(color: Accents.warn),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text(
+                        'Disapprove + this is normal'),
+                  ),
+                ),
+                TextButton(
+                  onPressed: busy ? null : onSilence,
+                  child: const Text(
+                    'Silence phone (server keeps counting)',
+                    style: TextStyle(color: Accents.muted),
+                  ),
+                ),
+              ],
             ),
-            TextButton(
-              onPressed: busy ? null : onSilence,
-              child: const Text(
-                'Silence phone (server keeps counting)',
-                style: TextStyle(color: Accents.muted),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -258,19 +356,26 @@ class CountdownRing extends StatelessWidget {
   Widget build(BuildContext context) {
     final fraction =
         total <= 0 ? 0.0 : (secondsLeft / total).clamp(0.0, 1.0);
-    final color = urgent ? Accents.fail : Colors.white;
+    final color = urgent
+        ? Accents.fail
+        : secondsLeft <= 10
+            ? Accents.warn
+            : Colors.white;
+    final size = math.min(MediaQuery.sizeOf(context).width * 0.7, 340.0);
     return SizedBox(
-      width: 190,
-      height: 190,
+      width: size,
+      height: size,
       child: CustomPaint(
         painter: _RingPainter(fraction: fraction, color: color),
         child: Center(
           child: Text(
             '${secondsLeft}s',
             style: TextStyle(
-              fontSize: 64,
+              fontSize: 72,
               fontWeight: FontWeight.w900,
               color: color,
+              fontFamily: 'GeistMono',
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ),
@@ -385,7 +490,7 @@ class OutcomeScreen extends StatelessWidget {
                   action.detail,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                      color: Accents.muted, fontFamily: 'monospace'),
+                      color: Accents.muted, fontFamily: 'GeistMono'),
                 ),
               ],
               const SizedBox(height: 32),

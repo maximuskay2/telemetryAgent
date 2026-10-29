@@ -35,6 +35,18 @@ void main() {
       expect(ReportFilter.failed.matches(_row(decision: 'approved')),
           isFalse);
     });
+
+    test('ignored matches suppressed gate verdicts', () {
+      const suppressed = RunReport(
+        runId: 'r',
+        domain: 'software',
+        status: 'NO_ACTION',
+        gate: GateDecision(
+            decision: 'suppress', reason: 'defrost', citation: 'spec p.2'),
+      );
+      expect(ReportFilter.ignored.matches(suppressed), isTrue);
+      expect(ReportFilter.ignored.matches(_row()), isFalse);
+    });
   });
 
   group('RunReport detail', () {
@@ -71,6 +83,35 @@ void main() {
           ['Check lock order', 'Add test']);
       expect(detail.decisionDetail, isA<PendingAction>());
       expect(detail.decisionDetail!.decidedBy, 'pixel');
+    });
+
+    test('reads S1 verification evidence when present', () {
+      final detail = RunReport.fromDetailJson({
+        'run_id': 'r',
+        'domain': 'software',
+        'result': {'status': 'PASS'},
+        'steps': const [],
+        'verification': {
+          'runner': 'docker',
+          'original': {'passed': false, 'output': '1 failed'},
+          'patched': {'passed': true, 'output': '3 passed'},
+        },
+      });
+      expect(detail.verificationRunner, 'docker');
+      expect(detail.verifyFailedOnOriginal, isTrue);
+      expect(detail.verifyPassedOnPatch, isTrue);
+      expect(detail.verifyLine, 'Verified: tests fail→pass in docker');
+    });
+
+    test('pre-S1 runs render without verification', () {
+      final detail = RunReport.fromDetailJson({
+        'run_id': 'r',
+        'domain': 'software',
+        'result': {'status': 'PASS'},
+        'steps': const [],
+      });
+      expect(detail.verification, isNull);
+      expect(detail.verifyLine, isEmpty);
     });
   });
 

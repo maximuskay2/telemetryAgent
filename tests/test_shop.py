@@ -222,5 +222,44 @@ class ShopTests(unittest.TestCase):
         self.assertEqual(bad_response.status_code, 422)
 
 
+    def test_restart_reexecs_with_active_inventory(self) -> None:
+        import sys
+        import time as time_mod
+
+        from fastapi.testclient import TestClient
+
+        previous = os.environ.get("INVENTORY_PATH")
+        try:
+            with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+                shop = self._shop(tmp)
+                try:
+                    with patch.object(self.app, "shop", shop):
+                        with patch.object(os, "execv") as do_exec:
+                            with TestClient(self.app.app) as client:
+                                response = client.post("/restart")
+                            self.assertEqual(response.status_code, 200)
+                            self.assertEqual(
+                                response.json()["status"], "restarting"
+                            )
+                            deadline = time_mod.time() + 5
+                            while (
+                                not do_exec.called
+                                and time_mod.time() < deadline
+                            ):
+                                time_mod.sleep(0.05)
+                finally:
+                    shop.log.close()
+            self.assertTrue(do_exec.called)
+            self.assertEqual(do_exec.call_args[0][0], sys.executable)
+            self.assertEqual(
+                os.environ.get("INVENTORY_PATH"), shop.inventory_path
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("INVENTORY_PATH", None)
+            else:
+                os.environ["INVENTORY_PATH"] = previous
+
+
 if __name__ == "__main__":
     unittest.main()

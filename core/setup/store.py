@@ -124,6 +124,52 @@ def save_feedback(system_id: str, items: list) -> None:
     )
 
 
+def _safe_id(system_id: str) -> bool:
+    """Reject ids that could escape the data dir (delete guard)."""
+    return (
+        bool(system_id)
+        and "/" not in system_id
+        and "\\" not in system_id
+        and ".." not in system_id
+        and "*" not in system_id
+        and "?" not in system_id
+        and "[" not in system_id
+    )
+
+
+def delete_system(system_id: str) -> bool:
+    """Remove a system and everything setup stored for it.
+
+    Profile (with baseline + status), conflicts, feedback, version
+    snapshots and uploaded docs. Returns False when the id is unknown
+    (or unsafe); never raises for missing files.
+    """
+    if not _safe_id(system_id):
+        return False
+    if not profile_path(system_id).exists():
+        return False
+    for path in (
+        profile_path(system_id),
+        conflicts_path(system_id),
+        feedback_path(system_id),
+    ):
+        path.unlink(missing_ok=True)
+    versions = versions_dir()
+    if versions.exists():
+        for snapshot in versions.glob(f"{system_id}.v*.json"):
+            snapshot.unlink(missing_ok=True)
+    uploads = uploads_dir(system_id)
+    if uploads.exists():
+        for child in uploads.iterdir():
+            if child.is_file() or child.is_symlink():
+                child.unlink(missing_ok=True)
+        try:
+            uploads.rmdir()
+        except OSError:
+            pass
+    return True
+
+
 def get_conflicts(system_id: str) -> list:
     path = conflicts_path(system_id)
     if not path.exists():

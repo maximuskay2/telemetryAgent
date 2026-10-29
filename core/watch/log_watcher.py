@@ -121,7 +121,7 @@ def run(
                 except RuntimeError as exc:
                     print(f"[watch] trigger publish failed: {exc}", flush=True)
                 try:
-                    post_candidate(
+                    verdict = post_candidate(
                         api,
                         system_id=system_id,
                         rule=hit.rule,
@@ -131,7 +131,15 @@ def run(
                     )
                 except RuntimeError as exc:
                     print(f"[watch] candidate post failed: {exc}", flush=True)
-                quiet_until = time.time() + quiet_s
+                    verdict = {}
+                if not verdict or verdict.get("run_id"):
+                    # Quiet when a run started OR the post failed: a slow
+                    # gate means a run is likely already going (the post
+                    # times out after 10 s but the server keeps working),
+                    # and piling concurrent runs breaks the demo.
+                    # Suppressed candidates set no quiet — the real fault
+                    # later in the storm must still post (tour step 1→2).
+                    quiet_until = time.time() + quiet_s
                 buffer.append(line)
                 buffer.extend(after_lines)
                 runs += 1

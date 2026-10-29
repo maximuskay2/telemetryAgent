@@ -176,6 +176,8 @@
 
 ## 🎨 UI: Incident Command Center
 
+> **Superseded by [`ui-roadmap.md`](ui-roadmap.md)** ("Enterprise Obsidian" Mission Control, S1–S10 web/backend + M1–M4 mobile). Kept for history; don't build from this section.
+
 Replaces the current terminal-style dashboard (stacked `<pre>` boxes + raw log list), which shows data but no story and is hard to read on a 1080p video. The new UI shows **what's happening** (live shop + fridge) beside **what the agent is doing** (incidents moving through the five steps), and each incident opens a readable report.
 
 Decisions: **dark mission-control theme**, **Command Center layout**.
@@ -316,6 +318,8 @@ Order matters: I1 and I2 make the core demo honest; I3 and I4 make it autonomous
 
 ## 🎨 UI: Incident Command Center
 
+> **Superseded by [`ui-roadmap.md`](ui-roadmap.md).** Kept for history; don't build from this section.
+
 Parallel track with [`simulation-roadmap.md`](simulation-roadmap.md): one screen where judges watch both systems break, get caught, and recover. The shop tile, service map, and fridge from Sim 1–4 become this screen's "World" column (U3); pipeline lanes become its incident cards (U1).
 
 Layout: `World` column (live systems) + `Incidents` column (pipeline lanes + detail). Existing panels keep working until the cutover, then become the detail view.
@@ -359,6 +363,10 @@ Planned in [`mobile-roadmap.md`](mobile-roadmap.md): a Flutter app for **alerts 
 ## 🧭 Setup: Teach It What Normal Looks Like
 
 Planned in [`setup-roadmap.md`](setup-roadmap.md): before a system is watched, the owner, manufacturer or developer uploads spec sheets, rating-plate photos, ops docs or text. TelemetryAgent extracts a cited **System Profile** (normal ranges, expected behaviours like defrost or deploys, modes, hard limits, action policy), a human confirms it, a short baseline is learned, and the system is **armed**. Every signal then passes a **gate** (hard limit → armed → expected behaviour → mode → baseline → proof of impact) before any fix is generated, so normal-but-scary behaviour is ignored with a cited reason. Acceptance cases cover the AutoParts shop (S-1…S-12) and the cold-chain fridge (C-1…C-14). P0–P9, Oct 29 – Nov 3.
+
+## 🚪 New-Customer Journey
+
+Planned in [`journey-roadmap.md`](journey-roadmap.md): one golden path from advert to first fixed incident. The steps are landing (`/welcome`), onboarding (`/start`), guided setup of both demo systems at once (`/start/setup`), a coach-marked first incident on Mission Control, then a wrap-up. It owns **which screen comes when**; `ui-roadmap.md` owns how screens look. J0–J9, Oct 29 – Nov 2; the video follows this journey.
 
 ---
 

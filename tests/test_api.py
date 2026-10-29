@@ -451,5 +451,568 @@ class SimZeroTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
 
 
+class RunVerificationTests(unittest.TestCase):
+    def test_pass_run_exposes_verification_object(self) -> None:
+        from core.schemas.diagnosis import Diagnosis
+        from core.schemas.remediation import GeneratedPatch
+        from core.verify.targets import read_target_file
+
+        diag = Diagnosis(
+            summary="Deadlock",
+            likely_cause="Lock ordering inversion",
+            suggested_actions=[],
+            confidence=0.9,
+        )
+        patch_ = GeneratedPatch(
+            patch_code="x = 1\n",
+            test_code="def test_x(): assert True\n",
+        )
+        with patch.dict(os.environ, {"BASETEN_API_KEY": "x", "GITHUB_TOKEN": ""}), \
+                patch("core.agent.loop.meta_client.diagnose", return_value=diag), \
+                patch("core.infer.baseten_client.generate_patch", return_value=patch_), \
+                patch(
+                    "core.agent.loop.verify_patch",
+                    return_value={"passed": True, "feedback": "harness ok"},
+                ), \
+                patch(
+                    "core.agent.loop.verify_fix",
+                    return_value={"passed": True, "feedback": "1 passed"},
+                ):
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/run",
+                    json={"log_text": "deadlock", "target": "inventory"},
+                )
+                self.assertEqual(response.status_code, 200)
+                run_id = response.json()["run_id"]
+                fetched = client.get(f"/api/runs/{run_id}")
+        self.assertEqual(fetched.status_code, 200)
+        body = fetched.json()
+        for key in ("run_id", "domain", "result", "steps", "decision", "gate"):
+            self.assertIn(key, body)
+        verification = body["verification"]
+        self.assertEqual(verification["target"], "inventory")
+        self.assertEqual(
+            verification["original_code"], read_target_file("inventory.py")
+        )
+        self.assertEqual(
+            verification["test_code"], "def test_x(): assert True\n"
+        )
+        # The mocked verifier returns no per-side outputs; the shape holds.
+        self.assertIsNone(verification["original"])
+        self.assertIsNone(verification["patched"])
+        self.assertIsNone(verification["runner"])
+
+    def test_run_without_verification_still_reads(self) -> None:
+        from apps.api.main import software_runs
+        from core.schemas.remediation import ExecutionResult
+
+        software_runs["old-1"] = {
+            "target": None,
+            "result": ExecutionResult(
+                status="PASS", stdout="x", stderr="",
+                attempts=1, model_used="m",
+            ),
+        }
+        try:
+            with TestClient(app) as client:
+                fetched = client.get("/api/runs/old-1")
+        finally:
+            software_runs.pop("old-1", None)
+        self.assertEqual(fetched.status_code, 200)
+        self.assertIsNone(fetched.json()["verification"])
+        self.assertEqual(fetched.json()["result"]["status"], "PASS")
+
+
+class SystemLifecycleTests(unittest.TestCase):
+    def test_disarm_returns_armed_to_confirmed(self) -> None:
+        import tempfile
+
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                created = self._make_system("shop")
+                with TestClient(app) as client:
+                    armed = client.post(f"/api/systems/{created}/arm")
+                    self.assertEqual(armed.status_code, 200)
+                    self.assertEqual(armed.json()["status"], "armed")
+                    disarmed = client.post(
+                        f"/api/systems/{created}/disarm"
+                    )
+                    self.assertEqual(disarmed.status_code, 200)
+                    self.assertEqual(disarmed.json()["status"], "confirmed")
+                    profile = setup_store.get_profile(created)
+                    assert profile is not None
+                    self.assertEqual(profile.status, "confirmed")
+
+    def test_disarm_rejects_unknown_and_non_armed(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                created = self._make_system("shop")
+                with TestClient(app) as client:
+                    missing = client.post("/api/systems/nope/disarm")
+                    self.assertEqual(missing.status_code, 404)
+                    # Confirmed (but not armed) systems conflict.
+                    conflict = client.post(f"/api/systems/{created}/disarm")
+                    self.assertEqual(conflict.status_code, 409)
+
+    def test_delete_removes_system_and_files(self) -> None:
+        import tempfile
+
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                created = self._make_system("shop")
+                self.assertTrue(
+                    setup_store.profile_path(created).exists()
+                )
+                with TestClient(app) as client:
+                    deleted = client.delete(f"/api/systems/{created}")
+                    self.assertEqual(deleted.status_code, 200)
+                    self.assertEqual(
+                        deleted.json(), {"deleted": created}
+                    )
+                    again = client.delete(f"/api/systems/{created}")
+                    self.assertEqual(again.status_code, 404)
+                    missing = client.get(
+                        f"/api/systems/{created}/profile"
+                    )
+                    self.assertEqual(missing.status_code, 404)
+                self.assertFalse(
+                    setup_store.profile_path(created).exists()
+                )
+
+    def test_delete_rejects_traversal_ids(self) -> None:
+        import tempfile
+
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                self.assertFalse(setup_store.delete_system("../x"))
+                self.assertFalse(setup_store.delete_system("a/b"))
+                self.assertFalse(setup_store.delete_system("*.json"))
+
+    def _make_system(self, sample: str) -> str:
+        with TestClient(app) as client:
+            created = client.post(
+                "/api/systems",
+                json={"name": "lifecycle-probe", "kind": "software"},
+            )
+            self.assertEqual(created.status_code, 200)
+            system_id = created.json()["system_id"]
+            sampled = client.post(
+                f"/api/systems/{system_id}/profile/sample",
+                json={"sample": sample},
+            )
+            self.assertEqual(sampled.status_code, 200)
+            confirmed = client.post(
+                f"/api/systems/{system_id}/profile/confirm",
+                json={"confirmed_by": "test", "resolve": []},
+            )
+            self.assertEqual(confirmed.status_code, 200)
+            return system_id
+
+
+class DemoBootstrapTests(unittest.TestCase):
+    def test_bootstrap_is_idempotent_and_leaves_user_systems_alone(
+        self,
+    ) -> None:
+        import tempfile
+
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    mine = client.post(
+                        "/api/systems",
+                        json={"name": "my shop", "kind": "software"},
+                    )
+                    self.assertEqual(mine.status_code, 200)
+                    first = None
+                    for _ in range(5):
+                        boot = client.post("/api/demo/bootstrap")
+                        self.assertEqual(boot.status_code, 200)
+                        body = boot.json()
+                        if first is None:
+                            first = body
+                        self.assertEqual(
+                            body["shop"]["system_id"],
+                            first["shop"]["system_id"],
+                        )
+                        self.assertEqual(
+                            body["freezer"]["system_id"],
+                            first["freezer"]["system_id"],
+                        )
+                    assert first is not None
+                    self.assertEqual(
+                        first["shop"]["environment"], {"demo": "true"}
+                    )
+                    self.assertEqual(
+                        first["freezer"]["environment"], {"demo": "true"}
+                    )
+                    systems = client.get("/api/systems").json()["systems"]
+                    demos = [
+                        s
+                        for s in systems
+                        if s.get("environment", {}).get("demo") == "true"
+                    ]
+                    self.assertEqual(len(demos), 2)
+                    self.assertEqual(len(systems), 3)
+                    names = sorted(s["name"] for s in demos)
+                    self.assertEqual(
+                        names, ["AutoParts Lagos", "Cold-chain Freezer"]
+                    )
+                    status = client.get("/api/demo/status")
+                    self.assertEqual(status.status_code, 200)
+                    payload = status.json()
+                    self.assertEqual(
+                        payload["shop"]["system_id"],
+                        first["shop"]["system_id"],
+                    )
+                    self.assertEqual(payload["shop"]["status"], "draft")
+                    self.assertFalse(
+                        payload["shop"]["auto_fix_allowed"]
+                    )
+                    self.assertIsNotNone(payload["freezer"])
+                    self.assertIn("scenario_playing", payload)
+                    self.assertIn("last_run_id", payload)
+                    self.assertIn("pr_url", payload)
+                    mine_id = mine.json()["system_id"]
+                    kept = setup_store.get_profile(mine_id)
+                    assert kept is not None
+                    self.assertEqual(kept.name, "my shop")
+                    self.assertNotEqual(
+                        kept.environment.get("demo"), "true"
+                    )
+
+
+class DemoDocumentsTests(unittest.TestCase):
+    def test_failed_extraction_falls_back_to_saved_reading(self) -> None:
+        import tempfile
+
+        import core.setup.extract as setup_extract
+        from core.setup import store as setup_store
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("Set MODEL_API_KEY to use the Meta Model API.")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    boot = client.post("/api/demo/bootstrap").json()
+                    with patch.object(
+                        setup_extract, "default_model_fn", _boom
+                    ):
+                        for key in ("shop", "freezer"):
+                            resp = client.post(
+                                f"/api/demo/{boot[key]['system_id']}"
+                                "/documents"
+                            )
+                            self.assertEqual(resp.status_code, 200)
+                            body = resp.json()
+                            self.assertTrue(body["fallback"])
+                            profile = body["profile"]
+                            self.assertTrue(profile["normal_ranges"])
+                            self.assertTrue(profile["hard_limits"])
+                            kept = setup_store.get_profile(
+                                profile["system_id"]
+                            )
+                            assert kept is not None
+                            self.assertEqual(
+                                kept.environment.get("demo"), "true"
+                            )
+
+    def test_successful_extraction_keeps_demo_identity(self) -> None:
+        import tempfile
+
+        import core.setup.extract as setup_extract
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    # The freezer keeps the live path; the shop is
+                    # fallback-only (see demo_documents).
+                    shop = client.post("/api/demo/bootstrap").json()["freezer"]
+                    renamed = {
+                        "name": "Renamed By Manual",
+                        "environment": {},
+                    }
+                    with patch.object(
+                        setup_extract,
+                        "fill_profile_from_text",
+                        return_value=renamed,
+                    ):
+                        with patch.object(
+                            setup_extract,
+                            "merge_partials",
+                            return_value=(renamed, []),
+                        ):
+                            resp = client.post(
+                                f"/api/demo/{shop['system_id']}/documents"
+                            )
+                    self.assertEqual(resp.status_code, 200)
+                    body = resp.json()
+                    self.assertFalse(body["fallback"])
+                    self.assertEqual(
+                        body["profile"]["name"], "Cold-chain Freezer"
+                    )
+                    self.assertEqual(
+                        body["profile"]["environment"], {"demo": "true"}
+                    )
+
+    def test_shop_documents_uses_saved_reading_without_extracting(
+        self,
+    ) -> None:
+        import tempfile
+
+        import core.setup.extract as setup_extract
+
+        def _must_not_run(*args, **kwargs):
+            raise AssertionError("extraction must not run for the shop")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    shop = client.post("/api/demo/bootstrap").json()["shop"]
+                    with patch.object(
+                        setup_extract, "fill_profile_from_text", _must_not_run
+                    ):
+                        resp = client.post(
+                            f"/api/demo/{shop['system_id']}/documents"
+                        )
+                    self.assertEqual(resp.status_code, 200)
+                    body = resp.json()
+                    self.assertTrue(body["fallback"])
+                    self.assertTrue(body["profile"]["hard_limits"])
+
+    def test_demo_documents_rejects_non_demo_systems(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    mine = client.post(
+                        "/api/systems",
+                        json={"name": "mine", "kind": "software"},
+                    )
+                    resp = client.post(
+                        f"/api/demo/{mine.json()['system_id']}/documents"
+                    )
+                    self.assertEqual(resp.status_code, 404)
+                    missing = client.post("/api/demo/nope/documents")
+                    self.assertEqual(missing.status_code, 404)
+
+
+class DemoLearnTests(unittest.TestCase):
+    def test_defrost_hump_sits_mid_window(self) -> None:
+        from apps.api.main import _demo_freezer_round
+
+        temp, _current, mode = _demo_freezer_round(0.5, 10)
+        self.assertEqual(mode, "defrost")
+        self.assertGreater(temp, 5.0)
+        for frac in (0.0, 0.2, 0.39, 0.66, 0.9):
+            _temp, _current, mode = _demo_freezer_round(frac, 1)
+            self.assertEqual(mode, "")
+
+    def test_shop_learn_teaches_patterns_and_starts_no_runs(self) -> None:
+        import tempfile
+        import time
+
+        from apps.api.main import appliance_runs, software_runs
+
+        runs_before = len(software_runs) + len(appliance_runs)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    shop = client.post("/api/demo/bootstrap").json()["shop"]
+                    sid = shop["system_id"]
+                    started = client.post(
+                        f"/api/demo/{sid}/learn",
+                        json={"duration_s": 12},
+                    )
+                    self.assertEqual(started.status_code, 200)
+                    self.assertEqual(
+                        started.json()["driver"], "demo-gentle"
+                    )
+                    baseline = {}
+                    for _ in range(60):
+                        time.sleep(0.5)
+                        baseline = client.get(
+                            f"/api/systems/{sid}/baseline"
+                        ).json()
+                        if baseline["status"] != "learning":
+                            break
+                    self.assertNotEqual(baseline["status"], "learning")
+                    compiled = baseline["baseline"]
+                    self.assertGreaterEqual(
+                        len(compiled["log_templates"]), 2
+                    )
+                    self.assertEqual(
+                        sorted(compiled["metric_bands"]),
+                        ["error_rate", "orders_per_min", "p95_ms"],
+                    )
+        self.assertEqual(
+            len(software_runs) + len(appliance_runs), runs_before
+        )
+
+    def test_demo_learn_rejects_non_demo_systems(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    mine = client.post(
+                        "/api/systems",
+                        json={"name": "mine", "kind": "software"},
+                    )
+                    resp = client.post(
+                        f"/api/demo/{mine.json()['system_id']}/learn",
+                        json={},
+                    )
+                    self.assertEqual(resp.status_code, 404)
+
+
+class DemoCandidateTests(unittest.TestCase):
+    def test_storm_candidate_acts_on_ambient_error_rate(self) -> None:
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from apps.api.main import software_runs
+
+        async def fake_run(request):
+            software_runs["enrich-test"] = {
+                "target": "inventory",
+                "result": None,
+            }
+            return SimpleNamespace(status="fixed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    shop = client.post("/api/demo/bootstrap").json()["shop"]
+                    sid = shop["system_id"]
+                    sampled = client.post(
+                        f"/api/systems/{sid}/profile/sample",
+                        json={"sample": "shop"},
+                    )
+                    self.assertEqual(sampled.status_code, 200)
+                    confirmed = client.post(
+                        f"/api/systems/{sid}/profile/confirm",
+                        json={"confirmed_by": "test", "resolve": []},
+                    )
+                    self.assertEqual(confirmed.status_code, 200)
+                    armed = client.post(f"/api/systems/{sid}/arm")
+                    self.assertEqual(armed.status_code, 200)
+                    metrics = client.post(
+                        "/api/sim/events",
+                        json={
+                            "kind": "shop_metrics",
+                            "payload": {"error_rate": 0.9},
+                        },
+                    )
+                    self.assertEqual(metrics.status_code, 200)
+                    with patch(
+                        "apps.api.main.run_agent",
+                        new=AsyncMock(side_effect=fake_run),
+                    ):
+                        response = client.post(
+                            "/api/incidents/candidate",
+                            json={
+                                "system_id": sid,
+                                "rule": "error",
+                                "fingerprint": "deadlock-1",
+                                "signature": "Deadlock detected",
+                                "window": "WARNING retry=1\nDeadlock",
+                            },
+                        )
+                    try:
+                        self.assertEqual(response.status_code, 200)
+                        body = response.json()
+                        self.assertEqual(
+                            body["decision"]["decision"], "act"
+                        )
+                        self.assertEqual(body["run_id"], "enrich-test")
+                    finally:
+                        software_runs.pop("enrich-test", None)
+
+    def test_watcher_default_shop_id_reaches_the_demo_shop(self) -> None:
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from apps.api.main import software_runs
+
+        async def fake_run(request):
+            software_runs["alias-test"] = {
+                "target": "inventory",
+                "result": None,
+            }
+            return SimpleNamespace(status="fixed")
+
+        candidate = {
+            "system_id": "shop",
+            "rule": "error",
+            "fingerprint": "deadlock-alias",
+            "signature": "Deadlock detected",
+            "window": "WARNING retry=1\nDeadlock",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):
+                with TestClient(app) as client:
+                    before = client.post(
+                        "/api/incidents/candidate", json=candidate
+                    ).json()
+                    self.assertEqual(
+                        before["decision"]["decision"], "observe"
+                    )
+                    sid = client.post("/api/demo/bootstrap").json()[
+                        "shop"
+                    ]["system_id"]
+                    self.assertNotEqual(sid, "shop")
+                    client.post(
+                        f"/api/systems/{sid}/profile/sample",
+                        json={"sample": "shop"},
+                    )
+                    client.post(
+                        f"/api/systems/{sid}/profile/confirm",
+                        json={"confirmed_by": "test", "resolve": []},
+                    )
+                    self.assertEqual(
+                        client.post(f"/api/systems/{sid}/arm").status_code,
+                        200,
+                    )
+                    client.post(
+                        "/api/sim/events",
+                        json={
+                            "kind": "shop_metrics",
+                            "payload": {"error_rate": 0.9},
+                        },
+                    )
+                    with patch(
+                        "apps.api.main.run_agent",
+                        new=AsyncMock(side_effect=fake_run),
+                    ):
+                        response = client.post(
+                            "/api/incidents/candidate", json=candidate
+                        )
+                    try:
+                        body = response.json()
+                        self.assertEqual(
+                            body["decision"]["decision"], "act"
+                        )
+                        self.assertEqual(
+                            body["decision"]["system_id"], sid
+                        )
+                    finally:
+                        software_runs.pop("alias-test", None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 
-from core.actions.github_pr import open_fix_pr, open_pr
+from core.actions.github_pr import open_fix_pr, open_pr, retarget_imports
 from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import GeneratedPatch
 
@@ -237,6 +237,71 @@ class OpenFixPrTests(unittest.TestCase):
                     client=_client(lambda r: _ok({})),
                 )
         self.assertIn("GITHUB_DEMO_REPO", str(ctx.exception))
+
+
+class RetargetImportsTests(unittest.TestCase):
+    def test_rewrites_solution_imports_to_target_module(self) -> None:
+        code = (
+            "from solution import acquire_all, release_all\n"
+            "import solution\n"
+            "import solution as s\n"
+            "def test_x():\n"
+            "    from solution import acquire_all\n"
+            "    assert solution.acquire_all\n"
+        )
+        out = retarget_imports(code, "inventory.py")
+        self.assertIn("from inventory import acquire_all, release_all\n", out)
+        self.assertIn("import inventory as solution\n", out)
+        self.assertIn("import inventory as s\n", out)
+        self.assertIn("    from inventory import acquire_all\n", out)
+        self.assertIn("assert solution.acquire_all", out)
+        self.assertNotIn("from solution", out)
+
+    def test_solution_target_left_alone(self) -> None:
+        code = "from solution import f\n"
+        self.assertEqual(retarget_imports(code, "solution.py"), code)
+
+
+class PrReuseTests(unittest.TestCase):
+    def test_second_pr_within_window_reuses_url(self) -> None:
+        import time
+
+        import core.actions.github_pr as pr_mod
+
+        calls = []
+
+        def fake_open_pr(**kwargs):
+            calls.append(kwargs)
+            return "https://github.com/o/r/pull/1"
+
+        previous = (pr_mod._last_pr_at, pr_mod._last_pr_url)
+        try:
+            pr_mod._last_pr_at = 0.0
+            pr_mod._last_pr_url = None
+            with patch.object(pr_mod, "open_pr", side_effect=fake_open_pr):
+                first = open_fix_pr(
+                    diagnosis=DIAGNOSIS,
+                    patch=PATCH,
+                    verification_feedback="ok",
+                    attempts=1,
+                    model_used="m",
+                    repo="o/r",
+                    token="t",
+                )
+                second = open_fix_pr(
+                    diagnosis=DIAGNOSIS,
+                    patch=PATCH,
+                    verification_feedback="ok",
+                    attempts=2,
+                    model_used="m",
+                    repo="o/r",
+                    token="t",
+                )
+            self.assertEqual(first, "https://github.com/o/r/pull/1")
+            self.assertEqual(second, first)
+            self.assertEqual(len(calls), 1)
+        finally:
+            pr_mod._last_pr_at, pr_mod._last_pr_url = previous
 
 
 if __name__ == "__main__":
