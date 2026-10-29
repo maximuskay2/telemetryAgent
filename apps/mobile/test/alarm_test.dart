@@ -19,6 +19,9 @@ void main() {
   group('AlarmScreen', () {
     testWidgets('shows countdown, summary, and all buttons',
         (tester) async {
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
       bool? decided;
       bool? marked;
       await tester.pumpWidget(
@@ -77,6 +80,9 @@ void main() {
   group('AlarmScreen context', () {
     testWidgets('approval-only variant shows diagnosis and evidence',
         (tester) async {
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
       final action = PendingAction(
         runId: 'r-2',
         domain: 'software',

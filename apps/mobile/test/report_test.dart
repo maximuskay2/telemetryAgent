@@ -264,7 +264,7 @@ void main() {
       expect(find.textContaining('Close the door'), findsOneWidget);
       expect(find.textContaining('WO-7'), findsOneWidget);
       expect(
-          find.textContaining('Collecting live temperatures'),
+          find.textContaining('Collecting live readings'),
           findsOneWidget);
     });
   });
