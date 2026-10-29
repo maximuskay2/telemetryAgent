@@ -137,11 +137,25 @@ class ConnectionApiTests(unittest.TestCase):
                     connection_store.get_secret(connection_id),
                     "ghp_testtoken1234",
                 )
-                tested = client.post(
-                    f"/api/connections/{connection_id}/test"
+                with patch(
+                    "core.connections.github.check_repo",
+                    return_value={
+                        "ok": True,
+                        "detail": "connected · default branch main",
+                        "permissions": {
+                            "read": True,
+                            "pull_requests": True,
+                        },
+                    },
+                ):
+                    tested = client.post(
+                        f"/api/connections/{connection_id}/test"
+                    )
+                self.assertTrue(tested.json()["ok"])
+                self.assertEqual(
+                    tested.json()["permissions"],
+                    {"read": True, "pull_requests": True},
                 )
-                self.assertFalse(tested.json()["ok"])
-                self.assertIn("J-R2", tested.json()["detail"])
 
     def test_deleted_key_fails_ingest_immediately(self) -> None:
         tmp = _tmp_data()

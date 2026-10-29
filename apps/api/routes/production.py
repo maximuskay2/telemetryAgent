@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 
 from core.actions.auto_action import mobile_token
 from core.connections import auth as key_auth
+from core.connections import github as github_conn
 from core.connections import store as connection_store
 from core.ingest import pipeline as ingest_pipeline
 from core.schemas.events import SimEvent
@@ -102,7 +103,7 @@ async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
     "/api/connections/{connection_id}/test", response_model=ConnectionTest
 )
 async def test_connection(connection_id: str) -> ConnectionTest:
-    """J-R0: stored-config check. Live github checks land in J-R2."""
+    """Stored-config check; github gets live repo/permission checks (J-R2)."""
     record = connection_store.get_record(connection_id)
     if record is None:
         raise HTTPException(status_code=404, detail="unknown connection")
@@ -111,12 +112,18 @@ async def test_connection(connection_id: str) -> ConnectionTest:
     if kind == "github":
         if not str(config.get("repo", "")).strip():
             return ConnectionTest(ok=False, detail="config.repo is missing")
-        if not connection_store.get_secret(connection_id):
+        secret = connection_store.get_secret(connection_id)
+        if not secret:
             return ConnectionTest(ok=False, detail="no token stored")
+        result = github_conn.check_repo(
+            str(config.get("repo", "")),
+            secret,
+            str(config.get("base_branch", "") or ""),
+        )
         return ConnectionTest(
-            ok=False,
-            detail="stored; live repo/permission checks land in J-R2",
-            permissions=TestPermissions(read=False, pull_requests=False),
+            ok=result["ok"],
+            detail=result["detail"],
+            permissions=TestPermissions(**result["permissions"]),
         )
     return ConnectionTest(ok=True, detail="stored; waiting for first data")
 

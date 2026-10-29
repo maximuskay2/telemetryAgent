@@ -1,6 +1,6 @@
 # James status
-Current block: J-R2 GitHub repo connection (next)
-Done: H0 (7bb037b), J-R0 real connections store (134af27), J-R1 real error intake (this commit)
+Current block: J-R3 real fix pipeline (next)
+Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 GitHub repo connection (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -20,6 +20,9 @@ Decisions (ambiguities I resolved):
 - J-R1: connection_status fires only on waiting→ok transitions for real connections (fixture traffic skips it — no record to mark).
 - J-R1: forwarder forwards WARNING+ plus full tracebacks (--level tunable), tails from end, survives rotation/truncation, buffers in memory (cap 20000, oldest drops) with backoff 1→60 s; 401 batches are reported + dropped (a bad key never recovers). Durable spool is future work.
 - J-R1: Sentry fixture at tests/fixtures/sentry_issue.json (exact §4 name, not prod_-prefixed).
+- J-R2: no github_pr.py change was needed — open_pr/open_fix_pr already accept repo/token params; the new resolver is core/connections/github.connection_repo (repo, base, token for J-R3).
+- J-R2: write probe = create + immediately delete a throwaway ta-probe-* ref (no trace). Read-only → ok:false "can read, cannot open PRs" (the fix flow needs PRs, so the test is red).
+- J-R2: default branch travels in the detail string ("connected · default branch main · ...") — no contract change needed since ConnectionTest has no branch field.
 Contract changes requested: (none)
 NEEDS FROM AKINGBADE: (none yet)
 BLOCKED: (none)
