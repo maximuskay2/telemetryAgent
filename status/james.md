@@ -1,6 +1,6 @@
 # James status
-Current block: J-R1 real error intake (next)
-Done: H0 contracts + stubs + check.sh (7bb037b), J-R0 real connections store (this commit)
+Current block: J-R2 GitHub repo connection (next)
+Done: H0 (7bb037b), J-R0 real connections store (134af27), J-R1 real error intake (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -14,6 +14,12 @@ Decisions (ambiguities I resolved):
 - J-R0: third-party secrets (github/railway/webhook) rest recoverable in the mode-600 file — hashes would make outbound calls impossible. Only secret_hint leaves the API. Matches §7 "hashed keys, masked tokens, file mode 600".
 - J-R0: create → 404 for unknown systems, except the fixture system when TA_FIXTURE_KEYS=1 (John's stub-phase device tests). github/railway/webhook without secret → 400.
 - J-R0: test endpoint does stored-config checks now; github returns ok:false "live checks land in J-R2" (honest, not green). Live github checks in J-R2, hosting checks with the J-R4 adapters.
+- J-R1: forwarder ships raw lines; the server owns traceback reassembly (per system+service buffer, 30 s stale flush, 200-line cap) so cross-batch splits still become 1 candidate.
+- J-R1: production candidates evaluate in-process; an act is recorded/broadcast but starts no run (log lines carry no metrics so act is unreachable; J-R3 wires production acts). Non-production hits delegate to the existing candidate endpoint for identical demo behaviour.
+- J-R1: ingest decision bodies add "window" (capped 4000 chars) so J-R3 re-parses frames from run["gate"]; the existing candidate body is untouched.
+- J-R1: connection_status fires only on waiting→ok transitions for real connections (fixture traffic skips it — no record to mark).
+- J-R1: forwarder forwards WARNING+ plus full tracebacks (--level tunable), tails from end, survives rotation/truncation, buffers in memory (cap 20000, oldest drops) with backoff 1→60 s; 401 batches are reported + dropped (a bad key never recovers). Durable spool is future work.
+- J-R1: Sentry fixture at tests/fixtures/sentry_issue.json (exact §4 name, not prod_-prefixed).
 Contract changes requested: (none)
 NEEDS FROM AKINGBADE: (none yet)
 BLOCKED: (none)

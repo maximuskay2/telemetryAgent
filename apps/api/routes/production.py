@@ -1,22 +1,24 @@
 """Production connections, ingest and pause routes (James owns this file).
 
-Connections are real (J-R0 store); ingest answers from fixtures until J-R1
-and pause until J-R4. Shapes always match §3.4.
+Connections (J-R0) and ingest (J-R1) are real; pause answers from fixtures
+until J-R4. Shapes always match §3.4.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 
 from core.actions.auto_action import mobile_token
 from core.connections import auth as key_auth
 from core.connections import store as connection_store
+from core.ingest import pipeline as ingest_pipeline
+from core.schemas.events import SimEvent
 from core.schemas.production import (
-    FIXTURE_INGEST_RESULT,
-    FIXTURE_SENTRY_RESULT,
     FIXTURE_SYSTEM_ID,
     ConnectionCreate,
     ConnectionCreated,
@@ -127,22 +129,86 @@ async def delete_connection(connection_id: str) -> dict:
     return {"deleted": True}
 
 
+async def _mark_first_log(connection_id: str, system_id: str) -> None:
+    """Flip waiting → ok + emit connection_status on the first delivery."""
+    from apps.api.main import hub  # deferred: routers load before main ends
+
+    record = connection_store.get_record(connection_id)
+    if record is None:
+        return
+    first = record.get("status") != "ok"
+    connection_store.mark_seen(connection_id)
+    if first:
+        await hub.broadcast(
+            SimEvent(
+                kind="connection_status",
+                payload={
+                    "connection_id": connection_id,
+                    "system_id": system_id,
+                    "status": "ok",
+                    "detail": "first log received",
+                },
+            )
+        )
+
+
+async def _broadcast_decisions(decisions: list) -> None:
+    from apps.api.main import hub  # deferred: routers load before main ends
+
+    for body in decisions:
+        await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+
+
 @router.post("/api/ingest/logs", response_model=IngestResult)
 async def ingest_logs(request: Request, payload: IngestLogsIn) -> IngestResult:
-    _ = payload
-    if key_auth.system_for_key(_bearer_key(request), "logs") is None:
+    """Accept forwarder batches; tracebacks become one candidate each."""
+    key = _bearer_key(request)
+    system_id = key_auth.system_for_key(key, "logs")
+    if system_id is None:
         raise HTTPException(status_code=401, detail="unknown ingest key")
-    return IngestResult.model_validate(FIXTURE_INGEST_RESULT)
+    record = connection_store.find_record_for_key(key, "logs")
+    result = await ingest_pipeline.process_lines(
+        system_id,
+        payload.service,
+        [line.message for line in payload.lines],
+    )
+    if record is not None:
+        await _mark_first_log(record["id"], system_id)
+    await _broadcast_decisions(result["decisions"])
+    return IngestResult(
+        accepted=result["accepted"], candidates=result["candidates"]
+    )
 
 
-@router.post(
-    "/api/ingest/sentry/{key}", response_model=SentryAccepted
-)
+@router.post("/api/ingest/sentry/{key}", response_model=SentryAccepted)
 async def ingest_sentry(key: str, payload: dict) -> SentryAccepted:
-    _ = payload
-    if key_auth.system_for_key(key, "sentry") is None:
+    """Accept a Sentry issue-alert webhook as one error event."""
+    system_id = key_auth.system_for_key(key, "sentry")
+    if system_id is None:
         raise HTTPException(status_code=401, detail="unknown sentry key")
-    return SentryAccepted.model_validate(FIXTURE_SENTRY_RESULT)
+    record = connection_store.find_record_for_key(key, "sentry")
+    texts = ingest_pipeline.sentry_texts(payload)
+    result = await ingest_pipeline.process_lines(system_id, "sentry", texts)
+    if record is not None:
+        await _mark_first_log(record["id"], system_id)
+    await _broadcast_decisions(result["decisions"])
+    return SentryAccepted(accepted=1)
+
+
+@router.get("/forwarder.py", response_class=PlainTextResponse)
+async def forwarder_script() -> str:
+    """Serve the stdlib-only forwarder for the /connect one-liner."""
+    path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "agent"
+        / "ta_forward.py"
+    )
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500, detail="forwarder script missing"
+        ) from exc
 
 
 @router.get("/api/actions/pause", response_model=PauseState)

@@ -1,0 +1,41 @@
+{
+  "action": "created",
+  "installation": {"uuid": "12345678-1234-1234-1234-123456789abc"},
+  "data": {
+    "issue": {
+      "id": "987654321",
+      "title": "ZeroDivisionError: division by zero",
+      "culprit": "shop.cart.total in checkout",
+      "metadata": {
+        "type": "ZeroDivisionError",
+        "value": "division by zero",
+        "filename": "shop/cart.py"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "data": {"message": "ZeroDivisionError: division by zero"}
+        },
+        {
+          "type": "stacktrace",
+          "data": {
+            "frames": [
+              {
+                "filename": "shop/views.py",
+                "lineno": 42,
+                "function": "checkout",
+                "module": "shop.views"
+              },
+              {
+                "filename": "shop/cart.py",
+                "lineno": 17,
+                "function": "total",
+                "module": "shop.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

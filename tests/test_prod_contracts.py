@@ -131,7 +131,7 @@ class StubEndpointTests(unittest.TestCase):
                 )
                 self.assertEqual(deleted.json(), {"deleted": True})
 
-    def test_ingest_auth_and_fixtures(self) -> None:
+    def test_ingest_auth_and_shapes(self) -> None:
         tmp = _tmp_data()
         line = {"ts": 1.0, "level": "ERROR", "message": "boom"}
         body = {"service": "api", "release": "v1", "commit": "abc", "lines": [line]}
@@ -151,7 +151,8 @@ class StubEndpointTests(unittest.TestCase):
                     json=body,
                     headers={"Authorization": f"Bearer {FIXTURE_KEY}"},
                 )
-                self.assertEqual(ok.json(), {"accepted": 3, "candidates": 1})
+                # Real pipeline now: 1 line, no rule hit.
+                self.assertEqual(ok.json(), {"accepted": 1, "candidates": 0})
                 sentry_denied = client.post("/api/ingest/sentry/wrong", json={})
                 self.assertEqual(sentry_denied.status_code, 401)
                 sentry_ok = client.post(
