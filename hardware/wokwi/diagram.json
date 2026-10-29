@@ -6,7 +6,13 @@
     { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
     { "type": "wokwi-dht22", "id": "dht", "top": 40, "left": 260, "attrs": {} },
     { "type": "wokwi-pushbutton", "id": "btn", "top": 180, "left": 60, "attrs": { "color": "red", "label": "DOOR" } },
-    { "type": "wokwi-potentiometer", "id": "pot", "top": 180, "left": 260, "attrs": { "label": "CURRENT" } }
+    { "type": "wokwi-potentiometer", "id": "pot", "top": 180, "left": 260, "attrs": { "label": "CURRENT" } },
+    { "type": "wokwi-led", "id": "led_comp", "top": 300, "left": 40, "attrs": { "color": "green", "label": "COMP" } },
+    { "type": "wokwi-resistor", "id": "r_comp", "top": 330, "left": 40, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led_defrost", "top": 300, "left": 150, "attrs": { "color": "blue", "label": "DEFROST" } },
+    { "type": "wokwi-resistor", "id": "r_defrost", "top": 330, "left": 150, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led_backup", "top": 300, "left": 260, "attrs": { "color": "yellow", "label": "BACKUP" } },
+    { "type": "wokwi-resistor", "id": "r_backup", "top": 330, "left": 260, "attrs": { "value": "220" } }
   ],
   "connections": [
     ["esp:TX0", "$serialMonitor:RX", ""],
@@ -18,7 +24,16 @@
     ["esp:GND.2", "pot:GND", "black"],
     ["pot:SIG", "esp:D34", "orange"],
     ["esp:GND.1", "btn:1.l", "black"],
-    ["btn:2.r", "esp:D15", "yellow"]
+    ["btn:2.r", "esp:D15", "yellow"],
+    ["esp:D13", "led_comp:A", "green"],
+    ["led_comp:C", "r_comp:1", "green"],
+    ["r_comp:2", "esp:GND.1", "black"],
+    ["esp:D12", "led_defrost:A", "blue"],
+    ["led_defrost:C", "r_defrost:1", "blue"],
+    ["r_defrost:2", "esp:GND.1", "black"],
+    ["esp:D14", "led_backup:A", "yellow"],
+    ["led_backup:C", "r_backup:1", "yellow"],
+    ["r_backup:2", "esp:GND.1", "black"]
   ],
   "dependencies": {}
 }
