@@ -2892,3 +2892,12 @@ def infer_level(message: str) -> str:
     if any(token in normalized for token in ("warning", "timeout", "deadlock")):
         return "WARNING"
     return "INFO"
+
+
+# Production route (H0 shared commit, roadmap R-3): the ONLY main.py change
+# for the rest of the 24 h. All new routes live in the two router files.
+from apps.api.routes import devices as _devices_router  # noqa: E402
+from apps.api.routes import production as _production_router  # noqa: E402
+
+app.include_router(_production_router.router)
+app.include_router(_devices_router.router)

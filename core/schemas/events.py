@@ -37,6 +37,11 @@ class SimEvent(BaseModel):
         "setup_progress",
         "baseline_progress",
         "gate_decision",
+        # Production route (H0 shared commit, roadmap §3.4).
+        "connection_status",
+        "option_status",
+        "actions_paused",
+        "pr_opened",
     ]
     payload: Dict[str, Any] = Field(default_factory=dict)
 
