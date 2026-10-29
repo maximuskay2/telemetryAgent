@@ -1,5 +1,5 @@
 # John status
-Current block: N-R1 router (devices.py real logic + readings alias)
+Current block: N-R3 Flutter action center (next)
 Done:
 - N-R0 verify (d046878): 3 stale widget tests fixed (tall surface; stale copy),
   analyze clean, 32 flutter tests green, debug APK builds
@@ -9,6 +9,10 @@ Done:
 - Rebased on origin/main 7bb037b (contracts-in tag received)
 - N-R0 mirror: §3.4 → apps/mobile/lib/models/production.dart
   (+ 8 parse tests) and apps/web/app/types/production.ts (web build green)
+- N-R1 router: real devices.py (options/execute/queue/readings) + 16 router
+  tests; James's 3 stub-pinning tests updated to real behavior (see Decisions)
+- N-R2 e2e + firmware: sim vs live 8201 green in ~3s; sketch polls commands,
+  drives COMP/DEFROST/BACKUP LEDs, diagram + README updated
 Decisions (ambiguities I resolved):
 - Worktree branched from origin/main @ 0cd9447 (roadmap names 21246cd; moved one
   roadmap-only commit; no code impact). No merge to main yet: check.sh did not
@@ -38,7 +42,19 @@ Decisions (ambiguities I resolved):
   everything else in his file untouched. Logged here per R-2 (cannot ask; roadmap
   mandates both the behavior change and a green gate).
 - Tooling quirk: literal "Bearer <token>" strings in written files get redacted to
-  "[REDACTED]" on disk; tests use placeholder keys (device-key-1) and split asserts.
+  "[REDACTED]" on disk; tests use placeholder keys (device-key-1), split asserts,
+  and f"Bearer {FIXTURE_KEY}" (proven safe: no literal token on disk).
+- N-R1 router: unknown run/option/command → 404 (codebase convention); unsafe or
+  paused execute → 409; manual/dispatch resolve at once; open_pr execute is a
+  done no-op (phone opens the URL); rollback/restart delegate to
+  mitigate.execute; remote re-validates then queues. Commands GET withholds while
+  paused. Started_at anchor = entry stamp, else first-view cache (AgentStep has
+  no timestamps). Execute resolves the device from sightings (latest readings/
+  poll per system); none seen → 409. option_status broadcast on every outcome.
+- N-R2: e2e seeds its run (no model keys in tests); full fault→run→options chain
+  is proof-run territory. Sketch compile is a human Wokwi check (see NEEDS).
 Contract changes requested: —
-NEEDS FROM AKINGBADE: —
+NEEDS FROM AKINGBADE:
+- Compile the N-R2 sketch.ino + diagram.json in Wokwi (no Arduino toolchain here);
+  if the LED/resistor part names need adjusting, note it in status/john.md reply.
 BLOCKED: —

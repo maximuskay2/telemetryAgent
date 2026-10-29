@@ -20,12 +20,16 @@ _MAX_OPTION_STATUSES = 500
 
 _COMMANDS: dict[str, dict] = {}
 _OPTION_STATUS: dict[tuple[str, str], dict] = {}
+#: Latest sighting per system: readings and polls prove which device id a
+#: system's key currently serves (execute queues under it).
+_DEVICE_BY_SYSTEM: dict[str, dict] = {}
 
 
 def reset() -> None:
     """Clear all queue state (tests only)."""
     _COMMANDS.clear()
     _OPTION_STATUS.clear()
+    _DEVICE_BY_SYSTEM.clear()
 
 
 def _prune(now: float) -> None:
@@ -151,3 +155,33 @@ def option_statuses(run_id: str) -> dict[str, dict]:
         for (stored_run_id, option_id), item in _OPTION_STATUS.items()
         if stored_run_id == run_id
     }
+
+
+def active_command(
+    run_id: str, option_id: str, now: Optional[float] = None
+) -> Optional[dict]:
+    """Latest still-pending command for one option, or None."""
+    now = time.time() if now is None else now
+    _sweep(now)
+    for entry in _COMMANDS.values():
+        if (
+            entry["run_id"] == run_id
+            and entry["option_id"] == option_id
+            and entry["status"] == "sent"
+        ):
+            return entry
+    return None
+
+
+def note_device_seen(
+    system_id: str, device_id: str, now: Optional[float] = None
+) -> None:
+    """Record that a system's key served this device id (latest wins)."""
+    now = time.time() if now is None else now
+    _DEVICE_BY_SYSTEM[system_id] = {"device_id": device_id, "seen_at": now}
+
+
+def device_for_system(system_id: str) -> Optional[str]:
+    """Device id to queue under for a system, or None when never seen."""
+    sighting = _DEVICE_BY_SYSTEM.get(system_id)
+    return sighting["device_id"] if sighting else None

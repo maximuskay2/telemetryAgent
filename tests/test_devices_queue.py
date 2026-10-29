@@ -91,6 +91,27 @@ class DeviceQueueTests(unittest.TestCase):
         self.assertEqual(statuses["opt_manual_1"]["status"], "done")
         self.assertEqual(queue.option_statuses("run-2"), {})
 
+    def test_active_command_finds_pending_only(self) -> None:
+        entry = queue.enqueue(
+            "dev-1", "run-1", "opt_defrost", "defrost", {}, now=1000.0
+        )
+        found = queue.active_command("run-1", "opt_defrost", now=1001.0)
+        assert found is not None
+        self.assertEqual(found["id"], entry["id"])
+        self.assertIsNone(
+            queue.active_command("run-1", "opt_backup", now=1001.0)
+        )
+        queue.ack(entry["id"], True, now=1002.0)
+        self.assertIsNone(
+            queue.active_command("run-1", "opt_defrost", now=1003.0)
+        )
+
+    def test_device_sightings_latest_wins(self) -> None:
+        self.assertIsNone(queue.device_for_system("sys-1"))
+        queue.note_device_seen("sys-1", "dev-a", now=1000.0)
+        queue.note_device_seen("sys-1", "dev-b", now=1001.0)
+        self.assertEqual(queue.device_for_system("sys-1"), "dev-b")
+
 
 if __name__ == "__main__":
     unittest.main()

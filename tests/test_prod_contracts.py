@@ -160,29 +160,48 @@ class StubEndpointTests(unittest.TestCase):
                 )
                 self.assertEqual(sentry_ok.json(), {"accepted": 1})
 
-    def test_options_fixture_echoes_run_id(self) -> None:
+    def test_options_real_behavior_replaces_stub(self) -> None:
+        # John's N-R1 router: unknown runs 404; seeded appliance runs get
+        # real options (full lifecycle lives in tests/test_devices_router.py).
+        from core.schemas.remediation import ApplianceResult
+
+        import apps.api.main as api_main
+
         with TestClient(app) as client:
-            response = client.get("/api/incidents/run9/options")
-            self.assertEqual(response.status_code, 200)
-            parsed = OptionsResult.model_validate(response.json())
-            self.assertEqual(parsed.run_id, "run9")
-            self.assertEqual(len(parsed.options), 1)
+            missing = client.get("/api/incidents/run9/options")
+            self.assertEqual(missing.status_code, 404)
+            api_main.appliance_runs["run9"] = {
+                "appliance_type": "fridge",
+                "result": ApplianceResult(
+                    status="PASS",
+                    attempts=1,
+                    model_used="meta:test",
+                    run_id="run9",
+                ),
+            }
+            try:
+                response = client.get("/api/incidents/run9/options")
+                self.assertEqual(response.status_code, 200)
+                parsed = OptionsResult.model_validate(response.json())
+                self.assertEqual(parsed.run_id, "run9")
+                self.assertEqual(parsed.domain, "appliance")
+                self.assertGreater(len(parsed.options), 1)
+            finally:
+                api_main.appliance_runs.pop("run9", None)
 
     def test_execute_needs_mobile_token_when_set(self) -> None:
-        url = "/api/incidents/run9/options/opt_1/execute"
+        url = "/api/incidents/run9/options/opt_dispatch/execute"
         with TestClient(app) as client:
             with patch.dict(os.environ, {"MOBILE_API_TOKEN": ""}):
-                opened = client.post(url)
-                self.assertEqual(
-                    opened.json(), {"status": "sent", "command_id": "cmd_1"}
-                )
+                missing = client.post(url)
+                self.assertEqual(missing.status_code, 404)
             with patch.dict(os.environ, {"MOBILE_API_TOKEN": "secret"}):
                 denied = client.post(url)
                 self.assertEqual(denied.status_code, 401)
-                allowed = client.post(url, headers={"X-Mobile-Token": "secret"})
-                self.assertEqual(allowed.status_code, 200)
 
     def test_device_commands_need_device_key(self) -> None:
+        # Real N-R1 router (John) + J-R0 key store (James): fixture key gated
+        # behind TA_FIXTURE_KEYS, empty queue, unknown acks 404.
         env = {"TA_DATA_DIR": _tmp_data(), "TA_FIXTURE_KEYS": "1"}
         with patch.dict(os.environ, env):
             with TestClient(app) as client:
@@ -193,13 +212,13 @@ class StubEndpointTests(unittest.TestCase):
                     headers={"Authorization": f"Bearer {FIXTURE_KEY}"},
                 )
                 self.assertEqual(ok.status_code, 200)
-                self.assertEqual(ok.json()["commands"][0]["id"], "cmd_1")
+                self.assertEqual(ok.json(), {"commands": []})
                 ack = client.post(
                     "/api/devices/esp1/commands/cmd_1/ack",
                     json={"ok": True, "detail": ""},
                     headers={"Authorization": f"Bearer {FIXTURE_KEY}"},
                 )
-                self.assertEqual(ack.json(), {"status": "done"})
+                self.assertEqual(ack.status_code, 404)
 
     def test_pause_round_trip(self) -> None:
         with TestClient(app) as client:
