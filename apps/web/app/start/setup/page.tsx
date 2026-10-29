@@ -530,9 +530,14 @@ export default function GuidedSetupPage() {
           >
             ←
           </Link>
-          <span className="text-sm text-brand-cyan" aria-hidden>
+          <Link
+            href="/welcome"
+            title="Home"
+            aria-label="TelemetryAgent home"
+            className="rounded text-sm text-brand-cyan outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
             ◆
-          </span>
+          </Link>
           <span className="text-sm font-semibold">Guided setup</span>
           <span className="ms-auto text-xs text-text-muted">
             {done ? "Done ✓" : `Stage ${Math.min(current, 4)} of 4`}

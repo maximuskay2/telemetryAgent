@@ -96,6 +96,12 @@ export default function ShopPage() {
         </div>
         <nav aria-label="Demo navigation" className="flex items-center gap-2">
           <a
+            href="/welcome"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[13px] font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            ← Home
+          </a>
+          <a
             href="/"
             className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-[13px] font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
           >

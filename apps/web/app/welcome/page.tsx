@@ -110,6 +110,12 @@ export default function WelcomePage() {
           <span className="ms-auto text-xs text-text-muted">
             Live demo — others may be watching the same shop
           </span>
+          <Link
+            href="/?skip=1"
+            className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Mission Control →
+          </Link>
         </div>
       </header>
 

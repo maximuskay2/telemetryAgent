@@ -193,7 +193,12 @@ export default function TopBar() {
   return (
     <header className="border-b border-border bg-surface">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-        <Link href="/" className="flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand rounded">
+        <Link
+          href="/welcome"
+          title="Home"
+          aria-label="TelemetryAgent home"
+          className="flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand rounded"
+        >
           <span className="text-sm text-brand-cyan" aria-hidden>
             ◆
           </span>
@@ -268,6 +273,12 @@ export default function TopBar() {
           })}
         </div>
         <div className="ms-auto flex items-center gap-1.5">
+          <Link
+            href="/welcome"
+            className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            ← Home
+          </Link>
           <Link
             href="/start"
             className="rounded-lg border border-brand/50 bg-brand/10 px-2.5 py-1.5 text-xs font-medium text-brand-cyan outline-none hover:bg-brand/20 focus-visible:ring-2 focus-visible:ring-brand"

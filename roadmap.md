@@ -368,6 +368,10 @@ Planned in [`setup-roadmap.md`](setup-roadmap.md): before a system is watched, t
 
 Planned in [`journey-roadmap.md`](journey-roadmap.md): one golden path from advert to first fixed incident. The steps are landing (`/welcome`), onboarding (`/start`), guided setup of both demo systems at once (`/start/setup`), a coach-marked first incident on Mission Control, then a wrap-up. It owns **which screen comes when**; `ui-roadmap.md` owns how screens look. J0–J9, Oct 29 – Nov 2; the video follows this journey.
 
+## 🔌 Real Production Integrations
+
+Planned in [`production-roadmap.md`](production-roadmap.md): customers connect their real server (log forwarder or Sentry webhook), their GitHub repo, optional hosting (Railway or a signed webhook) and cold-chain devices. TelemetryAgent fixes **their** code in a Modal sandbox (reproduce test fails → patch → new test passes and their suite stays green) and opens a PR on **their** repo. The Flutter app becomes the action center for PRs, rollbacks and hardware fix options. An uptime promise covers PR-only code changes, reversible actions behind the cancel window, and kill switches. A 24-hour build split between **James** (backend) and **John** (app, hardware, web), with contracts frozen at hour 0, file ownership and checkpoint merges. The simulation route (`/start`) stays frozen and the production route (`/connect`) is added alongside it.
+
 ---
 
 ## 📄 Submission Quick-Sheet
