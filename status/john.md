@@ -53,6 +53,13 @@ Decisions (ambiguities I resolved):
   poll per system); none seen → 409. option_status broadcast on every outcome.
 - N-R2: e2e seeds its run (no model keys in tests); full fault→run→options chain
   is proof-run territory. Sketch compile is a human Wokwi check (see NEEDS).
+- Merge 1 vs J-R0 (134af27): rebase conflicted in tests/test_prod_contracts.py
+  (James rewrote it the same hour). Aborted first per §9.0, then resolved by
+  keeping his version + my 3 real-behavior device updates (his env wrapper,
+  my assertions) — the only resolution that keeps check.sh green for both.
+  My router/e2e tests now set TA_FIXTURE_KEYS=1 (his sanctioned gate).
+  Observed: "Bearer <literal>" strings are redacted to "[REDACTED]" on write
+  in both agents' files; harmless in his wrong-key test (still 401s).
 Contract changes requested: —
 NEEDS FROM AKINGBADE:
 - Compile the N-R2 sketch.ino + diagram.json in Wokwi (no Arduino toolchain here);

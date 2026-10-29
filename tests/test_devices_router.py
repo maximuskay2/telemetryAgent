@@ -68,6 +68,9 @@ class DevicesRouterTests(unittest.TestCase):
 
         self.api_main = api_main
         self.client = TestClient(app)
+        fixture_keys = patch.dict(os.environ, {"TA_FIXTURE_KEYS": "1"})
+        fixture_keys.start()
+        self.addCleanup(fixture_keys.stop)
         self.run_ids: list[str] = []
         device_queue.reset()
         self.recorder = _Recorder()

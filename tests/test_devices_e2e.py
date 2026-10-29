@@ -48,7 +48,11 @@ class SimE2ETests(unittest.TestCase):
             self._wait_for_health()
             with tempfile.TemporaryDirectory() as tmp, patch.dict(
                 os.environ,
-                {"TA_DATA_DIR": tmp, "MOBILE_API_TOKEN": ""},
+                {
+                    "TA_DATA_DIR": tmp,
+                    "MOBILE_API_TOKEN": "",
+                    "TA_FIXTURE_KEYS": "1",
+                },
             ):
                 api_main.appliance_runs[RUN_ID] = {
                     "appliance_type": "fridge",
