@@ -10,6 +10,8 @@
 - **James — Backend.** Connections, ingest, the real fix pipeline, safe production actions.
 - **John — App, Hardware, Web.** Flutter action center, device options + firmware, the `/connect` wizard.
 
+**Starting point:** `main` @ `21246cd` (Oct 29). This commit has the Mission Control UI, the guided demo journey, the Home links, the mobile classic mint-green theme and the Android splash fix. 485 Python tests pass. Both developers branch from here. **§9 has the copy-paste brief for each.**
+
 **Two routes, both always working:**
 - 🟢 **Simulation route (preserved, frozen):** `/welcome` → `/start` → `/start/setup` → Mission Control with the demo shop and freezer.
 - 🔵 **Production route (new):** `/welcome` → `/connect` → the customer's real server, repo, hosting and devices.
@@ -29,7 +31,8 @@
 | Error intake | ✅ `POST /api/logs`, log tail, `POST /api/telemetry/appliance` | No auth keys, no Sentry/webhook, no packaged forwarder |
 | "Deploy" | — | Hot-swap of the demo shop's module |
 | Hardware fix | Runbook text + deterministic safety rules ✅ | Alert is a stub (`core/actions/notify.py`); no device commands |
-| Phone app | ✅ WebSocket, full-screen alarm, local notifications, foreground service, Approve/Disapprove with `X-Mobile-Token`, QR pairing | No fix options, no PR actions, no "pause all"; Android build currently fails (`launch_background.xml`) |
+| Phone app | ✅ WebSocket, full-screen alarm, local notifications, foreground service, Approve/Disapprove with `X-Mobile-Token`, QR pairing | No fix options, no PR actions, no "pause all". (Android splash build error fixed in `21246cd`; theme is classic mint-green `#A5EFC0` on `#0B0E10`.) |
+| Code layout | `apps/api/main.py` holds every route; no `apps/api/routes/`, `core/connections/`, `core/schemas/production.py`, `agent/` or `scripts/check.sh` yet | James creates them at H0 |
 
 ---
 
@@ -77,7 +80,7 @@ Incident: error ─► gate ─► diagnose ─► their repo @ commit in Modal 
 - **R-2 Own files only.** Each person edits only the files in their column of §3.2. Need a change in the other person's file? Ask; don't edit.
 - **R-3 One shared commit, at hour 0, by James.** It's the only time shared files change: new event kinds in `core/schemas/events.py`, the two `include_router` lines in `apps/api/main.py`, `core/schemas/production.py`, and the stub routers. After that, **`apps/api/main.py` is not touched by anyone** for the rest of the 24 h. All new routes live in the two router files.
 - **R-4 Additive only.** No renames, no deleted fields, no changed response shapes. New fields are optional with defaults.
-- **R-5 Branches + checkpoints.** James works on `prod/james`, John on `prod/john`. At each checkpoint (§5: H2, H6, H10, H14, H18, H21), each person rebases on `main`, runs **`./scripts/check.sh`** (§3.5), and merges **only their own branch** if it's green. Red check = don't merge; fix on the branch.
+- **R-5 Branches + checkpoints.** James works on `prod/james`, John on `prod/john`, each in their **own git worktree** (§9.0). At each checkpoint (after each block), each rebases on `origin/main`, runs **`./scripts/check.sh`** (§3.5), and fast-forwards `main` to **their own branch only** if it's green (merge procedure in §9.0). Red check = don't merge; fix on the branch.
 - **R-6 Never wait.** If a dependency isn't real yet, use the stub or fixture and show the "not connected yet" state. Every dependency in §5 has a stub available from hour 1.
 
 ### 3.2 File ownership
@@ -90,17 +93,19 @@ Incident: error ─► gate ─► diagnose ─► their repo @ commit in Modal 
 | Forwarder | `agent/ta_forward.py` (new, stdlib-only) | — |
 | Web | — | `apps/web/app/connect/*` (new), `apps/web/app/welcome/*` (second door), `apps/web/app/types/production.ts` (new) |
 | Mobile | — | `apps/mobile/**` |
-| Firmware | — | `hardware/wokwi/*` |
-| Tests | `tests/test_prod_*.py` | `tests/test_devices_*.py`, `apps/mobile/test/*` |
+| Firmware | — | `hardware/wokwi/*`, `hardware/sim_device.py` (new: software ESP32 that speaks the same protocol) |
+| Proof app | `examples/proof-app/*` (new; ready to push to its own repo) | — |
+| Tests | `tests/test_prod_*.py`, `tests/fixtures/prod_*` | `tests/test_devices_*.py`, `tests/fixtures/devices_*`, `apps/mobile/test/*` |
 | Scripts | `scripts/check.sh`, `scripts/smoke_demo.sh` (H0) | — |
-| Docs | `docs/DOCUMENTATION.md` "Connect production (backend)" section | same file, "Phone & devices" section (separate headings, no overlap) |
+| Docs | `docs/production-backend.md` (new); at the very end James adds one link line for each doc to `docs/DOCUMENTATION.md` | `docs/production-devices.md` (new) |
+| Status | `status/james.md` | `status/john.md` |
 
 **Frozen for both (the simulation route):** `apps/api/main.py` (after H0), `core/agent/loop.py`, `core/setup/*`, `core/watch/*`, `core/simulate/*`, `demo/**`, `apps/web/app/{page.tsx,mission,setup,shop,start,classic,incidents}/**`, `apps/web/app/lib/setupApi.ts`. If a real bug forces a change there, it goes in its own small commit with both people told.
 
 ### 3.3 Simulation vs production: how the code chooses
-- Every system has `environment.mode`: `"demo"` (default; all existing systems) or `"production"` (created by `/connect`).
+- `SystemProfile.environment` is a `dict[str, str]` (`core/schemas/profile.py`). Demo systems already carry `environment["demo"] = "true"` (guided journey) or nothing (`/setup`). **Production systems get `environment["mode"] = "production"`**, set only by `/connect`. No key, or any other value, means demo.
 - **Demo systems keep the exact current path:** `target="inventory"`, `GITHUB_DEMO_REPO`, hot-swap deploy, stub alert, and the sim fridge.
-- **Production systems** go through James's `core/repo_fix` pipeline and John's options/commands. The switch is a single check inside James's new code (`if system.mode == "production"`), reached from the new ingest routes, so the demo code never sees it.
+- **Production systems** go through James's `core/repo_fix` pipeline and John's options/commands. The switch is one helper, `core.connections.is_production(profile)`, used only inside the new routes, so the demo code never sees it.
 - Flag **`PRODUCTION_CONNECT_ENABLED`** (default `1` locally, set per Railway env). With `0`, the `/connect` door and `/api/connections` return "coming soon". That's the emergency switch if the production route isn't ready for the video.
 
 | | 🟢 Simulation route (frozen) | 🔵 Production route (new) |
@@ -144,6 +149,7 @@ GET  /api/devices/{device_id}/commands  (Bearer) -> { "commands": [ { "id": "cmd
 POST /api/devices/{device_id}/commands/{cid}/ack  (Bearer) { "ok": true, "detail": "" } -> { "status": "done" }
 
 // Pause (James)
+GET  /api/connections/enabled -> { "enabled": true }   // PRODUCTION_CONNECT_ENABLED
 GET  /api/actions/pause -> { "paused": false }
 POST /api/actions/pause  (X-Mobile-Token) { "paused": true } -> { "paused": true }
 
@@ -158,6 +164,7 @@ pr_opened         { run_id, system_id, pr_url, repo }
 ```
 
 **Python hand-off functions** (James implements; John's router calls them; stubbed at H0):
+- `core.connections.is_production(profile) -> bool` (`profile.environment.get("mode") == "production"`)
 - `core.connections.auth.system_for_key(key: str, kind: str) -> Optional[str]`
 - `core.actions.mitigate.software_options(run: dict) -> list[Option]` (stub returns `[]` until R4)
 - `core.actions.mitigate.execute(system_id: str, action: str, run_id: str) -> dict`
@@ -175,6 +182,8 @@ pr_opened         { run_id, system_id, pr_url, repo }
 3. `npm run build -w apps/web` (types + build).
 4. `cd apps/mobile && flutter analyze && flutter test`.
 
+Steps 3–4 print a clear `SKIP (npm/flutter not found)` instead of failing when the tool is missing. The smoke test always uses a free random port and its own temp `TA_DATA_DIR`, so it never touches the live demo on 8001/8002/3000. Exit code is non-zero if any non-skipped step fails.
+
 ---
 
 ## 4. Build blocks
@@ -182,7 +191,14 @@ pr_opened         { run_id, system_id, pr_url, repo }
 ### 👷 James: Backend
 
 **J-R0 · Contracts, stubs, connections, keys (H0–H2)**
-- H0 shared commit (R-3): `core/schemas/production.py`, event kinds, `apps/api/routes/{production,devices}.py` with **stub** handlers returning the §3.4 fixtures, two `include_router` lines, `scripts/check.sh`, `scripts/smoke_demo.sh`. **Tell John "contracts are in"** (he starts immediately).
+- H0 shared commit (R-3):
+  - `core/schemas/production.py` and the new event kinds;
+  - `apps/api/routes/__init__.py` plus `apps/api/routes/{production,devices}.py` with **stub** handlers returning the §3.4 fixtures, including `GET /api/connections/enabled`;
+  - the §3.4 hand-off functions as stubs (`core/connections/__init__.py`, `auth.py`, `core/actions/mitigate.py`);
+  - two `include_router` lines at the end of `apps/api/main.py`;
+  - `scripts/check.sh`, `scripts/smoke_demo.sh`.
+
+  **Tell John "contracts are in"** (he starts immediately).
 - Then the real `core/connections/store.py` (`data/connections/<id>.json`, mode 600), hashed `ta_live_` keys, `system_for_key`, create/list/test/delete. James owns `devices.py` only until this commit; after it, it's John's file.
 - **Accept:** the key is shown once and stored hashed; a wrong key → 401; delete → the key fails immediately; `GET` never returns a secret; `check.sh` green.
 
@@ -215,15 +231,16 @@ pr_opened         { run_id, system_id, pr_url, repo }
 - **Accept:** a real Railway rollback brings the error rate down; valid HMAC (fixture); paused → nothing runs; 2nd mitigation within 10 min refused with a reason; `stop` / `delete` / `scale 0` impossible even if the model suggests them (unit test).
 
 **J-R5 · Proof app + backend docs (H19–H21)**
-- New public repo `maximuskay2/telemetryAgent-proof-app`: small FastAPI service with a real bug (empty-cart division by zero or the deadlock) + ~20 pytest tests, deployed on Railway, forwarder beside it.
-- `DOCUMENTATION.md` → "Connect production (backend)".
+- `examples/proof-app/`: small FastAPI service with a real bug (empty-cart division by zero or the deadlock), ~20 pytest tests, a `requirements.txt`, a Railway-ready start command, and the forwarder line. Ready to push to a new public repo `maximuskay2/telemetryAgent-proof-app` and deploy on Railway; Akingbade does that step (it needs repo-creation and Railway credentials).
+- `docs/production-backend.md`, and the backend half of `docs/proof-run.md` (exact steps for the human proof run).
 
 ### 👷 John: App · Hardware · Web
 
-**N-R0 · Unblock the app (H0–H2)**
-- Fix the Android build: `drawable-v21/launch_background.xml` uses `#09090B` as `android:drawable`; move it to a `<color>` resource (`values/colors.xml`) and reference `@color/…`. Same for `drawable/launch_background.xml`.
-- Mobile models + `types/production.ts` from §3.4 contracts.
-- **Accept:** `flutter run` builds on the emulator; `flutter analyze` clean.
+**N-R0 · Confirm the app builds + mirror the contracts (H0–H2)**
+- The Android splash fix is already in `21246cd` (`values/colors.xml` → `@color/splash_background`). **Verify only:** `flutter pub get && flutter analyze && flutter test`, then `flutter run` on the emulator. If anything fails, fix it on `prod/john` first.
+- When James says "contracts are in": mobile models in `apps/mobile/lib/models/` + `apps/web/app/types/production.ts` from §3.4.
+- New cards use the existing theme (`lib/theme.dart`, `lib/widgets/widgets.dart`, mint-green); no new palette.
+- **Accept:** `flutter run` builds on the emulator; `flutter analyze` clean; models parse the §3.4 fixtures in a unit test.
 
 **N-R1 · Hardware fix options + command queue (H2–H8)** (after James's H0 contracts; uses `system_for_key`)
 - `core/devices/options.py`: builds options **from the stored appliance run's runbook + profile** (no change to `core/agent/loop.py`):
@@ -237,7 +254,8 @@ pr_opened         { run_id, system_id, pr_url, repo }
 
 **N-R2 · ESP32 firmware (H8–H10)**
 - `hardware/wokwi`: post readings to `/api/devices/{id}/readings` with the key; poll commands every 5 s; drive relay/LED for compressor, defrost and backup; ack.
-- **Accept:** Wokwi (or a real ESP32) shows the relay toggle within 10 s of tapping the option.
+- `hardware/sim_device.py`: a stdlib-only software ESP32 that speaks the same protocol (readings, poll, ack, simulated relay state, `--fault door_open`). It proves the protocol end to end without hardware and is used in tests and the proof run.
+- **Accept:** `sim_device.py` against a local API acks a tapped option within 10 s (automated test); the sketch compiles in Wokwi (human check); a real ESP32 is a bonus.
 
 **N-R3 · Flutter action center (H10–H16)**
 - Cards: **Software · PR ready** (summary, proof "fails → passes, suite green", **Open PR**, mitigation countdown **Roll back now / Cancel**); **Hardware · Choose a fix** (options with live `option_status`); **Watching** (quiet channel).
@@ -247,7 +265,7 @@ pr_opened         { run_id, system_id, pr_url, repo }
 - **Accept:** phone locked → real incident rings within 10 s; Open PR opens the right page; Cancel stops the rollback; hardware option toggles the device; Pause shows on web and phone within 2 s.
 
 **N-R4 · Web `/connect` wizard + second door (H16–H21)**
-- `/welcome`: second button **Connect your production** → `/connect` (hidden when `PRODUCTION_CONNECT_ENABLED=0`). "Try the live demo" stays first and unchanged.
+- `/welcome`: second button **Connect your production** → `/connect` next to the existing CTA in `welcome/DemoCta.tsx` (hidden when `PRODUCTION_CONNECT_ENABLED=0`, read through a small `GET /api/connections/enabled` James adds in the H0 stubs, not a `NEXT_PUBLIC_*` flag). "Try the live demo" stays first and unchanged, as do the header's "Mission Control →" link and the Home links on other pages.
 - `/connect` steps:
   1. name + type;
   2. logs (forwarder one-liner with the key / Sentry URL / curl) with a live "waiting → ✓ first log" (`connection_status`);
@@ -257,7 +275,7 @@ pr_opened         { run_id, system_id, pr_url, repo }
   6. teach normal (reuse `setupApi.ts` calls; don't edit the file);
   7. permissions + the full uptime promise + "I understand";
   8. pair phone → **Start watching**.
-  It creates the system with `environment.mode="production"`.
+  It creates the system with `environment: {"mode": "production"}`.
 - Connections panel on `/connect?system=…`: last seen, test, rotate key, **Disconnect**.
 - **Accept:** a new user connects proof app + repo + Railway + phone in ≤ 10 min with no help; every step has a working Test and a readable error; the simulation route pages render unchanged (`check.sh`).
 
@@ -277,7 +295,7 @@ pr_opened         { run_id, system_id, pr_url, repo }
 
 | Hour | **James (Backend)** | **John (App · Hardware · Web)** | Checkpoint |
 |---|---|---|---|
-| H0–H1 | Contracts + stubs + `check.sh` (shared commit) | N-R0 Android build fix | James: "contracts are in" |
+| H0–H1 | Contracts + stubs + `check.sh` (shared commit) | N-R0 verify app build (fix already in `21246cd`) | James: "contracts are in" |
 | H1–H2 | J-R0 connections + keys real | N-R0 models/types from contracts | **H2 merge** |
 | H2–H6 | J-R1 ingest + forwarder + Sentry | N-R1 options + command queue | **H6 merge** |
 | H6–H8 | J-R2 repo connection | N-R1 finish + tests | |
@@ -331,3 +349,221 @@ pr_opened         { run_id, system_id, pr_url, repo }
 - J-R4 first real rollback: ___
 - N-R1/N-R2 first device ack: ___
 - T-R1 clean runs: ___ / 2
+
+---
+
+## 9. Agent instructions (James and John are both Meta Muse agents running side by side)
+
+They can't talk to each other or to a human while working. They coordinate **only through git** (`origin/main`, one tag, their status files) and this roadmap. §9.0 applies to both; §9.1 and §9.2 are the prompts to paste.
+
+### 9.0 Shared operating rules (both agents)
+
+**Workspace isolation (never share a working folder):**
+
+| | James | John |
+|---|---|---|
+| Worktree | `../telemetry-agent-james` | `../telemetry-agent-john` |
+| Branch | `prod/james` | `prod/john` |
+| API port | 8101 | 8201 |
+| Shop / web port | 8102 (shop) | 3201 (web dev server) |
+| Data dir | `TA_DATA_DIR=/tmp/ta-james` | `TA_DATA_DIR=/tmp/ta-john` |
+| Status file | `status/james.md` | `status/john.md` |
+
+- Create the worktree from the main checkout: `git fetch origin && git worktree add ../telemetry-agent-<name> -b prod/<name> origin/main`.
+- Python: `../telemetry-agent/venv/bin/python` (or your own venv from `requirements.txt`). Node: `npm install` inside the worktree once.
+- **Never** use ports 8001, 8002 or 3000 (Akingbade's live demo) or the other agent's ports. Never stop processes you didn't start.
+- Secrets: load with `set -a; . ../telemetry-agent/.env; set +a`. Never print, log, echo, commit or paste a secret value. Never write to `.env`.
+
+**Merge procedure (each checkpoint; your own branch only):**
+```bash
+git fetch origin
+git rebase origin/main            # conflict in a file you don't own → git rebase --abort, write it under BLOCKED in your status file, keep working
+./scripts/check.sh                # must exit 0 (James's first commit creates it)
+git push --force-with-lease origin HEAD:prod/<name>
+git push origin HEAD:main         # fast-forward only; if rejected, start again from git fetch
+```
+- Never `--force` to `main`. Never delete or rewrite anything you didn't create.
+- Commits: keep the repo's configured git identity (don't change `git config`); **no `Co-authored-by` or AI trailers**; message prefixed with the block id, e.g. `J-R1: ingest logs endpoint + forwarder`.
+
+**Status file (`status/<name>.md`, yours only; update and commit at every checkpoint):**
+```markdown
+# <Name> status
+Current block: …
+Done: J-R0 (sha), J-R1 (sha) …
+Decisions (ambiguities I resolved): …
+Contract changes requested: …   (never change §3.4 alone; write it here and keep using the current contract)
+NEEDS FROM AKINGBADE: …          (credentials, repo creation, Railway, hardware, manual checks)
+BLOCKED: …
+```
+
+**Working style:**
+- Work autonomously to the end of your list. Don't stop to ask; when something is ambiguous, choose what best fits this roadmap (§2 safety first, then §3 rules), write it under *Decisions*, and continue.
+- Test-first for every acceptance case in §4: each one becomes an automated test where possible. Manual-only checks go under NEEDS.
+- Mock every external service in tests (GitHub, Railway, Sentry, Modal) with `httpx.MockTransport` or `unittest.mock`. Real calls only in explicit manual verification steps.
+- Real GitHub writes are limited to **`maximuskay2/telemetryAgent-demo`** (the only repo the current token can write). Close any PR you open while testing, unless it's a deliberate proof PR (note its link in §8).
+- No Railway deploys or setting changes, no new repos, no package publishing. Prepare them and list them under NEEDS.
+- Don't edit frozen files (§3.2). Don't run load against the live shop.
+- **Done** = every one of your §4 acceptance tests passes, `check.sh` is green on `main`, your status file is complete with the NEEDS list, and your docs are written.
+
+### 9.1 Prompt for James (Backend)
+
+```text
+You are James, an autonomous backend engineer (Meta Muse) working in the TelemetryAgent repo at
+/Users/maximusinfotechservices/Documents/META/telemetry-agent. Another agent, John, builds the app,
+hardware and web side AT THE SAME TIME in a separate worktree. You cannot talk to John or to a human
+while working; you coordinate only through git and the files named below.
+
+YOUR JOB: implement every James item in production-roadmap.md — J-R0, J-R1, J-R2, J-R3, J-R4, J-R5 and the
+backend half of T-R1 — until all of their acceptance cases pass, without breaking the simulation route.
+
+READ FIRST, IN FULL: production-roadmap.md (especially §2, §3, §4 "James", §9.0).
+Then skim: apps/api/main.py (the /api/logs, /api/incidents/candidate, /api/actions/*, /api/run routes),
+core/actions/github_pr.py, core/actions/auto_action.py, core/verify/sandbox.py, core/verify/local_runner.py,
+core/agent/loop.py, core/watch/log_watcher.py, core/watch/rules.py, core/setup/gate.py,
+core/schemas/{events,profile,remediation}.py, tests/test_api.py.
+
+SET UP (§9.0): worktree ../telemetry-agent-james on branch prod/james from origin/main; API port 8101,
+shop port 8102, TA_DATA_DIR=/tmp/ta-james. Never touch ports 8001/8002/3000 or 82xx.
+
+STEP 1 — CONTRACTS (do this before anything else; John builds against it):
+  a. core/schemas/production.py with every model in roadmap §3.4.
+  b. core/schemas/events.py: add kinds connection_status, option_status, actions_paused, pr_opened.
+  c. apps/api/routes/__init__.py, apps/api/routes/production.py, apps/api/routes/devices.py with STUB handlers
+     that return the §3.4 fixture JSON exactly (including GET /api/connections/enabled).
+  d. Stub hand-off functions: core/connections/__init__.py (is_production), core/connections/auth.py
+     (system_for_key — accepts the fixture key "ta_live_fixture"), core/actions/mitigate.py
+     (software_options -> [], execute, is_paused -> False).
+  e. Two include_router lines at the END of apps/api/main.py. After this commit no one edits main.py again.
+  f. scripts/check.sh and scripts/smoke_demo.sh exactly as roadmap §3.5 (smoke = simulation route).
+  g. status/james.md (template in §9.0).
+  Run ./scripts/check.sh (must pass), commit "J-R0: production contracts + stubs", merge to main with the §9.0
+  procedure, then: git tag contracts-in && git push origin contracts-in   ← this is John's go signal.
+  After this tag, apps/api/routes/devices.py and core/devices/* belong to John. Never edit them again.
+
+STEP 2 — BUILD IN ORDER, merging to main after each block (§9.0 procedure) and updating status/james.md:
+  J-R0  real connections store (data dir under TA_DATA_DIR, file mode 600), hashed ta_live_ keys shown once,
+        system_for_key, create/list/test/delete; keep accepting "ta_live_fixture" only when TA_FIXTURE_KEYS=1.
+  J-R1  POST /api/ingest/logs + POST /api/ingest/sentry/{key}; agent/ta_forward.py (stdlib only, buffers through
+        API outages, served at GET /forwarder.py); Python tracebacks become ONE candidate with parsed frames;
+        connection_status events; candidates go to the existing gate with the real system_id.
+  J-R2  github connection (fine-grained token; test = repo read + pull_requests permission + base branch);
+        github_pr.py accepts repo/token from a connection; demo systems still use GITHUB_DEMO_REPO.
+  J-R3  THE CORE: core/repo_fix/* + core/verify/repo_sandbox.py. Frames → repo files (suffix match on the tree)
+        → tarball at commit → sandbox (Modal; if Modal creds are missing or fail, use the existing Docker runner
+        pattern in core/verify/local_runner.py; otherwise fail with a clear reason) → install deps, baseline pytest
+        → generated reproduce test MUST FAIL on original → patch ≤ 3 files → new test passes AND no new suite
+        failures → PR on the connected repo, one open PR per fingerprint (comment otherwise), pr_url + suite on
+        the run, pr_opened event. No tests / too big → draft PR with diagnosis only. Production path only when
+        is_production(profile); the demo path (target="inventory") is untouched.
+        Manual proof: a production-mode system connected to maximuskay2/telemetryAgent-demo with a real
+        traceback → a real PR; record the link in roadmap §8.
+  J-R4  core/actions/mitigate.py: allowlist rollback + restart ONLY (Railway GraphQL adapter + HMAC-SHA256 webhook
+        adapter), through the existing auto_action 20 s window; /api/actions/pause GET/POST + actions_paused;
+        1 mitigation per system per 10 min; none while learning; real software_options(run) returning
+        open_pr / rollback / restart options in the §3.4 Option shape. Unit test: stop/delete/scale-0 impossible.
+        Railway calls are mocked in tests; a real rollback only if a Railway token is present — otherwise NEEDS.
+  J-R5  examples/proof-app/ (FastAPI, real bug, ~20 pytest tests, requirements.txt, Railway start command,
+        forwarder line); docs/production-backend.md; docs/proof-run.md (backend steps for the human run).
+        LAST: add two link lines to docs/DOCUMENTATION.md (production-backend.md, production-devices.md).
+
+ALWAYS:
+- Only edit files James owns in roadmap §3.2. Frozen: apps/api/main.py after Step 1, core/agent/loop.py,
+  core/setup/*, core/watch/*, core/simulate/*, demo/**, every existing web page, everything John owns.
+- Additive API only; never change an existing response shape. Never change §3.4 alone — request it in your status.
+- Every acceptance case in §4 James blocks → a test in tests/test_prod_*.py. All 485 existing tests stay green.
+- Secrets hashed/masked, never returned by the API, never printed or committed.
+- Don't stop to ask. Decide by the roadmap, log the decision in status/james.md, continue.
+
+FINISH when: all J-R* acceptance tests pass, check.sh is green on main, status/james.md lists every commit, every
+decision and a complete "NEEDS FROM AKINGBADE" list (e.g. create telemetryAgent-proof-app repo, grant token access,
+RAILWAY_TOKEN + service id, Sentry webhook setup), and docs/production-backend.md + docs/proof-run.md exist.
+```
+
+### 9.2 Prompt for John (App · Hardware · Web)
+
+```text
+You are John, an autonomous app, hardware and web engineer (Meta Muse) working in the TelemetryAgent repo at
+/Users/maximusinfotechservices/Documents/META/telemetry-agent. Another agent, James, builds the backend AT THE
+SAME TIME in a separate worktree. You cannot talk to James or to a human while working; you coordinate only
+through git and the files named below.
+
+YOUR JOB: implement every John item in production-roadmap.md — N-R0, N-R1, N-R2, N-R3, N-R4 and the
+devices/app half of T-R1 — until all of their acceptance cases pass, without breaking the simulation route.
+
+READ FIRST, IN FULL: production-roadmap.md (especially §2, §3, §4 "John", §9.0).
+Then skim: apps/mobile/lib/** (services/api.dart, socket.dart, alarm.dart, foreground.dart, screens/*, theme.dart,
+widgets/widgets.dart, models/*), apps/web/app/welcome/*, apps/web/app/lib/{api,setupApi}.ts,
+apps/web/app/ui/*, core/simulate/fridge_stream.py, core/schemas/remediation.py (Runbook),
+the appliance safety rules in core/agent/loop.py (read only), hardware/wokwi/*.
+
+SET UP (§9.0): worktree ../telemetry-agent-john on branch prod/john from origin/main; API port 8201,
+web dev server port 3201 (NEXT_PUBLIC_API_URL=http://localhost:8201), TA_DATA_DIR=/tmp/ta-john.
+Never touch ports 8001/8002/3000 or 81xx.
+
+STEP 1 — START NOW (needs nothing from James):
+  N-R0  cd apps/mobile && flutter pub get && flutter analyze && flutter test, then flutter build apk --debug
+        (flutter run if an emulator is available). The Android splash fix is already in main (21246cd);
+        only fix something if a step fails. Create status/john.md (template in §9.0).
+        Scaffold the new Flutter cards with the existing lib/theme.dart and lib/widgets/widgets.dart
+        (classic mint-green — no new palette).
+  While doing that, check for James's go signal every few minutes:
+        git fetch origin --tags && git tag -l contracts-in
+  When it exists: git rebase origin/main, then mirror roadmap §3.4 into apps/mobile/lib/models/ and
+  apps/web/app/types/production.ts, with unit tests that parse the §3.4 fixtures.
+  From now on apps/api/routes/devices.py and core/devices/* are yours. Build against James's STUBS; never wait
+  for his real logic — show "PR pending" / "No mitigation" / "not connected yet" states until it lands.
+
+STEP 2 — BUILD IN ORDER, merging to main after each block (§9.0 procedure) and updating status/john.md:
+  N-R1  core/devices/options.py: options from the stored appliance run's runbook + profile (never edit
+        core/agent/loop.py). remote = Start defrost · Lower setpoint 1 °C (only within profile limits) ·
+        Power-cycle compressor (only after restart_delay_s) · Switch to backup; manual = close door / check seal /
+        move stock; dispatch = call/WhatsApp technician with the work order. Every option passes the existing
+        safety rules; unsafe ones get safety.ok=false and can't be executed.
+        apps/api/routes/devices.py: GET /api/incidents/{run_id}/options (software options come from
+        core.actions.mitigate.software_options), POST …/options/{id}/execute (X-Mobile-Token), device command queue
+        GET /api/devices/{id}/commands + POST …/ack (Bearer key via core.connections.auth.system_for_key),
+        2-minute expiry, refuse while mitigate.is_paused(), option_status events, POST /api/devices/{id}/readings.
+        Leave /api/telemetry/appliance untouched.
+  N-R2  hardware/wokwi/sketch.ino: readings with the device key, poll commands every 5 s, relay/LED, ack.
+        hardware/sim_device.py: stdlib-only software ESP32 with the same protocol (--api, --device, --key,
+        --fault door_open), used in an automated end-to-end test against a local API on 8201.
+  N-R3  Flutter: "Software · PR ready" card (summary, proof "fails → passes, suite green", Open PR via url_launcher,
+        Roll back now / Cancel with the countdown), "Hardware · Choose a fix" card (live option_status), quiet
+        "Watching", Pause all actions toggle + "Paused" banner (actions_paused). Widget tests for each card from
+        fixtures. Stretch only if everything else is green: FCM push (list Firebase setup under NEEDS).
+  N-R4  Web: "Connect your production" button next to the CTA in apps/web/app/welcome/DemoCta.tsx, shown only when
+        GET /api/connections/enabled returns enabled:true. "Try the live demo" stays first and unchanged; change
+        nothing else in welcome/. New apps/web/app/connect/: name/type → logs (forwarder one-liner with the key
+        shown once, Sentry URL, curl; live "✓ first log" from connection_status) → repo + Test → hosting
+        (Railway or webhook + secret) + Test ping → device key + firmware snippet + "✓ first reading" → teach
+        normal (CALL setupApi.ts functions, don't edit that file) → permissions + the full §2 uptime promise with
+        an "I understand" tick → pair phone (existing QR) → Start watching. Creates the system with
+        environment: {"mode": "production"}. Connections panel at /connect?system=…: last seen, test, rotate key,
+        Disconnect. npm run build -w apps/web must pass.
+        Docs: docs/production-devices.md; devices/app half of docs/proof-run.md is written in
+        docs/production-devices.md under "Proof run" (James owns docs/proof-run.md).
+  After James's status shows J-R3/J-R4 done (read status/james.md on main): rebase, switch the cards from stub
+  data to real pr_url / suite / software options, and re-run your end-to-end test with sim_device.py.
+
+ALWAYS:
+- Only edit files John owns in roadmap §3.2. Frozen: apps/api/main.py, core/agent/loop.py, core/setup/*,
+  core/watch/*, core/simulate/*, demo/**, apps/web/app/{page.tsx,mission,setup,shop,start,classic,incidents}/**,
+  apps/web/app/lib/setupApi.ts, everything James owns.
+- The simulation route (/welcome → /start → /start/setup → Mission Control) must look and work exactly as now.
+- Additive API only. Never change §3.4 alone — request it in your status and keep using the current contract.
+- No secret in NEXT_PUBLIC_* or the app bundle; the phone token comes from the pairing QR only.
+- Every acceptance case in §4 John blocks → an automated test (Python, flutter test, or web build check) where
+  possible; manual-only checks go under NEEDS.
+- Don't stop to ask. Decide by the roadmap, log the decision in status/john.md, continue.
+
+FINISH when: all N-R* acceptance tests pass, check.sh is green on main, flutter analyze/test and the web build
+pass, status/john.md lists every commit, every decision and a complete "NEEDS FROM AKINGBADE" list (e.g. run the
+app on a phone, flash/run the Wokwi sketch, Firebase for push), and docs/production-devices.md exists.
+```
+
+### 9.3 Akingbade's checklist while they run
+1. Commit + push this roadmap first, so both agents start from the same `main`.
+2. Start **James first**, then John right after. John starts on N-R0 and waits for the `contracts-in` tag by himself.
+3. Watch progress: `git log origin/main --oneline`, `status/james.md` and `status/john.md` on `main`.
+4. Act on each **NEEDS FROM AKINGBADE** list: proof-app repo, token access, `RAILWAY_TOKEN`, phone and Wokwi checks.
+5. At the end: run `docs/proof-run.md` yourself. If the production route isn't stable, set `PRODUCTION_CONNECT_ENABLED=0` and record the simulation route.
