@@ -1,6 +1,10 @@
 # John status
-Current block: N-R3 Flutter action center (next)
+Current block: N-R3 Flutter action center
 Done:
+- MERGE 1 (e81c88d): N-R0 + N-R1 + N-R2 on main over J-R3; check.sh GREEN
+  (574 python, smoke, web build, 45 flutter). Smoke needed 6 attempts: Modal
+  GRPCError 'sandbox already shut down' flaked ~75% for 40 min, then green
+  twice in a row; pristine-main smoke also green. No code changed for it.
 - N-R0 verify (d046878): 3 stale widget tests fixed (tall surface; stale copy),
   analyze clean, 32 flutter tests green, debug APK builds
 - N-R0 scaffold (5d211bc): action cards + 5 widget tests (37 flutter green)
