@@ -18,6 +18,7 @@ from core.connections import auth as key_auth
 from core.connections import github as github_conn
 from core.connections import store as connection_store
 from core.ingest import pipeline as ingest_pipeline
+from core.repo_fix import run as repo_fix_run
 from core.schemas.events import SimEvent
 from core.schemas.production import (
     FIXTURE_SYSTEM_ID,
@@ -178,10 +179,16 @@ async def ingest_logs(request: Request, payload: IngestLogsIn) -> IngestResult:
         system_id,
         payload.service,
         [line.message for line in payload.lines],
+        commit=payload.commit,
     )
     if record is not None:
         await _mark_first_log(record["id"], system_id)
     await _broadcast_decisions(result["decisions"])
+    # J-R3: armed production tracebacks with a repo connection start a
+    # background repo-fix run; the response never waits for it.
+    await repo_fix_run.maybe_trigger(
+        system_id, result["decisions"], payload.commit
+    )
     return IngestResult(
         accepted=result["accepted"], candidates=result["candidates"]
     )
@@ -199,6 +206,7 @@ async def ingest_sentry(key: str, payload: dict) -> SentryAccepted:
     if record is not None:
         await _mark_first_log(record["id"], system_id)
     await _broadcast_decisions(result["decisions"])
+    await repo_fix_run.maybe_trigger(system_id, result["decisions"], "")
     return SentryAccepted(accepted=1)
 
 

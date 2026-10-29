@@ -88,6 +88,7 @@ async def process_lines(
     service: str,
     lines: List[str],
     extra_metrics: Optional[Dict[str, float]] = None,
+    commit: str = "",
 ) -> Dict[str, Any]:
     """Evaluate one batch; returns accepted/candidates/decisions."""
     from apps.api.main import (  # deferred: routers load before main ends
@@ -140,6 +141,7 @@ async def process_lines(
             "signature": signature,
             # J-R3 re-parses frames from this window (run["gate"] keeps it).
             "window": window,
+            "commit": commit,
         }
         _mark_learning_incident(system_id, body)
         _record_gate_decision(system_id, body)

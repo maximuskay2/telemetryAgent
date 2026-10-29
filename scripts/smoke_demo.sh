@@ -21,6 +21,9 @@ if [ -f ../telemetry-agent/.env ]; then
   set -a; . ../telemetry-agent/.env; set +a
 fi
 unset GITHUB_TOKEN GH_TOKEN
+# Pin the Docker verifier: smoke proves the ROUTE is preserved, and the
+# demo loop's live Modal attempts flake (frozen code, not ours to fix).
+export TA_VERIFY=local
 
 DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ta-smoke.XXXXXX")"
 PORT="$("$PY" -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')"

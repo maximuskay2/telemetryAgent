@@ -2,6 +2,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from core.schemas.production import MitigationSummary, SuiteSummary
+
 
 class GeneratedPatch(BaseModel):
     patch_code: str = Field(min_length=1, description="Python module implementing the fix")
@@ -70,6 +72,14 @@ class ExecutionResult(BaseModel):
     )
     verification: Optional[RunVerification] = Field(
         default=None, description="Fail-to-pass evidence for the drawer (S1)"
+    )
+    # Production repo runs (roadmap §3.4; James fills, John reads).
+    repo: str = Field(default="", description="owner/name the fix PR targets")
+    suite: Optional[SuiteSummary] = Field(
+        default=None, description="Prove step: passed/failed/new_failures"
+    )
+    mitigation: Optional[MitigationSummary] = Field(
+        default=None, description="J-R4 fills this on mitigation runs"
     )
 
 

@@ -1,6 +1,6 @@
 # James status
-Current block: J-R3 real fix pipeline (next)
-Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 GitHub repo connection (this commit)
+Current block: J-R4 mitigations + pause (next)
+Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 real fix pipeline (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -23,6 +23,15 @@ Decisions (ambiguities I resolved):
 - J-R2: no github_pr.py change was needed — open_pr/open_fix_pr already accept repo/token params; the new resolver is core/connections/github.connection_repo (repo, base, token for J-R3).
 - J-R2: write probe = create + immediately delete a throwaway ta-probe-* ref (no trace). Read-only → ok:false "can read, cannot open PRs" (the fix flow needs PRs, so the test is red).
 - J-R2: default branch travels in the detail string ("connected · default branch main · ...") — no contract change needed since ConnectionTest has no branch field.
+- J-R3: trigger is parse-based, not rule-based (a traceback mentioning "deadlock" matches the deadlock rule but still triggers; plain ERROR lines stay candidates). Traceback rule only in effect.
+- J-R3: ingest auto-triggers (armed + production + github conn + parsed traceback + fingerprint not in flight). NO new endpoint — tests call run_repo_fix directly, keeping §3.4 untouched.
+- J-R3: one-PR-per-fingerprint via deterministic branch telemetry-agent/fix-<fp12>; existing open PR → "seen again" comment. Repeat comments throttled to 1/hour/fingerprint.
+- J-R3: patch >3 files → keep first 3 + note in PR body. Unknown paths dropped; no known paths → attempt fails.
+- J-R3: draft PR (NO_ACTION + pr_url) for: locate fails, snapshot >50 MB, pip fails, no tests, repro won't fail, patch won't prove. Draft carries TELEMETRY_AGENT_DIAGNOSIS.md (+ repro test when one failed). Only "no sandbox" is a hard FAIL.
+- J-R3: Modal upload is chunked base64 exec (no secrets inside ever); Modal setup failure of ANY kind falls back to Docker; clear error names both when neither works.
+- J-R3: ExecutionResult gained §3.4-sanctioned additive fields repo/suite/mitigation (John reads pr_url/repo/suite from GET /api/runs/{id}.result).
+- J-R3: Wonder escalation lives in core/repo_fix/generate.py (own OpenAI stanza) — core/infer is not James's to edit.
+- J-R3 live proof: PR #9 (sorted fix, fail→pass, 5 passed/0 new), ×5→1 PR + comment, draft #10 verified + closed. Only #9 left open (deliberate proof PR).
 Contract changes requested: (none)
 NEEDS FROM AKINGBADE: (none yet)
 BLOCKED: (none)

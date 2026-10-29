@@ -345,7 +345,7 @@ Steps 3–4 print a clear `SKIP (npm/flutter not found)` instead of failing when
 ## 8. Log (fill in while building)
 - Contract changes (date · who · what · both agreed): ___
 - J-R1 first real log from a remote machine: ___
-- J-R3 first PR on a non-demo repo: ___ (link)
+- J-R3 first PR on a non-demo repo: 2026-10-29 · https://github.com/maximuskay2/telemetryAgent-demo/pull/9 (lock-order `sorted()` fix + repro test; fail→pass proven in Docker; suite 5 passed / 0 new failures; same error ×5 → 1 PR + "seen again" comment; draft-with-diagnosis path verified live on PR #10 then closed)
 - J-R4 first real rollback: ___
 - N-R1/N-R2 first device ack: ___
 - T-R1 clean runs: ___ / 2

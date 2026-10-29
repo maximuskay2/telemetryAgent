@@ -99,11 +99,15 @@ def open_pr(
     files: Mapping[str, str],
     token: Optional[str] = None,
     client: Optional[httpx.Client] = None,
+    labels: Optional[list] = None,
+    draft: bool = False,
 ) -> str:
     """Create one commit with `files` on a new branch and open a PR.
 
     Returns the PR's HTML URL. `client` is injectable for tests; when omitted
-    a short-lived client against api.github.com is used.
+    a short-lived client against api.github.com is used. `labels` are applied
+    best-effort (a missing label never fails the PR); `draft` falls back to
+    a normal PR when the repo rejects drafts.
     """
     if not files:
         raise ValueError("files must map at least one path to its content")
@@ -154,13 +158,101 @@ def open_pr(
         if ref.status_code != 201:
             _fail(ref, f"creating branch {branch}")
 
-        pr = http.post(
-            f"/repos/{repo}/pulls",
-            json={"title": title, "head": branch, "base": base, "body": body},
-        )
+        payload: dict = {
+            "title": title,
+            "head": branch,
+            "base": base,
+            "body": body,
+        }
+        if draft:
+            payload["draft"] = True
+        pr = http.post(f"/repos/{repo}/pulls", json=payload)
+        if pr.status_code == 422 and draft:
+            pr = http.post(f"/repos/{repo}/pulls", json={**payload, "draft": False})
         if pr.status_code != 201:
             _fail(pr, "opening pull request")
-        return pr.json()["html_url"]
+        opened = pr.json()
+        if labels:
+            _apply_labels(http, repo, opened.get("number"), labels)
+        return opened["html_url"]
+    finally:
+        if owned:
+            http.close()
+
+
+def _apply_labels(
+    http: httpx.Client, repo: str, number: object, labels: list
+) -> None:
+    """Best-effort label apply; never raises (labels are advisory)."""
+    try:
+        if not isinstance(number, int):
+            return
+        names = [str(label) for label in labels if str(label).strip()]
+        if not names:
+            return
+        for name in names:
+            created = http.post(
+                f"/repos/{repo}/labels",
+                json={"name": name, "color": "0E786D"},
+            )
+            if created.status_code not in (200, 201, 422):
+                return
+        http.patch(
+            f"/repos/{repo}/issues/{number}", json={"labels": names}
+        )
+    except Exception:
+        return
+
+
+def open_pr_for_branch(
+    repo: str,
+    branch: str,
+    token: Optional[str] = None,
+    client: Optional[httpx.Client] = None,
+) -> Optional[dict]:
+    """Open PR from `branch`, if any: {number, html_url} (J-R3 dedupe)."""
+    owned = client is None
+    http = client or httpx.Client(
+        base_url=API, headers=_headers(_token(token)), timeout=30.0
+    )
+    try:
+        owner = repo.split("/")[0]
+        response = http.get(
+            f"/repos/{repo}/pulls",
+            params={"head": f"{owner}:{branch}", "state": "open"},
+        )
+        if response.status_code != 200:
+            _fail(response, f"listing PRs for {branch}")
+        items = response.json()
+        if not items:
+            return None
+        return {
+            "number": items[0]["number"],
+            "html_url": items[0]["html_url"],
+        }
+    finally:
+        if owned:
+            http.close()
+
+
+def comment_on_pr(
+    repo: str,
+    number: int,
+    body: str,
+    token: Optional[str] = None,
+    client: Optional[httpx.Client] = None,
+) -> None:
+    """Append a comment to an existing PR/issue (J-R3 dedupe path)."""
+    owned = client is None
+    http = client or httpx.Client(
+        base_url=API, headers=_headers(_token(token)), timeout=30.0
+    )
+    try:
+        response = http.post(
+            f"/repos/{repo}/issues/{number}/comments", json={"body": body}
+        )
+        if response.status_code != 201:
+            _fail(response, f"commenting on PR #{number}")
     finally:
         if owned:
             http.close()
