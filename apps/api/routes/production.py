@@ -1,8 +1,7 @@
-"""Production connections, ingest and pause routes (H0 stubs).
+"""Production connections, ingest and pause routes (James owns this file).
 
-Every handler returns the §3.4 fixture JSON verbatim so John can build the
-app, firmware and `/connect` wizard against stable shapes. Real logic:
-J-R0 (connections store), J-R1 (ingest), J-R4 (pause state).
+Connections are real (J-R0 store); ingest answers from fixtures until J-R1
+and pause until J-R4. Shapes always match §3.4.
 """
 
 from __future__ import annotations
@@ -14,13 +13,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.actions.auto_action import mobile_token
 from core.connections import auth as key_auth
+from core.connections import store as connection_store
 from core.schemas.production import (
-    FIXTURE_CONNECTION,
-    FIXTURE_CONNECTION_TEST,
     FIXTURE_INGEST_RESULT,
-    FIXTURE_KEY,
     FIXTURE_SENTRY_RESULT,
-    Connection,
+    FIXTURE_SYSTEM_ID,
     ConnectionCreate,
     ConnectionCreated,
     ConnectionList,
@@ -30,7 +27,9 @@ from core.schemas.production import (
     IngestResult,
     PauseState,
     SentryAccepted,
+    TestPermissions,
 )
+from core.setup import store as setup_store
 
 router = APIRouter()
 
@@ -65,19 +64,35 @@ async def connections_enabled() -> EnabledResult:
     return EnabledResult(enabled=_connect_enabled())
 
 
+#: Kinds whose secret the customer pastes (no generated key).
+PASTED_SECRET_KINDS = ("github", "railway", "webhook")
+
+
 @router.post("/api/connections", response_model=ConnectionCreated)
 async def create_connection(payload: ConnectionCreate) -> ConnectionCreated:
-    connection = Connection.model_validate(
-        {**FIXTURE_CONNECTION, "system_id": payload.system_id, "kind": payload.kind}
+    """Store a connection; a generated key is shown once, never again."""
+    known = setup_store.get_profile(payload.system_id) is not None
+    fixture_ok = (
+        payload.system_id == FIXTURE_SYSTEM_ID
+        and key_auth.fixture_keys_allowed()
     )
-    return ConnectionCreated(connection=connection, key=FIXTURE_KEY)
+    if not known and not fixture_ok:
+        raise HTTPException(status_code=404, detail="unknown system_id")
+    if payload.kind in PASTED_SECRET_KINDS and not (payload.secret or "").strip():
+        raise HTTPException(
+            status_code=400, detail=f"kind {payload.kind} needs a secret"
+        )
+    connection, key = connection_store.create_connection(
+        payload.system_id, payload.kind, payload.config, payload.secret
+    )
+    return ConnectionCreated(connection=connection, key=key)
 
 
 @router.get("/api/connections", response_model=ConnectionList)
 async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
-    _ = system_id
+    """List connections; secrets are never returned (hint only)."""
     return ConnectionList(
-        connections=[Connection.model_validate(FIXTURE_CONNECTION)]
+        connections=connection_store.list_connections(system_id)
     )
 
 
@@ -85,13 +100,30 @@ async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
     "/api/connections/{connection_id}/test", response_model=ConnectionTest
 )
 async def test_connection(connection_id: str) -> ConnectionTest:
-    _ = connection_id
-    return ConnectionTest.model_validate(FIXTURE_CONNECTION_TEST)
+    """J-R0: stored-config check. Live github checks land in J-R2."""
+    record = connection_store.get_record(connection_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="unknown connection")
+    kind = record.get("kind", "")
+    config = record.get("config", {}) or {}
+    if kind == "github":
+        if not str(config.get("repo", "")).strip():
+            return ConnectionTest(ok=False, detail="config.repo is missing")
+        if not connection_store.get_secret(connection_id):
+            return ConnectionTest(ok=False, detail="no token stored")
+        return ConnectionTest(
+            ok=False,
+            detail="stored; live repo/permission checks land in J-R2",
+            permissions=TestPermissions(read=False, pull_requests=False),
+        )
+    return ConnectionTest(ok=True, detail="stored; waiting for first data")
 
 
 @router.delete("/api/connections/{connection_id}")
 async def delete_connection(connection_id: str) -> dict:
-    _ = connection_id
+    """Delete; the connection's key fails immediately (nothing cached)."""
+    if not connection_store.delete_connection(connection_id):
+        raise HTTPException(status_code=404, detail="unknown connection")
     return {"deleted": True}
 
 

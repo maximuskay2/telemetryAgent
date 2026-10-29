@@ -85,11 +85,22 @@ need confirm.json status confirmed
 curl -sf -X POST "$BASE/api/systems/$SHOP/arm" -o "$OUT/arm.json"
 need arm.json status armed
 
+post_agent() { # post_agent <path> <data-file> <out-file> <label>
+  code="$(curl -s -o "$OUT/$3" -w '%{http_code}' -X POST "$BASE$1" \
+    -H 'Content-Type: application/json' -d @"$OUT/$2" --max-time 600)" || code="000"
+  if [ "$code" != "200" ]; then
+    echo "smoke: $4 failed (http $code)"
+    head -c 2000 "$OUT/$3"; echo
+    echo "--- server log tail ---"
+    tail -30 "$OUT/server.log"
+    exit 1
+  fi
+}
+
 echo "smoke: candidate system_id=shop -> act (full agent run)"
-curl -sf -X POST "$BASE/api/incidents/candidate" \
-  -H 'Content-Type: application/json' \
-  -d '{"system_id":"shop","source":"log","rule":"smoke-hard-limit","metrics":{"error_rate":0.9},"signature":"smoke: order error rate 90%"}' \
-  --max-time 600 -o "$OUT/candidate.json"
+printf '%s' '{"system_id":"shop","source":"log","rule":"smoke-hard-limit","metrics":{"error_rate":0.9},"signature":"smoke: order error rate 90%"}' \
+  >"$OUT/candidate-body.json"
+post_agent /api/incidents/candidate candidate-body.json candidate.json candidate
 need candidate.json decision.decision act
 need_nonempty candidate.json run_id
 
@@ -103,8 +114,7 @@ import json, sys
 log = json.load(open(sys.argv[1]))["log_text"]
 json.dump({"log_text": log}, open(sys.argv[2], "w"))
 EOF
-curl -sf -X POST "$BASE/api/run" -H 'Content-Type: application/json' \
-  -d @"$OUT/run-body.json" --max-time 600 -o "$OUT/run.json"
+post_agent /api/run run-body.json run.json run
 need_nonempty run.json run_id
 
 if [ -n "${SMOKE_WEB_URL:-}" ]; then
