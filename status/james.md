@@ -1,6 +1,6 @@
 # James status
-Current block: J-R4 mitigations + pause (next)
-Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 real fix pipeline (this commit)
+Current block: J-R5 proof app + backend docs (next)
+Done: H0 (7bb037b), J-R0 (134af27), J-R1 (65a88cb), J-R2 (bdb2bd4), J-R3 (36aaa4f), J-R4 mitigations + pause (this commit)
 Decisions (ambiguities I resolved):
 - H0: stub POST /api/connections echoes the request's system_id/kind onto the fixture connection and returns key "ta_live_fixture" (the key the H0 auth stub accepts).
 - H0: stub GET /api/incidents/{run_id}/options echoes the path run_id with domain "software".
@@ -32,6 +32,13 @@ Decisions (ambiguities I resolved):
 - J-R3: ExecutionResult gained §3.4-sanctioned additive fields repo/suite/mitigation (John reads pr_url/repo/suite from GET /api/runs/{id}.result).
 - J-R3: Wonder escalation lives in core/repo_fix/generate.py (own OpenAI stanza) — core/infer is not James's to edit.
 - J-R3 live proof: PR #9 (sorted fix, fail→pass, 5 passed/0 new), ×5→1 PR + comment, draft #10 verified + closed. Only #9 left open (deliberate proof PR).
+- J-R4: adapters live INSIDE mitigate.py (R-2: only listed files) — Railway GraphQL + signed webhook.
+- J-R4: gates order allowlist → paused → learning → rate → policy (proposals only; explicit human taps bypass policy) → connection. Only DONE runs consume the rate budget; failures retry immediately.
+- J-R4: mitigation windows are mitigate-owned (separate dict; main's apply dispatch is frozen) reusing PendingAction + action_pending/tick/resolved so John's app needs no new WS code. Lazy ticker; tests drive settle_due manually.
+- J-R4: proposals are approve-to-run (auto_apply=False) — nothing runs by itself with no error-rate feed. Repo-run start proposes rollback (policy-gated, silent skip); T-R1 phone rings from this.
+- J-R4: software_options always lists rollback/restart (safety-gated with reasons) + open_pr when pr_url exists. Ids opt_<action>; action_for_option_id parses for John's router. execute("open_pr") → noop.
+- J-R4: Railway shapes from public docs (deployments list, deploymentRedeploy, deploymentRestart, me) — implemented + mocked, NOT live-verified (no token here).
+- J-R4: rollback = redeploy newest SUCCESS deployment (even if it is the latest, with note); restart = deploymentRestart on latest.
 Contract changes requested: (none)
-NEEDS FROM AKINGBADE: (none yet)
+NEEDS FROM AKINGBADE: RAILWAY_TOKEN + staging Railway service id to live-verify rollback/restart mutations (mocked only so far)
 BLOCKED: (none)

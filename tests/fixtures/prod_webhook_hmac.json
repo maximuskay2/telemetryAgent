@@ -1,0 +1,5 @@
+{
+  "secret": "whsec_test_fixture_key",
+  "body": "{\"action\":\"rollback\",\"system_id\":\"acme\",\"run_id\":\"run1\",\"ts\":1700000000.0}",
+  "signature": "sha256=acac4a4dc236234e24fb9bb069ceacfb98cf3f5b0c02a52ab685b8fc7a60bb09"
+}

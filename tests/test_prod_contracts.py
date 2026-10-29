@@ -73,12 +73,20 @@ class FixtureKeyTests(unittest.TestCase):
         self.assertIsNone(key_auth.system_for_key("", "device"))
 
 
-class MitigateStubTests(unittest.TestCase):
-    def test_no_options_not_paused_execute_refused(self) -> None:
-        self.assertEqual(mitigate.software_options({}), [])
-        self.assertFalse(mitigate.is_paused())
-        result = mitigate.execute("sys", "rollback", "run1")
-        self.assertEqual(result["status"], "refused")
+class MitigateShapeTests(unittest.TestCase):
+    def test_options_and_pause_shapes(self) -> None:
+        # Unknown system: rollback/restart listed, safety closed.
+        self.assertIsNone(mitigate.action_for_option_id("opt_stop"))
+        with patch.dict(os.environ, {"TA_DATA_DIR": _tmp_data()}):
+            options = mitigate.software_options({"system_id": "ghost"})
+            self.assertEqual(
+                {option.kind for option in options}, {"rollback", "restart"}
+            )
+            for option in options:
+                self.assertFalse(option.safety.ok)
+            self.assertFalse(mitigate.is_paused())
+            result = mitigate.execute("ghost", "rollback", "run1")
+            self.assertEqual(result["status"], "refused")
 
 
 class NewEventKindTests(unittest.TestCase):
@@ -221,8 +229,9 @@ class StubEndpointTests(unittest.TestCase):
                 self.assertEqual(ack.status_code, 404)
 
     def test_pause_round_trip(self) -> None:
-        with TestClient(app) as client:
-            with patch.dict(os.environ, {"MOBILE_API_TOKEN": ""}):
+        env = {"TA_DATA_DIR": _tmp_data(), "MOBILE_API_TOKEN": ""}
+        with patch.dict(os.environ, env):
+            with TestClient(app) as client:
                 state = client.get("/api/actions/pause")
                 self.assertEqual(state.json(), {"paused": False})
                 flipped = client.post(

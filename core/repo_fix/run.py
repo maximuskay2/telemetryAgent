@@ -20,6 +20,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+from core.actions import mitigate as mitigate_actions
 from core.connections import github as github_conn
 from core.connections import is_production
 from core.ingest.traceback import parse_traceback
@@ -166,6 +167,15 @@ async def maybe_trigger(
             continue
         run_id = uuid4().hex[:12]
         _active.add(ctx["fingerprint"])
+        # J-R4: a confirmed production incident proposes a rollback window
+        # (approve-to-run: it expires unless a human approves). Best effort:
+        # policy/paused/rate refusals just mean no window opens.
+        try:
+            await mitigate_actions.propose(
+                system_id, run_id, "rollback", auto_apply=False
+            )
+        except Exception as exc:
+            log.warning("rollback proposal skipped: %s", exc)
         task = asyncio.create_task(
             run_repo_fix(
                 run_id=run_id,

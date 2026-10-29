@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 import apps.api.main as api_main
+from core.actions import mitigate
 from core.connections import store as connection_store
 from core.repo_fix import generate as repo_generate
 from core.repo_fix import locate as repo_locate
@@ -384,6 +385,7 @@ class GenerateTests(unittest.TestCase):
 class TriggerTests(unittest.TestCase):
     def setUp(self) -> None:
         repo_run.reset_run_state()
+        mitigate.reset_mitigate_state()
 
     def _decision(self, **overrides) -> dict:
         base = {
@@ -451,6 +453,67 @@ class TriggerTests(unittest.TestCase):
             self.assertIsNone(
                 repo_run.should_trigger(profile, self._decision())
             )
+
+    def test_maybe_trigger_proposes_window_and_starts_run(self) -> None:
+        tmp = _tmp_data()
+        with patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            setup_store.save_profile(
+                SystemProfile(
+                    system_id="acme",
+                    name="Acme",
+                    kind="software",
+                    environment={"mode": "production"},
+                    status="armed",
+                    policy={"allowed_actions": ["rollback"]},
+                )
+            )
+            connection_store.create_connection(
+                "acme", "github", {"repo": "acme/api"}, "good"
+            )
+            connection_store.create_connection(
+                "acme", "webhook", {"url": "http://hook/x"}, "sec"
+            )
+
+            async def main():
+                with patch.object(
+                    repo_run, "run_repo_fix", new=AsyncMock(
+                        return_value={"status": "PASS"}
+                    )
+                ) as started_run:
+                    begun = await repo_run.maybe_trigger(
+                        "acme", [self._decision()], "abc123"
+                    )
+                    # Cancel the propose ticker first: it never ends.
+                    ticker = mitigate._ticker_task
+                    if ticker is not None:
+                        ticker.cancel()
+                    current = asyncio.current_task()
+                    others = [
+                        task
+                        for task in asyncio.all_tasks()
+                        if task is not current
+                    ]
+                    if others:
+                        await asyncio.gather(
+                            *others, return_exceptions=True
+                        )
+                    return begun, started_run
+
+            with (
+                patch.dict(os.environ, {"TA_DATA_DIR": tmp}),
+                patch.object(
+                    api_main.hub, "broadcast", new=AsyncMock()
+                ),
+            ):
+                begun, started_run = asyncio.run(main())
+        self.assertEqual(len(begun), 1)
+        started_run.assert_awaited_once()
+        # Rollback window proposed (approve-to-run, policy allowed).
+        window = mitigate._windows.get(begun[0])
+        assert window is not None
+        self.assertEqual(window.state, "pending")
+        self.assertFalse(window.auto_apply)
+        mitigate.reset_mitigate_state()
 
 
 class RunPipelineTests(unittest.TestCase):

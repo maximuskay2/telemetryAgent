@@ -6,6 +6,7 @@ until J-R4. Shapes always match §3.4.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from core.actions.auto_action import mobile_token
+from core.actions import mitigate as mitigate_actions
 from core.connections import auth as key_auth
 from core.connections import github as github_conn
 from core.connections import store as connection_store
@@ -104,12 +106,31 @@ async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
     "/api/connections/{connection_id}/test", response_model=ConnectionTest
 )
 async def test_connection(connection_id: str) -> ConnectionTest:
-    """Stored-config check; github gets live repo/permission checks (J-R2)."""
+    """Stored-config check; github/railway/webhook get live checks."""
     record = connection_store.get_record(connection_id)
     if record is None:
         raise HTTPException(status_code=404, detail="unknown connection")
     kind = record.get("kind", "")
     config = record.get("config", {}) or {}
+    if kind == "railway":
+        secret = connection_store.get_secret(connection_id)
+        if not secret:
+            return ConnectionTest(ok=False, detail="no token stored")
+        result = await asyncio.to_thread(
+            mitigate_actions.railway_check, secret
+        )
+        return ConnectionTest(ok=result["ok"], detail=result["detail"])
+    if kind == "webhook":
+        url = str(config.get("url", "") or "").strip()
+        if not url:
+            return ConnectionTest(ok=False, detail="config.url is missing")
+        secret = connection_store.get_secret(connection_id)
+        if not secret:
+            return ConnectionTest(ok=False, detail="no secret stored")
+        result = await asyncio.to_thread(
+            mitigate_actions.webhook_ping, url, secret
+        )
+        return ConnectionTest(ok=result["ok"], detail=result["detail"])
     if kind == "github":
         if not str(config.get("repo", "")).strip():
             return ConnectionTest(ok=False, detail="config.repo is missing")
@@ -228,10 +249,17 @@ async def forwarder_script() -> str:
 
 @router.get("/api/actions/pause", response_model=PauseState)
 async def get_pause() -> PauseState:
-    return PauseState(paused=False)
+    return PauseState(paused=mitigate_actions.is_paused())
 
 
 @router.post("/api/actions/pause", response_model=PauseState)
 async def set_pause(request: Request, payload: PauseState) -> PauseState:
+    """Global kill switch (persisted) + `actions_paused` broadcast."""
+    from apps.api.main import hub  # deferred: routers load before main ends
+
     _require_mobile_token(request)
-    return PauseState(paused=payload.paused)
+    paused = mitigate_actions.set_paused(payload.paused)
+    await hub.broadcast(
+        SimEvent(kind="actions_paused", payload={"paused": paused})
+    )
+    return PauseState(paused=paused)
