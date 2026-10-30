@@ -1,10 +1,12 @@
 # Jude status (languages)
 
-Current block: T-L1 (6/7 live PASS; waiting on James L-J4 Go adapter for the last cell)
+Current block: DONE — all blocks on main (T-L1 7/7 live PASS)
 
-Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (f84e974); L-D5 DONE (77ee810); T-L1 LEFT (go only)
+Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (f84e974); L-D5 DONE (77ee810); T-L1 DONE (this commit)
 
-Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (harness), L-D5 (docs/languages.md + 2 link lines)
+Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (harness), L-D5 (docs/languages.md + 2 link lines), T-L1 (below)
+
+T-L1 full live matrix (lang_e2e.sh --live, GitHub mocked, all Baseten meta-models/muse-spark-open-1026): python PASS 37s, javascript PASS 29s, java PASS 157s, kotlin PASS 206s, go PASS 74s, rust PASS 24s, php PASS 38s. 7/7 PASS, no drafts. Budget used: 2 of 3 per language or fewer.
 
 L-D1 verification (Oct 30, stock §1.1 base images): node 21/21 + V8 TypeError trace; java 20/20 (online then offline) + ArithmeticException; kotlin 20/20 + ArithmeticException at Cart.kt:48; go 21/21 + panic/goroutine trace; rust 21/21 + panicked-at/backtrace; php 20/20 + fatal/Stack trace. No suite covers the empty cart; every app answers 500 and keeps serving.
 
@@ -51,7 +53,8 @@ Contract changes requested:
 
 Live runs (lang · result · seconds · model): all via lang_e2e.sh --live, GitHub mocked, 30 Oct.
 - Round 1 (L-D4): python PASS 35s live-chain; rust PASS 34s live-chain; php PASS 52s live-chain (model labels not captured; harness fixed since).
-- Round 2 (T-L1 partial, 6/7): python PASS 37s baseten:muse-spark-open-1026; javascript PASS 29s baseten:muse-spark-open-1026; java PASS 157s baseten:muse-spark-open-1026; kotlin PASS 206s baseten:muse-spark-open-1026; rust PASS 24s baseten:muse-spark-open-1026; php PASS 38s baseten:muse-spark-open-1026; go SKIP (no adapter). Total 490s. Budget used: python/rust/php 2 of 3, js/java/kotlin 1 of 3.
+- Round 2 (T-L1 partial, 6/7): python PASS 37s baseten:muse-spark-open-1026; javascript PASS 29s baseten:muse-spark-open-1026; java PASS 157s baseten:muse-spark-open-1026; kotlin PASS 206s baseten:muse-spark-open-1026; rust PASS 24s baseten:muse-spark-open-1026; php PASS 38s baseten:muse-spark-open-1026; go SKIP (no adapter). Total 490s.
+- Round 3 (T-L1 complete): go PASS 74s baseten:muse-spark-open-1026 after James L-J4. Final budget: python/rust/php 2 of 3, js/java/kotlin/go 1 of 3.
 
 NEEDS FROM AKINGBADE: none
 

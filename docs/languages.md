@@ -20,7 +20,7 @@ log, and the known limits.
 | JavaScript / TypeScript | `package.json` (`tsconfig.json` → TS) | Jest, Vitest, Mocha, `node --test` | `ta_repro_<fp>.test.<ext>` by repo convention | ✅ Live matrix PASS (29s) |
 | Java | `pom.xml` / `build.gradle(.kts)` | Maven Surefire / Gradle | `src/test/java/<pkg>/TaRepro<Fp>Test.java` | ✅ Live matrix PASS (157s) |
 | Kotlin | `build.gradle(.kts)` + `.kt` files | Maven / Gradle | `src/test/kotlin/<pkg>/TaRepro<Fp>Test.kt` | ✅ Live matrix PASS (206s) |
-| Go | `go.mod` | `go test ./...` | `ta_repro_<fp>_test.go` next to the crash file | 🔶 Adapter in progress |
+| Go | `go.mod` | `go test ./...` | `ta_repro_<fp>_test.go` next to the crash file | ✅ Live matrix PASS (74s) |
 | Rust | `Cargo.toml` | `cargo test --offline` | `tests/ta_repro_<fp>.rs` (inline module if no lib target) | ✅ Live matrix PASS (24s) |
 | PHP | `composer.json` | PHPUnit / Pest (`--log-junit`) | `tests/TaRepro<Fp>Test.php` | ✅ Live matrix PASS (38s) |
 
