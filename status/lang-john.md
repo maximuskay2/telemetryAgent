@@ -4,7 +4,7 @@ Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged
 Blocks (acceptance check Oct 30):
 - L-N1 DONE (wired): single ADAPTER (see Decisions), manifest hook, results.py delegation, 61 tests green + 1 documented skip; Docker e2e PASS on local fixture (install → baseline 3/3 → real TypeError located to src/shop.js → repro FAIL → patch → repro PASS → suite 4/4 clean, 1.3s, no models). LEFT: merge (BLOCKED below); re-run on Jude's proof-app-node when it merges (acceptance names it).
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
-- L-N3 DONE: merged; backend now sends language/autofix (James L-J0) — live verify next.
+- L-N3 DONE: merged + LIVE-VERIFIED — real `check_repo` on telemetryAgent-demo returns `language`/`autofix` keys matching the TS type; error path omits them (renders nothing). Both UI branches proven.
 - L-N4 DONE: merged. LEFT: live verify once a gated run carries language.
 - L-N5 DONE: merged.
 Doc review checklist (L-N5): every table row checked against roadmap §1.1 (markers, trace formats, install cmds, suite cmds) + §4 L-D5 log settings (source maps, RUST_BACKTRACE=1, full JVM traces, display_errors=stderr); Python row keeps prior meaning; armed + ≤3-files + suffix-match notes kept; unsupported-language line matches §1 unknown-language rule; README line honest (Python today, rest rolling out) with USAGE link.
