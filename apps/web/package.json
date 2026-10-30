@@ -9,6 +9,7 @@
     "demo": "bash ../../scripts/demo.sh"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.23",
     "@tailwindcss/postcss": "^4.3.3",
     "geist": "^1.8.2",
     "lucide-react": "^1.63.0",

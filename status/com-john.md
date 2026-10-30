@@ -1,6 +1,21 @@
 # John status (commercial)
-Current block: C-N6 MERGED to origin/main (faffc88, check.sh GREEN)
-Done: C-N6 real-backend wiring + live proof, on top of merged C-N3..C-N5
+Current block: C-N7 Clerk wiring, merging
+Done: C-N6 merged (ece8e10); C-N7 real Clerk sign-in (this branch)
+Decisions (C-N7):
+- @clerk/nextjs 7.9.23; session splits into Mock/Clerk/Token
+  providers (stable hooks each). Clerk mode hydrates orgs from
+  getToken(), refreshes the short-lived JWT every 50 s, signs out
+  through Clerk; a pasted test token still overrides for local dev.
+- Importing @clerk/nextjs in the server layout crashes prerender
+  (a.startsWith), so ClerkProvider lives in a client ClerkShell.
+  No clerkMiddleware: public simulation stays public; pages own
+  their signed-out states.
+- /signin renders Clerk <SignIn/> (brand blue, Optimistic stack)
+  in clerk mode; the mock and connecting variants are unchanged.
+- Proof: mock CDP 6/6 (rewritten mock provider), Clerk CDP 6/6
+  (component mounts, email step, override, live members, no JS
+  errors), JWKS live (1 RSA key). Interactive Clerk login (email
+  code) is a human step — not headlessly provable.
 Tag: James C-J1+C-J2 on main (cd2c809) adopted; rebased clean.
 Decisions (C-N6):
 - Real mode signs in with a pasted test JWT (local-dev <details> on
@@ -90,6 +105,6 @@ Decisions (C-N5):
   point at §D. Screenshot usage.png, CDP 5/5 incl. no JS errors.
 Contract changes requested: —
 Live runs (lang · result · seconds · model): —
-NEEDS FROM AKINGBADE: Clerk dev publishable key (web sign-in goes
-live with it; backend JWKS is James's NEEDS).
+NEEDS FROM AKINGBADE: nothing (Clerk dev keys received; old
+publishable-key NEEDS satisfied by C-N7).
 BLOCKED: —

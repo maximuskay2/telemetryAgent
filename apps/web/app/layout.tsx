@@ -3,6 +3,7 @@ import { GeistMono } from "geist/font/mono";
 import "./styles.css";
 import "./tailwind.css";
 import { SessionProvider } from "./lib/session";
+import ClerkShell from "./lib/clerk-shell";
 import { THEME_INIT_SCRIPT } from "./lib/theme";
 
 export const metadata: Metadata = {
@@ -19,7 +20,9 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={GeistMono.variable}>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <SessionProvider>{children}</SessionProvider>
+        <ClerkShell>
+          <SessionProvider>{children}</SessionProvider>
+        </ClerkShell>
       </body>
     </html>
   );
