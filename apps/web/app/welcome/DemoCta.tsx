@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { getConnectEnabled } from "../connect/api";
 import { apiHealth } from "../lib/setupApi";
 
 /** Landing CTA: links straight in when the API answers, waits otherwise. */
 export default function DemoCta() {
   const [awake, setAwake] = useState<boolean | null>(null);
+  const [connectOn, setConnectOn] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,28 +28,52 @@ export default function DemoCta() {
     };
   }, []);
 
-  if (awake === false) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="inline-flex cursor-wait items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text-muted"
-      >
-        <span
-          aria-hidden
-          className="size-2 animate-pulse rounded-full bg-warn"
-        />
-        Demo is waking up…
-      </button>
+  useEffect(() => {
+    let cancelled = false;
+    getConnectEnabled().then(
+      (enabled) => {
+        if (!cancelled) setConnectOn(enabled);
+      },
+      () => {
+        // API unreachable: demo door keeps its own waking state.
+      },
     );
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
-    <Link
-      href="/start"
-      className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-[#0b1710] outline-none transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-    >
-      Try the live demo
-      <span aria-hidden>→</span>
-    </Link>
+    <>
+      {awake === false ? (
+        <button
+          type="button"
+          disabled
+          className="inline-flex cursor-wait items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text-muted"
+        >
+          <span
+            aria-hidden
+            className="size-2 animate-pulse rounded-full bg-warn"
+          />
+          Demo is waking up…
+        </button>
+      ) : (
+        <Link
+          href="/start"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-[#0b1710] outline-none transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        >
+          Try the live demo
+          <span aria-hidden>→</span>
+        </Link>
+      )}
+      {connectOn && (
+        <Link
+          href="/connect"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text transition-colors outline-none hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        >
+          Connect your production
+        </Link>
+      )}
+    </>
   );
 }

@@ -1,6 +1,11 @@
 # John status
-Current block: N-R3 Flutter action center
+Current block: MERGE 2 (N-R3 + N-R4) — access restored, merging
 Done:
+- MERGE 2 READY (unmerged): N-R3 verified (56 flutter green, analyze clean,
+  debug APK builds); N-R4 done (connect wizard both paths + panel + second
+  door, web build green, /connect 200 + bundle strings, backend path probed
+  green, docs/production-devices.md + Proof run); 622 python green on own
+  venv; T-R1 app checks done (no stub data in lib/, sim e2e green)
 - MERGE 1 (e81c88d): N-R0 + N-R1 + N-R2 on main over J-R3; check.sh GREEN
   (574 python, smoke, web build, 45 flutter). Smoke needed 6 attempts: Modal
   GRPCError 'sandbox already shut down' flaked ~75% for 40 min, then green
@@ -64,8 +69,34 @@ Decisions (ambiguities I resolved):
   My router/e2e tests now set TA_FIXTURE_KEYS=1 (his sanctioned gate).
   Observed: "Bearer <literal>" strings are redacted to "[REDACTED]" on write
   in both agents' files; harmless in his wrong-key test (still 401s).
+- N-R4: wizard branches by kind (software: logs/repo/hosting; appliance: device)
+  — the brief's linear list is the union; forcing either path through the
+  other's steps would be nonsense. No backend rotate endpoint exists, so the
+  panel rotates as delete+create (old key dies at once; pasted-secret kinds
+  re-prompt). /connect keeps its own tiny connection_status socket (shared
+  hook drops unknown kinds; no shared files touched). Readings route flips
+  device connections waiting→ok (mirrors James's logs helper; uses his
+  public store API). Environment flag via PUT profile (no backend change).
+  Own worktree venv (main venv unreadable); check.sh prefers it anyway.
 Contract changes requested: —
 NEEDS FROM AKINGBADE:
 - Compile the N-R2 sketch.ino + diagram.json in Wokwi (no Arduino toolchain here);
   if the LED/resistor part names need adjusting, note it in status/john.md reply.
-BLOCKED: —
+- FCM push (N-R3 stretch, skipped): needs a Firebase project + google-services.json
+  + backend send path; everything else is green, so say the word + hand me the
+  Firebase files and I'll wire it.
+NEEDS-2 FLUTTER OUTAGE (machine-wide): two stuck foreign flutter processes hold the
+global tool startup lock, so every flutter command (mine and James's) hangs:
+UPDATE 07:05: flutter outage CLEARED by itself (both foreign PIDs gone, lock
+free). N-R3 verified: 56/56, analyze clean, APK builds. Superseded by NEEDS-3.
+- NEEDS-3 MAIN CHECKOUT UNREADABLE (blocking merge): the whole
+  ~/Documents/META/telemetry-agent/ returns EPERM (files, .git, venv, .env)
+  while the -john worktree is fine. So: no git ops (commit/push/merge),
+  no main venv (own worktree venv built, 622 green), no .env (smoke gate
+  unrunnable). Please restore access (Privacy settings / reboot), then say
+  "merge" and I run: commit N-R4 + check.sh + push prod/john + push main.
+  Work is safe: committed locally through 95b5183 + backup at
+  /tmp/john-nr3-nr4-backup.tar.gz (70 files).
+BLOCKED: MERGE 2 on NEEDS-3. Everything else is done and verified.
+Tooling: muse file-write tools lost repo access (EPERM; reads + bash fine), so
+new files are staged via /tmp + cp and edits via /tmp/jedit.py until it clears.
