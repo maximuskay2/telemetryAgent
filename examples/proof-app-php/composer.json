@@ -1,0 +1,24 @@
+{
+    "name": "proof/shop-php",
+    "description": "Tiny cart service with one real bug (empty-cart checkout crash) for TelemetryAgent language proofs.",
+    "type": "project",
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "ProofShop\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ProofShop\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

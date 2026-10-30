@@ -1,0 +1,4 @@
+# Built binaries and test artifacts stay out of git.
+/proofshop
+*.test
+/coverage.out

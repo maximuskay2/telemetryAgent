@@ -1,0 +1,14 @@
+{
+  "name": "proof-shop-node",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tiny cart service with one real bug (empty-cart checkout crash) for TelemetryAgent language proofs.",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test tests/"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

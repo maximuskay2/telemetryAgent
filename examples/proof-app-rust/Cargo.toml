@@ -1,0 +1,12 @@
+[package]
+name = "proof-shop-rust"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "proof_shop_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "proof-shop-rust"
+path = "src/main.rs"
