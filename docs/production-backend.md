@@ -69,24 +69,31 @@ header (the instance has no accounts).
 
 Auto-triggers from ingest for armed production systems with a github
 connection and a parseable traceback (rule-agnostic: a traceback that
-mentions "deadlock" still triggers). No new endpoint — tests call
-`run_repo_fix` directly, keeping §3.4 untouched.
+mentions "deadlock" still triggers). The trace picks the language
+adapter (`registry.parse`); the repo must also score for it (`detect`),
+else the run fails early with a mismatch reason. No new endpoint —
+tests call `run_repo_fix` directly, keeping §3.4 untouched.
 
 1. **Locate** (`locate.py`): tree at the commit via git-trees API; frame
-   files match by suffix; top 1–3 files ±40 lines. No frame match →
+   files match through the adapter's `map_frame` (suffix, package→path,
+   module strip…); top 1–3 files ±40 lines. No frame match →
    keyword-ranked files, model picks ≤ 5.
 2. **Snapshot** (`snapshot.py`): tarball at the failing commit (else base
    HEAD); download aborts past 50 MB; filtering drops `.git`,
-   `node_modules`, caches, > 2 MB files and binaries, strips the top
-   dir, refuses unsafe entries.
-3. **Sandbox** (`repo_sandbox.py`): Modal first (Python 3.11 + pytest;
+   `node_modules`, caches, build outputs (`target/`, `build/`,
+   `.gradle/`, `dist/`), PHP `vendor/`, > 2 MB files and binaries,
+   strips the top dir, refuses unsafe entries. Go `vendor/` and the
+   Gradle wrapper jar are kept (build inputs).
+3. **Sandbox** (`repo_sandbox.py`): Modal first (per-language images;
    snapshot arrives as chunked base64 execs — **no customer secrets go
    inside, ever**); ANY Modal failure falls back to Docker (host
-   extract + throwaway containers, network only for pip); neither →
-   clear error. `TA_VERIFY=local` forces Docker.
-4. **Install + baseline**: `pip install -r requirements.txt` (5-min cap)
-   or `-e .`; baseline `pytest -q` outcomes recorded.
-5. **Reproduce**: model-written `tests/test_telemetry_agent_<fp>.py` must
+   extract + throwaway containers, per-language image, network only for
+   installs); neither → clear error. `TA_VERIFY=local` forces Docker.
+   Toolchain caches live on `/work` (pip target, `.m2`, `.gradle`,
+   `.gomod`, `.gocache`, `.cargo`) so they survive throwaway runs.
+4. **Install + baseline**: the adapter's `install_cmds` (network on,
+   per-language cap), then the baseline suite; outcomes recorded.
+5. **Reproduce**: model-written repro test (adapter path + rules) must
    FAIL on the original (3 attempts, output fed back, Muse Wonder on
    the last — Baseten Spark Open before that).
 6. **Patch**: `files: [{path, content}]`, max 3 known files (kept first
@@ -99,9 +106,31 @@ mentions "deadlock" still triggers). No new endpoint — tests call
    `telemetry-agent`. `pr_opened` event; `pr_url`/`repo`/`suite` land on
    the run result (additive `ExecutionResult` fields, §3.4).
 9. **Draft fallback** (`NO_ACTION` + `pr_url`): locate fails, snapshot
-   > 50 MB, pip fails, no tests, repro won't fail, patch won't prove →
-   draft PR with `TELEMETRY_AGENT_DIAGNOSIS.md` (+ repro test when one
-   failed). Only "no sandbox" is a hard `FAIL`.
+   > 50 MB, install fails, no tests, repro won't fail, patch won't
+   prove → draft PR with `TELEMETRY_AGENT_DIAGNOSIS.md` (+ repro test
+   when one failed). Only "no sandbox" is a hard `FAIL`.
+
+### Language adapters (`core/repo_fix/lang/`, frozen contract §3)
+
+One file per language implements `LanguageAdapter` (`base.py`): trace
+rules, frame mapping, install/suite/single-test commands, result
+parsing, repro path + rules. The registry (`__init__.py`) auto-discovers
+every `ADAPTER` (or `ADAPTERS` list for two-name modules); `results.py`
+holds the shared JUnit/Jest/Go parsers. Python behaviour is unchanged —
+it just lives in `python.py` now.
+
+| Language | File | Image | Suite |
+|---|---|---|---|
+| Python | `python.py` (James) | python | `pytest -q` |
+| JavaScript/TypeScript | `javascript.py` (John) | node | Jest/Vitest |
+| Java/Kotlin | `java.py` (James) | jvm | `mvn -o test` / Gradle |
+| Go | `go.py` (James) | go | `go test -json` |
+| Rust | `rust.py` (Jude) | rust | `cargo test` |
+| PHP | `php.py` (Jude) | php | `phpunit` |
+
+Gate decisions carry `language` + `autofix`; unsupported languages get
+`"auto-fix not supported for <lang> yet"` and no run. Docker images come
+from `docker/sandbox/Dockerfile.*` via `scripts/build-sandbox-image.sh`.
 
 Runs are stored in `software_runs` with `target: "repo"` and broadcast
 the usual `diagnose/generate/verify/done` steps, so Mission Control and

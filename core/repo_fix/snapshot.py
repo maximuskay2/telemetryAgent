@@ -2,8 +2,10 @@
 
 The tarball is taken at the failing commit when ingest knew it, else base
 HEAD. Download aborts past 50 MB; filtering drops `.git`, `node_modules`,
-caches, files over 2 MB and detected binaries, strips the top-level dir,
-and refuses unsafe entries — the sandbox receives a clean, flat tree.
+caches, build outputs (`target/`, `build/`, `.gradle/`, `dist/`), PHP
+`vendor/`, files over 2 MB and detected binaries, strips the top-level
+dir, and refuses unsafe entries — the sandbox receives a clean tree. Go
+`vendor/` and the Gradle wrapper jar are kept (build inputs).
 """
 
 from __future__ import annotations
@@ -18,8 +20,14 @@ import httpx
 MAX_TARBALL_BYTES = 50 * 1024 * 1024
 MAX_MEMBER_BYTES = 2 * 1024 * 1024
 
-DROP_DIRS = (".git/", "node_modules/", "__pycache__/", ".venv/", "venv/")
+DROP_DIRS = (
+    ".git/", "node_modules/", "__pycache__/", ".venv/", "venv/",
+    "target/", "build/", ".gradle/", "dist/",
+)
 DROP_SUFFIXES = (".pyc", ".pyo", ".so", ".dylib", ".dll", ".exe")
+
+#: Binary-looking files that are still build inputs (kept as-is).
+KEEP_BINARIES = ("gradle/wrapper/gradle-wrapper.jar",)
 
 
 def _headers(token: str) -> Dict[str, str]:
@@ -136,6 +144,10 @@ def filter_snapshot(tarball: bytes) -> bytes:
     # GitHub tarballs nest everything under one top dir; strip it when
     # every entry shares it, else keep names as they are.
     strip = len(tops) == 1 and len(kept) > 1
+    basenames = {member.name.rsplit("/", 1)[-1].lower() for member in kept}
+    # PHP reinstalls its vendor tree (composer.json, no go.mod); Go builds
+    # FROM vendor/ when present, so it stays. Neither file: keep (safe).
+    drop_vendor = "composer.json" in basenames and "go.mod" not in basenames
     outgoing = io.BytesIO()
     with tarfile.open(fileobj=outgoing, mode="w:gz") as tar:
         for member in kept:
@@ -145,7 +157,11 @@ def filter_snapshot(tarball: bytes) -> bytes:
                 if not name:
                     continue
             lowered = name.lower()
-            if lowered.startswith(DROP_DIRS) or "/.git/" in lowered:
+            segments = [seg for seg in lowered.split("/") if seg]
+            parents = segments if member.isdir() else segments[:-1]
+            if any(f"{seg}/" in DROP_DIRS for seg in parents):
+                continue
+            if drop_vendor and "vendor" in parents:
                 continue
             if lowered.endswith(DROP_SUFFIXES):
                 continue
@@ -158,7 +174,9 @@ def filter_snapshot(tarball: bytes) -> bytes:
                 if handle is None:
                     continue
                 data = handle.read()
-                if _looks_binary(data[:8192]):
+                if _looks_binary(data[:8192]) and not lowered.endswith(
+                    KEEP_BINARIES
+                ):
                     continue
                 info = tarfile.TarInfo(name=name)
                 info.size = len(data)

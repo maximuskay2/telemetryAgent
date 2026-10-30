@@ -19,6 +19,7 @@ from core.ingest import pipeline as ingest_pipeline
 from core.ingest.traceback import Frame, TracebackAssembler, TracebackInfo
 from core.repo_fix import lang as lang_registry
 from core.repo_fix import run as repo_run
+from core.repo_fix import snapshot as repo_snapshot
 from core.repo_fix.lang import __init__ as registry  # noqa: F401  (package import check)
 from core.repo_fix.lang import (
     all_adapters,
@@ -390,6 +391,79 @@ class ModalImageTest(unittest.TestCase):
         portable = repo_sandbox._append_cmd("/tmp/x", "QUJD", True)
         self.assertEqual(portable[:2], ["sh", "-c"])
         self.assertIn("base64 -d >>", portable[2])
+
+
+def _filter(files):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, data in files.items():
+            raw = data.encode() if isinstance(data, str) else data
+            info = tarfile.TarInfo(name)
+            info.size = len(raw)
+            tar.addfile(info, io.BytesIO(raw))
+    out = repo_snapshot.filter_snapshot(buf.getvalue())
+    return tarfile.open(fileobj=io.BytesIO(out)).getnames()
+
+
+class SnapshotFilterTest(unittest.TestCase):
+    def test_drops_build_outputs_top_and_nested(self):
+        names = _filter({
+            "top/pom.xml": "x",
+            "top/target/a.class": "x",
+            "top/mod/target/b.class": "x",
+            "top/build/c": "x",
+            "top/app/build/d": "x",
+            "top/.gradle/e": "x",
+            "top/dist/f.js": "x",
+            "top/src/A.java": "x",
+        })
+        self.assertEqual(sorted(names), ["pom.xml", "src/A.java"])
+
+    def test_drops_php_vendor(self):
+        names = _filter({
+            "top/composer.json": "{}",
+            "top/vendor/a.php": "x",
+            "top/src/B.php": "x",
+        })
+        self.assertEqual(sorted(names), ["composer.json", "src/B.php"])
+
+    def test_keeps_go_vendor(self):
+        names = _filter({
+            "top/go.mod": "m",
+            "top/vendor/gopkg/x.go": "x",
+            "top/main.go": "x",
+        })
+        self.assertEqual(
+            sorted(names), ["go.mod", "main.go", "vendor/gopkg/x.go"]
+        )
+
+    def test_vendor_kept_without_markers(self):
+        names = _filter({
+            "top/vendor/x": "x",
+            "top/a.py": "x",
+        })
+        self.assertEqual(sorted(names), ["a.py", "vendor/x"])
+
+    def test_keeps_gradle_wrapper_jar(self):
+        names = _filter({
+            "top/gradlew": "x",
+            "top/gradle/wrapper/gradle-wrapper.jar": b"a\x00b",
+            "top/lib/other.jar": b"c\x00d",
+            "top/blob.bin": b"e\x00f",
+            "top/A.java": "x",
+        })
+        self.assertEqual(
+            sorted(names),
+            ["A.java", "gradle/wrapper/gradle-wrapper.jar", "gradlew"],
+        )
+
+    def test_nested_caches_dropped(self):
+        names = _filter({
+            "top/pkg/__pycache__/a.pyc": "x",
+            "top/pkg/node_modules/b.js": "x",
+            "top/pkg/c.py": "x",
+        })
+        self.assertEqual(sorted(names), ["pkg/c.py"])
 
 
 class _StubAdapter:

@@ -1,7 +1,8 @@
 # James status (languages)
-Current block: L-J5 next (L-J4 done, merging)
-Done: L-J0 (8276c12, on main, tagged lang-contracts-in), L-J1 (c2c2d8a),
-  L-J2 (31ad582), checkpoint (3a65e68), L-J3 (3aed4f1), L-J4 (this commit)
+Current block: DONE — all blocks L-J0..L-J5 merged (this commit is L-J5)
+Done: L-J0 (8276c12, tagged lang-contracts-in), L-J1 (c2c2d8a),
+  L-J2 (31ad582), checkpoint (3a65e68), L-J3 (3aed4f1), L-J4 (780e00a),
+  L-J5 (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -130,13 +131,19 @@ BLOCKED: none
   incl. multi-module, Maven+Gradle, surefire XML + stdout fallbacks);
   8 real fixtures (6 java + 2 kotlin); Modal images + image threading;
   proof-app-java + proof-app-kotlin E2E PASS in Docker (mocked GitHub).
-- L-J4 DONE (this commit): `lang/go.py` (panic + goroutine parser with
-  `log.Printf` timestamp tolerance, module-path stripping, `go test`
-  JSON); 6 real fixtures; `GOMODCACHE`/`GOCACHE` (+ preemptive
+- L-J4 DONE (780e00a, main): `lang/go.py` (panic + goroutine parser
+  with `log.Printf` timestamp tolerance, module-path stripping,
+  `go test` JSON); 6 real fixtures; `GOMODCACHE`/`GOCACHE` (+ preemptive
   `CARGO_HOME` for Jude) pinned to /work; proof-app-go E2E PASS in
-  Docker (mocked GitHub, /tmp/e2e_go.py); 919 green, `check.sh` green.
+  Docker (mocked GitHub, /tmp/e2e_go.py).
+- L-J5 DONE (this commit): snapshot drops `target/`/`build/`/`.gradle/`/
+  `dist/` (any depth) + PHP `vendor/` (composer.json, no go.mod); keeps
+  Go `vendor/` + `gradle-wrapper.jar`; 6 `SnapshotFilterTest` rules;
+  `docs/production-backend.md` adapter section; 932 green,
+  `check.sh` green.
 - L-J4 LEFT: not started — `lang/go.py` (panic parser, module-path strip,
   `go test -json`). proof-app-go on main — E2E unblocked.
-- L-J5 LEFT: not started — snapshot filter (`target/`, `build/`,
-  `.gradle/`, PHP `vendor/` dropped; Go `vendor/` + wrapper jar kept) +
-  `docs/production-backend.md` adapter section.
+- James COMPLETE: all six blocks + checkpoint on main. Open threads
+  for the record: Modal JVM/Go images unverified live (no creds here);
+  Gradle E2E unproven (no Gradle proof app); `fatal error:` (Go) and
+  default-package single-word JVM heads don't trigger (noted limits).
