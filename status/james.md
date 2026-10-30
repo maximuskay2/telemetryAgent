@@ -44,6 +44,7 @@ Decisions (ambiguities I resolved):
 - Note for John: test_software_options_empty_until_jr4 now fails because J-R4 IS on main (software_options returns 2 safety-gated options by design). Your file, your call — the "until R4" expectation has flipped.
 - J-R5 gate: python 619/620 (only John's stale test above), smoke GREEN, web GREEN, flutter 45/45 GREEN on the identical mobile tree earlier (this run's step 4 waited on John's concurrent flutter lock; J-R5 touches no mobile code). Merged with these two documented exceptions.
 - T-R1 backend: James↔John options integration verified over HTTP (3 safe options with PR URL; pause closes safety with reason; execute-while-paused 409s). Backend proof (PR #9, ×5 dedupe, draft #10) already recorded in roadmap §8.
+- Flake note (not mine): test_setup_acceptance.ShopGateTests.test_s5_harmless_warning failed 1/4 full-suite runs, passes alone and in pairs. Pre-existing area (sim ambient metrics + gate, frozen files); suite growth shifted timing. Needs triage by whoever owns setup acceptance; I can't touch those files.
 Contract changes requested: (none — §3.4 untouched throughout)
 NEEDS FROM AKINGBADE: create public maximuskay2/telemetryAgent-proof-app from examples/proof-app/ + deploy on Railway; RAILWAY_TOKEN + staging service id for live mutation verify
 BLOCKED: (none)
