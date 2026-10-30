@@ -5,15 +5,20 @@ These pin the §3 surface John and Jude code against. They use no adapters
 test runs against real Docker file I/O (no image needed).
 """
 
+import asyncio
 import io
 import os
 import sys
 import tarfile
+import tempfile
 import unittest
 from unittest import mock
 
 from core.connections import github as github_conn
-from core.ingest.traceback import TracebackInfo
+from core.ingest import pipeline as ingest_pipeline
+from core.ingest.traceback import Frame, TracebackAssembler, TracebackInfo
+from core.repo_fix import lang as lang_registry
+from core.repo_fix import run as repo_run
 from core.repo_fix.lang import __init__ as registry  # noqa: F401  (package import check)
 from core.repo_fix.lang import (
     all_adapters,
@@ -22,11 +27,14 @@ from core.repo_fix.lang import (
     parse,
     refined_name,
 )
+from core.repo_fix.lang.python import ADAPTER as PYTHON_ADAPTER
 from core.repo_fix.lang.results import (
     parse_go_test_json,
     parse_jest_json,
     parse_junit_xml,
 )
+from core.schemas.profile import SystemProfile
+from core.setup import store as setup_store
 from core.verify import repo_sandbox
 from core.verify.local_runner import resolve_docker
 
@@ -359,6 +367,345 @@ class SandboxIOTest(unittest.TestCase):
             self.assertEqual(box._image, "telemetry-agent-sandbox")
         finally:
             box.terminate()
+
+
+class _StubAdapter:
+    """Minimal non-Python adapter: head, `STUB> file:line`, `STUB-END`."""
+
+    name = "stub"
+
+    def trace_start(self, line: str) -> bool:
+        return line == "STUB-HEAD"
+
+    def trace_continues(self, line: str) -> bool:
+        return line.startswith("STUB> ")
+
+    def parse_trace(self, text: str):
+        lines = text.splitlines()
+        if not lines or lines[0] != "STUB-HEAD":
+            return None
+        frames = []
+        for item in lines[1:]:
+            if item.startswith("STUB> "):
+                rest = item[len("STUB> "):]
+                if ":" not in rest:
+                    return None
+                name, _, lineno = rest.rpartition(":")
+                try:
+                    frames.append(Frame(name, int(lineno), "s"))
+                except ValueError:
+                    return None
+            elif item.startswith("STUB-END"):
+                continue
+            else:
+                return None
+        if not frames:
+            return None
+        return TracebackInfo("StubError", "boom", frames, text, "stub")
+
+
+PY_LINES = [
+    "Traceback (most recent call last):",
+    '  File "/srv/a.py", line 1, in f',
+    "    boom()",
+    "ValueError: bad",
+]
+
+STUB_LINES = ["STUB-HEAD", "STUB> a.js:10", "STUB> b.js:20"]
+
+
+def _feed_all(lines):
+    assembler = TracebackAssembler()
+    completed = []
+    for line in lines:
+        done = assembler.feed(line, 0.0)
+        if done is not None:
+            completed.append(done)
+    return completed
+
+
+class AssemblerLangsTest(unittest.TestCase):
+    def test_mixed_stream_one_trace_each(self):
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            completed = _feed_all(
+                ["noise before", *PY_LINES, "noise", *STUB_LINES, "tail"]
+            )
+        self.assertEqual(len(completed), 2)
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            first = parse(completed[0])
+            second = parse(completed[1])
+        self.assertIsNotNone(first)
+        self.assertIsNotNone(second)
+        self.assertEqual(first[1].language, "python")
+        self.assertEqual(second[1].language, "stub")
+        self.assertTrue(first[1].frames)
+        self.assertTrue(second[1].frames)
+
+    def test_python_assembly_byte_identical(self):
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            completed = _feed_all(PY_LINES)
+        self.assertEqual(completed, ["\n".join(PY_LINES)])
+
+    def test_generic_completes_without_trailer(self):
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            completed = _feed_all([*STUB_LINES, "tail"])
+        self.assertEqual(completed, ["\n".join(STUB_LINES)])
+
+    def test_generic_completes_with_closing_line(self):
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            completed = _feed_all([*STUB_LINES, "STUB-END ok"])
+        self.assertEqual(completed, ["\n".join([*STUB_LINES, "STUB-END ok"])])
+
+    def test_assemble_entries_carry_languages(self):
+        ingest_pipeline.reset_assemblers()
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            entries = ingest_pipeline.assemble(
+                "ingest:t:api",
+                [*PY_LINES, "noise", *STUB_LINES, "tail"],
+                0.0,
+            )
+        texts = [entry.text for entry in entries]
+        self.assertEqual(
+            texts,
+            ["\n".join(PY_LINES), "noise", "\n".join(STUB_LINES), "tail"],
+        )
+        self.assertEqual(entries[0].traceback.language, "python")
+        self.assertIsNone(entries[1].traceback)
+        self.assertEqual(entries[2].traceback.language, "stub")
+        self.assertIsNone(entries[3].traceback)
+        ingest_pipeline.reset_assemblers()
+
+
+def _sentry_payload(platform=None, frames=(), exc_type="", exc_value=""):
+    issue = {
+        "title": "t",
+        "metadata": {"type": exc_type, "value": exc_value},
+        "entries": [
+            {"type": "stacktrace", "data": {"frames": list(frames)}}
+        ],
+    }
+    if platform is not None:
+        issue["platform"] = platform
+    return {"data": {"issue": issue}}
+
+
+class SentryLangsTest(unittest.TestCase):
+    def test_sentry_language_mapping(self):
+        cases = [
+            (None, (), "python"),
+            ("python", (), "python"),
+            ("node", (), "javascript"),
+            ("javascript", (), "javascript"),
+            ("java", (), "java"),
+            ("go", (), "go"),
+            ("rust", (), "rust"),
+            ("php", (), "php"),
+            ("ruby", (), "ruby"),
+        ]
+        for platform, frames, want in cases:
+            with self.subTest(platform=platform):
+                self.assertEqual(
+                    ingest_pipeline.sentry_language(
+                        _sentry_payload(platform, frames)
+                    ),
+                    want,
+                )
+
+    def test_sentry_language_refines_siblings(self):
+        ts = [{"filename": "src/a.ts", "lineno": 1, "function": "f"}]
+        self.assertEqual(
+            ingest_pipeline.sentry_language(
+                _sentry_payload("node", ts)
+            ),
+            "typescript",
+        )
+        kt = [{"filename": "App.kt", "lineno": 1, "function": "f"}]
+        self.assertEqual(
+            ingest_pipeline.sentry_language(
+                _sentry_payload("java", kt)
+            ),
+            "kotlin",
+        )
+
+    def test_sentry_python_rendering_unchanged(self):
+        payload = _sentry_payload(
+            None,
+            [
+                {"filename": "shop/views.py", "lineno": 42,
+                 "function": "checkout"},
+                {"filename": "shop/cart.py", "lineno": 17,
+                 "function": "total"},
+            ],
+            "ZeroDivisionError", "division by zero",
+        )
+        self.assertEqual(
+            ingest_pipeline.sentry_texts(payload),
+            [
+                "Traceback (most recent call last):",
+                '  File "shop/views.py", line 42, in checkout',
+                '  File "shop/cart.py", line 17, in total',
+                "ZeroDivisionError: division by zero",
+            ],
+        )
+
+    def test_sentry_java_marker_and_shape(self):
+        payload = _sentry_payload(
+            "java",
+            [{"filename": "Cart.java", "lineno": 17,
+              "function": "total", "module": "com.acme.Cart"}],
+            "com.acme.CartException", "empty",
+        )
+        texts = ingest_pipeline.sentry_texts(payload)
+        self.assertEqual(
+            texts,
+            [
+                "ta-language: java",
+                "com.acme.CartException: empty",
+                "\tat com.acme.Cart.total(Cart.java:17)",
+            ],
+        )
+
+    def test_assemble_strips_marker_and_hints_first_line(self):
+        ingest_pipeline.reset_assemblers()
+        entries = ingest_pipeline.assemble(
+            "ingest:t:sentry",
+            ["ta-language: java", "com.acme.E: empty",
+             "\tat com.acme.C.m(C.java:1)"],
+            0.0,
+        )
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].hint, "java")
+        self.assertIsNone(entries[0].traceback)
+        self.assertIsNone(entries[1].hint)
+        self.assertNotIn("ta-language", entries[0].text)
+        ingest_pipeline.reset_assemblers()
+
+    def test_marker_ignored_for_log_keys(self):
+        ingest_pipeline.reset_assemblers()
+        entries = ingest_pipeline.assemble(
+            "ingest:t:api", ["ta-language: java"], 0.0
+        )
+        self.assertEqual(len(entries), 1)
+        self.assertIsNone(entries[0].hint)
+        self.assertEqual(entries[0].text, "ta-language: java")
+        ingest_pipeline.reset_assemblers()
+
+
+class TriggerLangsTest(unittest.TestCase):
+    def _profile(self):
+        return SystemProfile(
+            system_id="acme",
+            name="Acme",
+            kind="software",
+            environment={"mode": "production"},
+            status="armed",
+        )
+
+    def test_should_trigger_names_python_adapter(self):
+        decision = {
+            "decision": "observe",
+            "rule": "traceback",
+            "fingerprint": "fp0011223344",
+            "window": "\n".join(PY_LINES),
+            "commit": "abc123",
+        }
+        with mock.patch.object(
+            github_conn, "connection_repo",
+            return_value={"repo": "a/b", "base": "", "token": "t"},
+        ):
+            ctx = repo_run.should_trigger(self._profile(), decision)
+        self.assertIsNotNone(ctx)
+        self.assertEqual(ctx["adapter_name"], "python")
+        self.assertEqual(ctx["language"], "python")
+
+    def test_should_trigger_rejects_unparseable(self):
+        decision = {
+            "decision": "observe",
+            "rule": "error",
+            "fingerprint": "fp0011223344",
+            "window": "ERROR something broke",
+            "commit": "abc123",
+        }
+        with mock.patch.object(
+            github_conn, "connection_repo",
+            return_value={"repo": "a/b", "base": "", "token": "t"},
+        ):
+            self.assertIsNone(
+                repo_run.should_trigger(self._profile(), decision)
+            )
+
+    def test_gate_body_carries_language_and_note(self):
+        tmp = tempfile.mkdtemp(prefix="ta-lang-ingest-")
+        system_id = "acme-lang"
+        with mock.patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            setup_store.save_profile(
+                SystemProfile(
+                    system_id=system_id,
+                    name="Acme",
+                    kind="software",
+                    environment={"mode": "production"},
+                    status="armed",
+                )
+            )
+            ingest_pipeline.reset_assemblers()
+            result = asyncio.run(
+                ingest_pipeline.process_lines(
+                    system_id, "sentry",
+                    ["ta-language: java", "com.acme.E: empty",
+                     "\tat com.acme.C.m(C.java:1)"],
+                )
+            )
+            ingest_pipeline.reset_assemblers()
+        self.assertEqual(result["candidates"], 1)
+        self.assertEqual(len(result["decisions"]), 1)
+        body = result["decisions"][0]
+        self.assertEqual(body["language"], "java")
+        self.assertFalse(body["autofix"])
+        self.assertEqual(
+            body["autofix_note"], "auto-fix not supported for java yet"
+        )
+
+    def test_gate_body_marks_python_supported(self):
+        tmp = tempfile.mkdtemp(prefix="ta-lang-ingest-")
+        system_id = "acme-lang-py"
+        with mock.patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            setup_store.save_profile(
+                SystemProfile(
+                    system_id=system_id,
+                    name="Acme",
+                    kind="software",
+                    environment={"mode": "production"},
+                    status="armed",
+                )
+            )
+            ingest_pipeline.reset_assemblers()
+            result = asyncio.run(
+                ingest_pipeline.process_lines(system_id, "api", PY_LINES)
+            )
+            ingest_pipeline.reset_assemblers()
+        self.assertEqual(result["candidates"], 1)
+        body = result["decisions"][0]
+        self.assertEqual(body["language"], "python")
+        self.assertTrue(body["autofix"])
+        self.assertNotIn("autofix_note", body)
 
 
 if __name__ == "__main__":

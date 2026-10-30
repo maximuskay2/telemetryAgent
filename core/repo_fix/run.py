@@ -23,11 +23,11 @@ from uuid import uuid4
 from core.actions import mitigate as mitigate_actions
 from core.connections import github as github_conn
 from core.connections import is_production
-from core.ingest.traceback import parse_traceback
 from core.repo_fix import generate as repo_generate
 from core.repo_fix import locate as repo_locate
 from core.repo_fix import snapshot as repo_snapshot
 from core.repo_fix.lang import by_name as _adapter_by_name
+from core.repo_fix.lang import parse as _registry_parse
 from core.repo_fix.lang import python as _python_lang
 from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import (
@@ -116,9 +116,14 @@ def should_trigger(
     window = decision.get("window", "") or ""
     if not window.strip():
         return None
-    parsed = parse_traceback(window)
-    if parsed is None or not parsed.frames:
+    try:
+        found = _registry_parse(window)
+    except Exception:
         return None
+    if found is None or not found[1].frames:
+        return None
+    adapter_name = found[0].name
+    language = found[1].language
     fingerprint = decision.get("fingerprint", "") or ""
     if not fingerprint or fingerprint in _active:
         return None
@@ -132,6 +137,12 @@ def should_trigger(
         "fingerprint": fingerprint,
         "traceback_text": window,
         "commit": decision.get("commit", "") or "",
+        # L-J2: the trace picks the adapter; _pipeline confirms the repo
+        # matches it (`detect`) once the tree is fetched. The `detect`
+        # check lives there (not here) because it needs network and this
+        # stays sync for the frozen trigger tests.
+        "adapter_name": adapter_name,
+        "language": language,
     }
 
 
@@ -282,6 +293,8 @@ async def run_repo_fix(
     http_client: Any = None,
     sandbox_factory: Optional[Callable[[bytes], Any]] = None,
     diagnose_fn: Optional[Callable[..., Diagnosis]] = None,
+    adapter_name: str = "python",
+    language: str = "python",
 ) -> Dict[str, Any]:
     """Full pipeline; always resolves the run entry (never raises)."""
     from apps.api.main import hub
@@ -290,6 +303,7 @@ async def run_repo_fix(
     repo = repo_info["repo"]
     base = repo_info.get("base", "")
     token = repo_info.get("token", "")
+    adapter = _adapter_by_name(adapter_name) or ADAPTER
     outcome: Dict[str, Any] = {"run_id": run_id, "status": "FAIL"}
     try:
         outcome = await _run(
@@ -305,6 +319,7 @@ async def run_repo_fix(
             http_client=http_client,
             sandbox_factory=sandbox_factory,
             diagnose_fn=diagnose_fn,
+            adapter=adapter,
         )
     except Exception as exc:
         reason = f"{type(exc).__name__}: {exc}"
@@ -373,6 +388,7 @@ async def _run(
     http_client: Any,
     sandbox_factory: Optional[Callable[[bytes], Any]],
     diagnose_fn: Optional[Callable[..., Diagnosis]],
+    adapter: Any,
 ) -> Dict[str, Any]:
     import httpx
 
@@ -408,6 +424,7 @@ async def _run(
             meta_client=meta_client,
             sandbox_factory=sandbox_factory,
             diagnose_fn=diagnose_fn,
+            adapter=adapter,
         )
     finally:
         if owned:
@@ -430,11 +447,13 @@ async def _pipeline(
     meta_client: Any,
     sandbox_factory: Optional[Callable[[bytes], Any]],
     diagnose_fn: Optional[Callable[..., Diagnosis]],
+    adapter: Any,
 ) -> Dict[str, Any]:
     from core.verify import repo_sandbox
 
-    parsed = parse_traceback(traceback_text)
-    assert parsed is not None  # should_trigger guarantees a parse
+    found = _registry_parse(traceback_text)
+    assert found is not None  # should_trigger guarantees a parse
+    parsed = found[1]
     branch = branch_for(fingerprint)
 
     # 1. Locate ---------------------------------------------------------
@@ -450,9 +469,21 @@ async def _pipeline(
         repo_locate.fetch_tree, repo, token, sha, http
     )
     paths: List[str] = tree["paths"]
-    await _configure_adapter(repo, token, sha, paths, http)
-    located = repo_locate.match_frames(parsed.frames, paths, ADAPTER.map_frame)
-    test_relpath = ADAPTER.repro_test_path(
+    try:
+        repo_score = adapter.detect(paths)
+    except Exception:
+        repo_score = 0
+    if repo_score <= 0:
+        # The trace format picked this adapter, but the repo isn't its
+        # language (e.g. a Java trace in a Python repo's logs): no run.
+        return _fail(
+            run_id, system_id, repo, fingerprint, gate,
+            f"trace language {adapter.name} does not match"
+            f" repo {repo} (detect score 0)",
+        )
+    await _configure_adapter(repo, token, sha, paths, http, adapter)
+    located = repo_locate.match_frames(parsed.frames, paths, adapter.map_frame)
+    test_relpath = adapter.repro_test_path(
         fingerprint, paths, [item["path"] for item in located]
     )
     contexts: List[Dict[str, Any]] = []
@@ -508,6 +539,7 @@ async def _pipeline(
                 confidence=0.2,
             ),
             "no suspect files readable at the failing commit", "",
+            adapter, test_relpath,
         )
 
     # Diagnose (Muse Spark, existing client) -----------------------------
@@ -538,6 +570,7 @@ async def _pipeline(
             run_id, system_id, repo, base or "main", token, fingerprint,
             sha, gate, http, github_pr, diagnosis,
             "repo snapshot exceeds 50 MB", "",
+            adapter, test_relpath,
         )
     filtered = await asyncio.to_thread(repo_snapshot.filter_snapshot, tarball)
     opener = sandbox_factory or repo_sandbox.open_repo_sandbox
@@ -567,6 +600,7 @@ async def _pipeline(
             paths=paths,
             test_relpath=test_relpath,
             branch=branch,
+            adapter=adapter,
         )
     finally:
         await asyncio.to_thread(sandbox.terminate)
@@ -582,7 +616,12 @@ def _reader(sandbox: Any) -> Callable[[str], Optional[str]]:
 
 
 async def _configure_adapter(
-    repo: str, token: str, sha: str, paths: List[str], http: Any
+    repo: str,
+    token: str,
+    sha: str,
+    paths: List[str],
+    http: Any,
+    adapter: Any = None,
 ) -> None:
     """Pass manifest text to adapters that ask (L-J0 optional hook).
 
@@ -590,8 +629,9 @@ async def _configure_adapter(
     `lang/base.py`); Python defines neither, so this is a no-op for it.
     Failures here never break the run — the adapter falls back.
     """
-    names_fn = getattr(ADAPTER, "manifest_names", None)
-    configure = getattr(ADAPTER, "configure_manifests", None)
+    active = adapter if adapter is not None else ADAPTER
+    names_fn = getattr(active, "manifest_names", None)
+    configure = getattr(active, "configure_manifests", None)
     if not callable(names_fn) or not callable(configure):
         return
     try:
@@ -618,15 +658,15 @@ async def _configure_adapter(
 
 
 async def _install_deps(
-    run_id: str, sandbox: Any, paths: List[str]
+    run_id: str, sandbox: Any, paths: List[str], adapter: Any
 ) -> Optional[str]:
     """Install snapshot deps; None on success, else the failure output."""
     _emit(run_id, "verify", 0, "", "ok", "installing dependencies")
-    for cmd in ADAPTER.install_cmds(paths):
+    for cmd in adapter.install_cmds(paths):
         result = await _sandbox_exec(
             sandbox,
             cmd,
-            timeout=ADAPTER.install_timeout_s,
+            timeout=adapter.install_timeout_s,
             network=True,
         )
         if result["returncode"] != 0:
@@ -664,21 +704,23 @@ async def _verify_and_fix(
     paths: List[str],
     test_relpath: str,
     branch: str,
+    adapter: Any,
 ) -> Dict[str, Any]:
-    install_error = await _install_deps(run_id, sandbox, paths)
+    install_error = await _install_deps(run_id, sandbox, paths, adapter)
     if install_error is not None:
         return await _draft(
             run_id, system_id, repo, base, token, fingerprint, sha,
             gate, http, github_pr, diagnosis,
             f"dependencies would not install:\n{install_error[-800:]}", "",
+            adapter, test_relpath,
         )
     _emit(run_id, "verify", 0, "", "ok", "running baseline suite")
     baseline_raw = await _sandbox_exec(
         sandbox,
-        ADAPTER.suite_cmd(paths),
-        timeout=ADAPTER.suite_timeout_s,
+        adapter.suite_cmd(paths),
+        timeout=adapter.suite_timeout_s,
     )
-    baseline = ADAPTER.parse_results(
+    baseline = adapter.parse_results(
         str(baseline_raw["stdout"]),
         str(baseline_raw["stderr"]),
         _reader(sandbox),
@@ -688,6 +730,7 @@ async def _verify_and_fix(
             run_id, system_id, repo, base, token, fingerprint, sha,
             gate, http, github_pr, diagnosis,
             "no tests collected in the snapshot", "",
+            adapter, test_relpath,
         )
 
     # 4. Reproduce --------------------------------------------------------
@@ -708,12 +751,12 @@ async def _verify_and_fix(
                 parsed.raw,
                 parsed.signature,
                 contexts,
-                ADAPTER.source_files(paths),
+                adapter.source_files(paths),
                 repro_fail_output or None,
                 attempt,
                 REPRO_ATTEMPTS,
                 test_relpath,
-                adapter=ADAPTER,
+                adapter=adapter,
             )
         except Exception as exc:
             repro_fail_output = f"generation failed: {exc}"
@@ -721,11 +764,11 @@ async def _verify_and_fix(
         await asyncio.to_thread(sandbox.write_file, test_relpath, candidate)
         ran = await _sandbox_exec(
             sandbox,
-            ADAPTER.single_test_cmd(test_relpath, paths),
+            adapter.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
         )
         output = str(ran["stdout"]) + "\n" + str(ran["stderr"])
-        ran_result = ADAPTER.parse_results(
+        ran_result = adapter.parse_results(
             str(ran["stdout"]), str(ran["stderr"]), _reader(sandbox)
         )
         if ran["returncode"] != 0 and ran_result.failed > 0:
@@ -740,6 +783,7 @@ async def _verify_and_fix(
             gate, http, github_pr, diagnosis,
             "could not write a test that fails on the original code",
             "",
+            adapter, test_relpath,
         )
 
     # 5+6. Patch + prove ---------------------------------------------------
@@ -768,7 +812,7 @@ async def _verify_and_fix(
             )
         rerun = await _sandbox_exec(
             sandbox,
-            ADAPTER.single_test_cmd(test_relpath, paths),
+            adapter.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
         )
         rerun_output = str(rerun["stdout"]) + "\n" + str(rerun["stderr"])
@@ -777,10 +821,10 @@ async def _verify_and_fix(
             continue
         proved_raw = await _sandbox_exec(
             sandbox,
-            ADAPTER.suite_cmd(paths),
-            timeout=ADAPTER.suite_timeout_s,
+            adapter.suite_cmd(paths),
+            timeout=adapter.suite_timeout_s,
         )
-        proved = ADAPTER.parse_results(
+        proved = adapter.parse_results(
             str(proved_raw["stdout"]),
             str(proved_raw["stderr"]),
             _reader(sandbox),
@@ -821,6 +865,7 @@ async def _verify_and_fix(
         gate, http, github_pr, diagnosis,
         "patch attempts did not prove (repro must pass, no new failures)",
         repro_code,
+        adapter, test_relpath,
     )
 
 
@@ -931,6 +976,8 @@ async def _draft(
     diagnosis: Diagnosis,
     reason: str,
     repro_code: str,
+    adapter: Any = None,
+    test_relpath: str = "",
 ) -> Dict[str, Any]:
     """Draft PR with diagnosis (+ repro test when one exists)."""
     _emit(run_id, "verify", 0, "", "ok", "opening draft PR")
@@ -950,8 +997,10 @@ async def _draft(
             )
         }
         if repro_code:
+            active = adapter if adapter is not None else ADAPTER
             files[
-                ADAPTER.repro_test_path(fingerprint, [], [])
+                test_relpath
+                or active.repro_test_path(fingerprint, [], [])
             ] = repro_code
         pr_url = await asyncio.to_thread(
             github_pr.open_pr,
