@@ -273,6 +273,177 @@ def _php_repro_for(test_path):
     return PHP_REPRO_TMPL.format(cls=cls[: -len(".php")])
 
 
+# JavaScript canned outputs (John): the repro + guard patch proven in the
+# L-N1 Docker e2e. ESM (proof-app-node has "type": "module"); the repro
+# imports ../src/cart.js, so it works from any tests/ placement.
+# Jude's fold adds the fixed-value case (a guard returning wrong values
+# must fail, not just a throwing one).
+JAVASCRIPT_REPRO = """import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { summary } from "../src/cart.js";
+
+describe("ta repro: empty-cart summary", () => {
+  it("does not throw on an empty cart", () => {
+    assert.doesNotThrow(() => summary([]));
+  });
+  it("averages zero", () => {
+    assert.equal(summary([]).average_item_price, 0);
+  });
+});
+"""
+
+JAVASCRIPT_BUG = "export function summary(items) {\n"
+JAVASCRIPT_FIX = """export function summary(items) {
+  if (items.length === 0) {
+    return {
+      lines: 0,
+      subtotal: 0,
+      discount: 0,
+      total: 0,
+      average_item_price: 0.0,
+      currency: "USD",
+    };
+  }
+"""
+
+
+def _javascript_canned(appdir):
+    cart = appdir / "src" / "cart.js"
+    content = cart.read_text()
+    assert JAVASCRIPT_BUG in content, "javascript BUG anchor moved"
+    return JAVASCRIPT_REPRO, [
+        {"path": "src/cart.js", "content": content.replace(
+            JAVASCRIPT_BUG, JAVASCRIPT_FIX, 1)}
+    ]
+
+
+JAVA_REPRO_TMPL = """package com.example.shop;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class {cls} {{
+    @Test
+    void emptyCartAverageIsZero() {{
+        assertEquals(0, Cart.summary(List.<Cart.Item>of()).averageCents());
+    }}
+}}
+"""
+
+JAVA_BUG = "        long average = total / items.size(); // BUG: empty cart -> ArithmeticException\n"
+JAVA_FIX = """        if (items.isEmpty()) {
+            return new Summary(0, 0, 0, 0, 0, "USD");
+        }
+        long average = total / items.size();
+"""
+
+
+def _java_repro_for(test_path):
+    cls = test_path.rsplit("/", 1)[-1]
+    assert cls.endswith("Test.java"), test_path
+    return JAVA_REPRO_TMPL.format(cls=cls[: -len(".java")])
+
+
+def _java_canned(appdir):
+    cart = appdir / "src" / "main" / "java" / "com" / "example" / "shop" / "Cart.java"
+    content = cart.read_text()
+    assert JAVA_BUG in content, "java BUG line moved"
+    return None, [
+        {
+            "path": "src/main/java/com/example/shop/Cart.java",
+            "content": content.replace(JAVA_BUG, JAVA_FIX),
+        }
+    ]
+
+
+KOTLIN_REPRO_TMPL = """package com.example.shop
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
+
+class {cls} {{
+    @Test
+    fun emptyCartAverageIsZero() {{
+        assertEquals(0L, Cart.summary(emptyList()).averageCents)
+    }}
+}}
+"""
+
+KOTLIN_BUG = "        val average = total / items.size // BUG: empty cart -> ArithmeticException\n"
+KOTLIN_FIX = """        if (items.isEmpty()) {
+            return Summary(
+                lines = 0,
+                subtotalCents = 0,
+                discountCents = 0,
+                totalCents = 0,
+                averageCents = 0,
+                currency = "USD",
+            )
+        }
+        val average = total / items.size
+"""
+
+
+def _kotlin_repro_for(test_path):
+    cls = test_path.rsplit("/", 1)[-1]
+    assert cls.endswith("Test.kt"), test_path
+    return KOTLIN_REPRO_TMPL.format(cls=cls[: -len(".kt")])
+
+
+def _kotlin_canned(appdir):
+    cart = appdir / "src" / "main" / "kotlin" / "com" / "example" / "shop" / "Cart.kt"
+    content = cart.read_text()
+    assert KOTLIN_BUG in content, "kotlin BUG line moved"
+    return None, [
+        {
+            "path": "src/main/kotlin/com/example/shop/Cart.kt",
+            "content": content.replace(KOTLIN_BUG, KOTLIN_FIX),
+        }
+    ]
+
+
+GO_REPRO = """// Empty-cart repro (canned for the mocked matrix).
+package shop
+
+import "testing"
+
+func TestTaReproEmptyCart(t *testing.T) {
+    summary := Summarize(nil)
+    if summary.AveragePrice != 0 {
+        t.Fatalf("average = %v, want 0", summary.AveragePrice)
+    }
+}
+"""
+
+GO_BUG = "\taverage := total / int64(len(items)) // BUG: empty cart -> panic\n"
+GO_FIX = """\tif len(items) == 0 {
+\t\treturn Summary{Lines: 0, Subtotal: 0, Discount: 0, Total: 0, AveragePrice: 0, Currency: "USD"}
+\t}
+\taverage := total / int64(len(items))
+"""
+
+
+def _go_canned(appdir):
+    cart = appdir / "shop" / "cart.go"
+    content = cart.read_text()
+    assert GO_BUG in content, "go BUG line moved"
+    return GO_REPRO, [
+        {"path": "shop/cart.go", "content": content.replace(GO_BUG, GO_FIX)}
+    ]
+
+
+def _repro_for_path(lang, test_path):
+    if lang == "php":
+        return _php_repro_for(test_path)
+    if lang == "java":
+        return _java_repro_for(test_path)
+    if lang == "kotlin":
+        return _kotlin_repro_for(test_path)
+    raise AssertionError(f"no path-built repro for {lang}")
+
+
 # --------------------------------------------------------------------------
 # Proof-app trigger traces. Rust/PHP live in trace fixtures (also parsed
 # by the adapter suites); the rest are verbatim captures inlined here —
@@ -418,14 +589,19 @@ def _php_trace():
 
 
 # lang -> (adapter name, proof-app dir, trace, canned builder | None).
-# Canned outputs exist where the adapter does; the rest flip on as
-# James/John land java/go/javascript (trace + app already wired).
+# All seven have canned builders; a language still skips when its
+# adapter hasn't landed (live mode needs no canned outputs at all).
 LANGS = {
     "python": ("python", "proof-app", PYTHON_TRACE, _python_canned),
-    "javascript": ("javascript", "proof-app-node", JAVASCRIPT_TRACE, None),
-    "java": ("java", "proof-app-java", JAVA_TRACE, None),
-    "kotlin": ("kotlin", "proof-app-kotlin", KOTLIN_TRACE, None),
-    "go": ("go", "proof-app-go", GO_TRACE, None),
+    "javascript": (
+        "javascript",
+        "proof-app-node",
+        JAVASCRIPT_TRACE,
+        _javascript_canned,
+    ),
+    "java": ("java", "proof-app-java", JAVA_TRACE, _java_canned),
+    "kotlin": ("kotlin", "proof-app-kotlin", KOTLIN_TRACE, _kotlin_canned),
+    "go": ("go", "proof-app-go", GO_TRACE, _go_canned),
     "rust": ("rust", "proof-app-rust", None, _rust_canned),
     "php": ("php", "proof-app-php", None, _php_canned),
 }
@@ -484,9 +660,9 @@ class LangE2EMatrix(unittest.TestCase):
                 if test_path is None and len(args) >= 8:
                     test_path = args[7]
                 code = repro_code
-                if code is None:  # PHP: class name must match the file
+                if code is None:  # class name must match the file
                     assert test_path, "repro needs test_path"
-                    code = _php_repro_for(test_path)
+                    code = _repro_for_path(lang, test_path)
                 return code, "mocked"
 
             def fake_patch(*args, **kwargs):

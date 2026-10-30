@@ -21,7 +21,7 @@ L-D3 PHP adapter (core/repo_fix/lang/php.py, ADAPTER; tests/test_lang_php.py, 31
 - E2E in a local php-image variant (James's Dockerfile.php doesn't build yet — request 4): composer install ok, baseline 20/20, repro at tests/TaRepro…Test.php FAILS (error parsed), guard fix → repro PASSES → suite 21 green, no new failures.
 
 L-D4 harness (scripts/lang_e2e.sh + tests/test_lang_e2e.py; this commit also fixes PHP single_test_cmd — see Decisions):
-- Mocked matrix (GitHub mocked, Docker real, canned repro+patch): python PASS 23s, rust PASS 6s, php PASS 10-16s; javascript/java/kotlin/go SKIP (no adapter yet). Full run 39s.
+- Mocked matrix (GitHub mocked, Docker real, canned repro+patch): 7/7 PASS — python 24s, javascript 3s, java 97s, kotlin 173s, go 46s, rust 5s, php 11s (canned pairs for js/java/kotlin/go added post-L-J4; full run ~6 min).
 - --live (real Baseten→Wonder models, GitHub still mocked), one run each 30 Oct: python PASS 35s, rust PASS 34s, php PASS 52s (models wrote working repro+patch from the traces first try; per-run model labels weren't captured — the harness now prints model_used).
 - Usage: ./scripts/lang_e2e.sh [langs…] [--live]; live budget enforced (3/lang/day in ~/.cache/ta-lang-e2e).
 
@@ -40,6 +40,7 @@ Decisions:
 - The harness passes the image explicitly (sandbox_factory → open_repo_sandbox(tar, image=adapter.image)) because _pipeline doesn't thread it yet; see request 8.
 - E2E traces: rust/php read the adapter fixtures; the other five are verbatim trigger captures inlined in tests/test_lang_e2e.py (their trace dirs belong to James/John, so no new fixture files there).
 - L-D5 link lines (2): docs/USAGE.md §C.2 + docs/DOCUMENTATION.md doc list. Both files are outside my column, but the L-D5 acceptance row requires these links and their owners are done — minimal additive one-liners, logged here per John's Merge-1 precedent.
+- Folded John's javascript matrix leg (lang/john 3c3eb93) into tests/test_lang_e2e.py (my file, per Akingbade): his doesNotThrow case + my value case, his guard formatting. Mocked js leg re-verified PASS (3s).
 
 Contract changes requested:
 1. James (Maven install): ADOPTED (his status: L-J3 uses `mvn -B -q -DskipTests test`).
