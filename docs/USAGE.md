@@ -481,7 +481,9 @@ system.
 Sign in at `/signin`. Each account belongs to one or more
 **organizations**; everything (systems, connections, devices, usage)
 lives under the active org. Switch orgs from the menu in the top bar
-or on the Members, Devices and Usage pages.
+or on the Members, Devices and Usage pages. Until hosted sign-in
+lands, local development signs in with a test token on the sign-in
+page (needs a local API running with `TA_AUTH_TEST_ISSUER`).
 
 - **Members** (`/members`, owners/admins): who is in the org, their
   role, and invites. Invite links are single-use and expire.

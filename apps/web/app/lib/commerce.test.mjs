@@ -121,6 +121,25 @@ describe("CommerceClient", () => {
     await client.getUsage("o1", "month");
     assert.equal(url, "http://api/api/orgs/o1/usage?period=month");
   });
+
+  it("default fetch delegates to global fetch (browser-safe)", async () => {
+    // Regression: a bare `fetch` reference detached from window throws
+    // "Illegal invocation" in browsers; the client must call it bound.
+    const seen = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (...args) => {
+      seen.push(args);
+      return jsonResponse({ orgs: [] });
+    };
+    try {
+      const client = new commerce.CommerceClient({ baseUrl: "http://api" });
+      await client.listOrgs();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0][0], "http://api/api/orgs");
+  });
 });
 
 describe("blockedReasons", () => {

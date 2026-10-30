@@ -1,7 +1,25 @@
 # John status (commercial)
-Current block: C-N3..C-N5 MERGED to origin/main (3c024d8, check.sh GREEN)
-Waiting on: James C-J2 routes (/api/orgs/*) + Clerk dev key to wire
-real auth; Jude usage events already shape-compatible.
+Current block: C-N6 live-proven vs James C-J2, merging
+Done: C-N6 real-backend wiring (this branch) on top of merged C-N3..C-N5
+Tag: James C-J1+C-J2 on main (cd2c809) adopted; rebased clean.
+Decisions (C-N6):
+- Real mode signs in with a pasted test JWT (local-dev <details> on
+  /signin, stored as ta-token, display-only payload decode; backend
+  verifies). No UI change needed for Clerk later: signInToken takes
+  any session JWT.
+- Fixed bare-`fetch` "Illegal invocation" (arrow wrapper) + regression
+  test; web suite 40/40.
+- Live proof vs real backend (own Postgres ta-pg-john:5439, file
+  data dir, test issuer): 18/18 API loop (orgs/members/invite+accept/
+  pair/claim/devices/revoke/usage + negatives) and 5/5 CDP (token
+  sign-in, members, org-switch to devices, usage, no JS errors);
+  *-live.png screenshots committed.
+- Env note: installed James's pinned PyJWT/psycopg/cryptography into
+  the shared gate venv (his tests can't run without them); commerce
+  auth requires DATABASE_URL (file mode bypasses it); CORS default
+  allows :3000 only, so local proofs set CORS_ORIGIN_REGEX.
+Waiting on: Clerk dev keys for hosted sign-in (test-token hatch is
+local-only); app approve vs org runs when James's C-J3 token join lands.
 Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (7fcb766),
 C-N4 Phase 1 app (2506910), C-N5 Usage page + USAGE.md §D (c6fbedf)
 Tag: commercial-contracts-in adopted — rebased clean on origin/main

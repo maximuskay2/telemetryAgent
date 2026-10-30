@@ -10,9 +10,10 @@ import { useSession } from "../lib/session";
 import { Card } from "../ui";
 
 export default function SignInPage() {
-  const { status, devMode, signInDev } = useSession();
+  const { status, devMode, signInDev, signInToken } = useSession();
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
   const [error, setError] = useState("");
 
   if (status === "loading") {
@@ -28,6 +29,17 @@ export default function SignInPage() {
     setError("");
     try {
       await signInDev(email);
+      router.push("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed.");
+    }
+  }
+
+  async function submitToken(event: React.FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await signInToken(token);
       router.push("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
@@ -76,6 +88,33 @@ export default function SignInPage() {
           </button>
         </form>
       </Card>
+      {!devMode && (
+        <details className="mt-4 rounded-xl border border-border bg-surface p-4">
+          <summary className="cursor-pointer text-sm text-text">
+            Local development: sign in with a test token
+          </summary>
+          <form onSubmit={submitToken} className="mt-3 space-y-3">
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
+              Test session JWT (local API with TA_AUTH_TEST_ISSUER only)
+              <input
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                placeholder="eyJhbGciOi…"
+                autoComplete="off"
+                spellCheck={false}
+                className="rounded-lg border border-border bg-surface-2 px-2.5 py-2 font-mono text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              />
+            </label>
+            {error && <p className="text-sm text-crit">{error}</p>}
+            <button
+              type="submit"
+              className="w-full cursor-pointer rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-medium text-text outline-none hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Sign in with test token
+            </button>
+          </form>
+        </details>
+      )}
       <p className="mt-4 text-center text-xs text-text-faint">
         New here? Signing in creates your organization.
       </p>

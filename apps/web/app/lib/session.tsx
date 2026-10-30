@@ -1,6 +1,8 @@
-// Session + org context (C-N3). The API behind it is §8.4 in both
-// modes: mock (NEXT_PUBLIC_COMMERCE_MOCK=1, dev-only) or HTTP against
-// the real backend with a Clerk session JWT (keys in NEEDS).
+// Session + org context (C-N3, C-N6). The API behind it is §8.4 in
+// both modes: mock (NEXT_PUBLIC_COMMERCE_MOCK=1, dev-only) or HTTP
+// against the real backend. Real sign-in takes a Clerk session JWT
+// once keys land (see NEEDS); until then a pasted test JWT signs in
+// local dev against TA_AUTH_TEST_ISSUER backends only.
 "use client";
 
 import {
@@ -31,6 +33,8 @@ export type SessionState = {
   activeOrg: Org | null;
   role: Role | null;
   signInDev: (email: string) => Promise<void>;
+  /** Local-dev only: sign in with a pasted test JWT (no Clerk yet). */
+  signInToken: (token: string) => Promise<void>;
   signOut: () => void;
   switchOrg: (orgId: string) => void;
   api: CommerceApi;
@@ -40,6 +44,25 @@ const SessionContext = createContext<SessionState | null>(null);
 
 const SESSION_KEY = "ta-session";
 const ORG_KEY = "ta-org";
+const TOKEN_KEY = "ta-token";
+
+/** Display-only JWT payload read (the backend verifies the signature). */
+function tokenUser(token: string): SessionUser | null {
+  try {
+    const payload = JSON.parse(
+      atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { sub?: string; email?: string };
+    if (!payload.sub) return null;
+    const email = payload.email ?? "";
+    return {
+      id: payload.sub,
+      email,
+      name: email.split("@")[0] || payload.sub,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function loadStored(): { user: SessionUser; orgs: Org[] } | null {
   try {
@@ -70,9 +93,53 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return new CommerceClient({ getToken: () => token });
   }, [devMode, token]);
 
+  const bootstrapToken = useCallback(async (jwt: string) => {
+    const who = tokenUser(jwt);
+    if (!who) throw new Error("That doesn't look like a session token.");
+    const client = new CommerceClient({ getToken: () => jwt });
+    const { orgs: mine } = await client.listOrgs();
+    try {
+      localStorage.setItem(TOKEN_KEY, jwt);
+    } catch {
+      // Private mode: session lasts this visit.
+    }
+    let savedOrg: string | null = null;
+    try {
+      savedOrg = localStorage.getItem(ORG_KEY);
+    } catch {
+      savedOrg = null;
+    }
+    setUser(who);
+    setOrgs(mine);
+    setToken(jwt);
+    setActiveOrgId(
+      savedOrg && mine.some((o) => o.id === savedOrg)
+        ? savedOrg
+        : (mine[0]?.id ?? null),
+    );
+    setStatus("signed-in");
+  }, []);
+
   useEffect(() => {
     if (!devMode) {
-      setStatus("signed-out");
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem(TOKEN_KEY);
+      } catch {
+        stored = null;
+      }
+      if (!stored) {
+        setStatus("signed-out");
+        return;
+      }
+      bootstrapToken(stored).catch(() => {
+        try {
+          localStorage.removeItem(TOKEN_KEY);
+        } catch {
+          // Nothing persisted; nothing to clear.
+        }
+        setStatus("signed-out");
+      });
       return;
     }
     const stored = loadStored();
@@ -129,13 +196,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setToken("dev-token");
       setStatus("signed-in");
     },
-    [devMode],
+    [devMode, bootstrapToken],
+  );
+
+  const signInToken = useCallback(
+    async (jwt: string) => {
+      const clean = jwt.trim();
+      if (!clean) throw new Error("Paste a session token.");
+      await bootstrapToken(clean);
+    },
+    [bootstrapToken],
   );
 
   const signOut = useCallback(() => {
     try {
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(ORG_KEY);
+      localStorage.removeItem(TOKEN_KEY);
     } catch {
       // Nothing persisted; nothing to clear.
     }
@@ -172,6 +249,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     activeOrg,
     role: activeOrg?.role ?? null,
     signInDev,
+    signInToken,
     signOut,
     switchOrg,
     api,

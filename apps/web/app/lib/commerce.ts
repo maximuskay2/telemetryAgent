@@ -93,7 +93,10 @@ export class CommerceClient implements CommerceApi {
   }) {
     this.baseUrl = opts?.baseUrl ?? apiUrl;
     this.getToken = opts?.getToken ?? (() => null);
-    this.fetchFn = opts?.fetchFn ?? fetch;
+    // Arrow wrapper: bare `fetch` detached from window throws
+    // "Illegal invocation" in browsers.
+    this.fetchFn =
+      opts?.fetchFn ?? ((...args: Parameters<FetchFn>) => fetch(...args));
   }
 
   private async req<T>(path: string, init?: RequestInit): Promise<T> {
