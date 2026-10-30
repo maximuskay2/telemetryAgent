@@ -191,17 +191,3 @@ def filter_snapshot(tarball: bytes) -> bytes:
                 tar.addfile(info)
     incoming.close()
     return outgoing.getvalue()
-
-
-def python_files(paths: List[str]) -> List[str]:
-    return [path for path in paths if path.endswith(".py")]
-
-
-def has_requirements(paths: List[str]) -> bool:
-    names = {path.rsplit("/", 1)[-1] for path in paths}
-    return "requirements.txt" in names
-
-
-def has_packaging(paths: List[str]) -> bool:
-    names = {path.rsplit("/", 1)[-1] for path in paths}
-    return bool(names & {"setup.py", "setup.cfg", "pyproject.toml"})

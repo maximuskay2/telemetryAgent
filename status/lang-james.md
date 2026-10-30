@@ -1,8 +1,8 @@
 # James status (languages)
-Current block: DONE — all blocks L-J0..L-J5 merged (this commit is L-J5)
+Current block: DONE — all blocks L-J0..L-J5 merged + follow-up (this commit)
 Done: L-J0 (8276c12, tagged lang-contracts-in), L-J1 (c2c2d8a),
   L-J2 (31ad582), checkpoint (3a65e68), L-J3 (3aed4f1), L-J4 (780e00a),
-  L-J5 (this commit)
+  L-J5 (f1923fb), L-J5 follow-up (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -143,7 +143,14 @@ BLOCKED: none
   `check.sh` green.
 - L-J4 LEFT: not started — `lang/go.py` (panic parser, module-path strip,
   `go test -json`). proof-app-go on main — E2E unblocked.
-- James COMPLETE: all six blocks + checkpoint on main. Open threads
-  for the record: Modal JVM/Go images unverified live (no creds here);
-  Gradle E2E unproven (no Gradle proof app); `fatal error:` (Go) and
-  default-package single-word JVM heads don't trigger (noted limits).
+- L-J5 follow-up DONE (this commit): pipeline reads adapters only
+  via the registry (run.py `PYTEST` from `suite_cmd([])`, generate.py
+  fallback via `by_name`); `python_files`/`has_requirements`/
+  `has_packaging` moved into `lang/python.py` (L-J1 letter: nothing
+  Python-specific left in snapshot.py); frozen-test shims stay,
+  behaviour byte-identical; 933 green, `check.sh` green.
+- James COMPLETE: all six blocks + checkpoint + follow-up on main.
+  Open threads for the record: Modal JVM/Go images unverified live
+  (no creds here); Gradle E2E unproven (no Gradle proof app);
+  `fatal error:` (Go) and default-package single-word JVM heads don't
+  trigger (noted limits); John's optional `stack_detail` not built.

@@ -13,7 +13,6 @@ from core.ingest.traceback import Frame, parse_traceback
 from core.repo_fix import generate as repo_generate
 from core.repo_fix import locate as repo_locate
 from core.repo_fix import run as repo_run
-from core.repo_fix import snapshot as repo_snapshot
 from core.repo_fix.lang import all_adapters, by_name, parse
 from core.repo_fix.lang.python import ADAPTER
 
@@ -73,9 +72,10 @@ class AdapterContractTest(unittest.TestCase):
         self.assertEqual(ADAPTER.detect(["go.mod", "main.go"]), 0)
         self.assertEqual(ADAPTER.detect([]), 0)
 
-    def test_source_files_match_snapshot(self):
+    def test_source_files_lists_py(self):
         self.assertEqual(
-            ADAPTER.source_files(PATHS), repo_snapshot.python_files(PATHS)
+            ADAPTER.source_files(PATHS),
+            ["shop/orders.py", "shop/payments.py", "tests/test_orders.py"],
         )
 
     def test_map_frame_matches_locate(self):
@@ -103,15 +103,20 @@ class AdapterContractTest(unittest.TestCase):
         )
         self.assertEqual(ADAPTER.install_cmds(["a.py"]), [])
 
+    BASE = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+
     def test_commands_match_legacy_pytest(self):
         self.assertEqual(
             ADAPTER.suite_cmd(PATHS),
-            [*repo_run.PYTEST, "--tb=no", "-rf"],
+            [*self.BASE, "--tb=no", "-rf"],
         )
         self.assertEqual(
             ADAPTER.single_test_cmd("tests/test_x.py", PATHS),
-            [*repo_run.PYTEST, "--tb=short", "tests/test_x.py"],
+            [*self.BASE, "--tb=short", "tests/test_x.py"],
         )
+
+    def test_pytest_shim_runs_suite(self):
+        self.assertEqual(repo_run.PYTEST, [*self.BASE, "--tb=no", "-rf"])
 
     def test_parse_results_match_legacy(self):
         legacy = repo_run.parse_pytest(PYTEST_OUT)

@@ -13,11 +13,24 @@ from typing import Callable, List, Optional
 
 from core.ingest.traceback import TracebackInfo, parse_traceback
 from core.repo_fix.lang.base import SuiteResult
-from core.repo_fix.snapshot import has_packaging, has_requirements
 
 #: `python -m` puts the repo root on sys.path; bare `pytest` does not, so
 #: `from app.x import y` in tests/ fails collection on common layouts.
 PYTEST_BASE = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+
+
+def _python_files(paths: List[str]) -> List[str]:
+    return [path for path in paths if path.endswith(".py")]
+
+
+def _has_requirements(paths: List[str]) -> bool:
+    names = {path.rsplit("/", 1)[-1] for path in paths}
+    return "requirements.txt" in names
+
+
+def _has_packaging(paths: List[str]) -> bool:
+    names = {path.rsplit("/", 1)[-1] for path in paths}
+    return bool(names & {"setup.py", "setup.cfg", "pyproject.toml"})
 
 #: Appended to the generic repro prompt (§3: rules, not the prompt).
 REPRO_RULES = "Write a pytest file: define at least one test_ function."
@@ -33,7 +46,7 @@ class _PythonAdapter:
 
     def detect(self, paths: List[str]) -> int:
         score = len(self.source_files(paths))
-        if has_requirements(paths) or has_packaging(paths):
+        if _has_requirements(paths) or _has_packaging(paths):
             score += 5
         return score
 
@@ -88,14 +101,14 @@ class _PythonAdapter:
     def install_cmds(self, paths: List[str]) -> List[List[str]]:
         # No --target: the Docker exec sets PIP_TARGET=/work/.deps (fresh
         # containers would lose system installs); Modal installs system-wide.
-        if has_requirements(paths):
+        if _has_requirements(paths):
             req = next(
                 path
                 for path in paths
                 if path.rsplit("/", 1)[-1] == "requirements.txt"
             )
             return [["pip", "install", "-r", req]]
-        if has_packaging(paths):
+        if _has_packaging(paths):
             return [["pip", "install", "-e", "."]]
         return []
 

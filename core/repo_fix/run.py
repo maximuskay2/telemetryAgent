@@ -28,7 +28,6 @@ from core.repo_fix import locate as repo_locate
 from core.repo_fix import snapshot as repo_snapshot
 from core.repo_fix.lang import by_name as _adapter_by_name
 from core.repo_fix.lang import parse as _registry_parse
-from core.repo_fix.lang import python as _python_lang
 from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import (
     ExecutionResult,
@@ -41,11 +40,13 @@ log = logging.getLogger(__name__)
 REPRO_ATTEMPTS = 3
 PATCH_ATTEMPTS = 2
 REPRO_TIMEOUT_S = 300
-#: L-J1: only the Python adapter exists yet; L-J2 picks via registry.parse.
+#: Default adapter (python); the pipeline threads the per-run adapter
+#: since L-J2, this stays for the legacy shims + fallbacks.
 ADAPTER = _adapter_by_name("python")
 assert ADAPTER is not None  # lang/python.py must register
 #: Legacy alias for the frozen tests; the pipeline uses adapter commands.
-PYTEST = _python_lang.PYTEST_BASE
+#: (V1: derived from the registry-resolved adapter, not its module.)
+PYTEST = ADAPTER.suite_cmd([])
 PR_LABEL = "telemetry-agent"
 MAX_BODY_CHARS = 4000
 

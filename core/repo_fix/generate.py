@@ -13,9 +13,14 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.infer import baseten_client
-from core.repo_fix.lang.python import ADAPTER as _PYTHON
+from core.repo_fix.lang import by_name as _adapter_by_name
 from core.infer.errors import translate
 from core.infer.meta_client import ESCALATION_MODEL, META_BASE_URL
+
+#: Fallback when no adapter is passed (V1: via the registry, never a
+#: direct adapter-module read).
+_PYTHON = _adapter_by_name("python")
+assert _PYTHON is not None  # lang/python.py must register
 
 MAX_PATCH_FILES = 3
 
