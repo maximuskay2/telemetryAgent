@@ -41,6 +41,9 @@ PATCH_ATTEMPTS = 2
 INSTALL_TIMEOUT_S = 300  # 5-minute pip cap (§4)
 SUITE_TIMEOUT_S = 600
 REPRO_TIMEOUT_S = 300
+# `python -m` puts the repo root on sys.path; bare `pytest` does not, so
+# `from app.x import y` in tests/ fails collection on common layouts.
+PYTEST = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 PR_LABEL = "telemetry-agent"
 MAX_BODY_CHARS = 4000
 
@@ -126,13 +129,15 @@ def should_trigger(
     if decision.get("decision") not in ("act", "observe"):
         return None
     # Parse-based, not rule-based: a traceback mentioning "deadlock" is
-    # still a traceback (rules match deadlock first). Plain ERROR lines
-    # stay candidates because they do not parse.
+    # still a traceback (rules match deadlock first). Frames are required:
+    # log lines like uvicorn's "ERROR:    Exception in ASGI application"
+    # parse as `ERROR: ...` and precede the real traceback, which would
+    # then be skipped as an in-flight fingerprint.
     window = decision.get("window", "") or ""
     if not window.strip():
         return None
     parsed = parse_traceback(window)
-    if parsed is None or (not parsed.frames and not parsed.exc_type):
+    if parsed is None or not parsed.frames:
         return None
     fingerprint = decision.get("fingerprint", "") or ""
     if not fingerprint or fingerprint in _active:
@@ -663,7 +668,7 @@ async def _verify_and_fix(
     _emit(run_id, "verify", 0, "", "ok", "running baseline suite")
     baseline_raw = await _sandbox_exec(
         sandbox,
-        ["pytest", "-q", "-p", "no:cacheprovider", "--tb=no", "-rf"],
+        [*PYTEST, "--tb=no", "-rf"],
         timeout=SUITE_TIMEOUT_S,
     )
     baseline = parse_pytest(
@@ -706,8 +711,7 @@ async def _verify_and_fix(
         await asyncio.to_thread(sandbox.write_file, test_relpath, candidate)
         ran = await _sandbox_exec(
             sandbox,
-            ["pytest", "-q", "-p", "no:cacheprovider", "--tb=short",
-             test_relpath],
+            [*PYTEST, "--tb=short", test_relpath],
             timeout=REPRO_TIMEOUT_S,
         )
         output = str(ran["stdout"]) + "\n" + str(ran["stderr"])
@@ -751,8 +755,7 @@ async def _verify_and_fix(
             )
         rerun = await _sandbox_exec(
             sandbox,
-            ["pytest", "-q", "-p", "no:cacheprovider", "--tb=short",
-             test_relpath],
+            [*PYTEST, "--tb=short", test_relpath],
             timeout=REPRO_TIMEOUT_S,
         )
         rerun_output = str(rerun["stdout"]) + "\n" + str(rerun["stderr"])
@@ -761,7 +764,7 @@ async def _verify_and_fix(
             continue
         proved_raw = await _sandbox_exec(
             sandbox,
-            ["pytest", "-q", "-p", "no:cacheprovider", "--tb=no", "-rf"],
+            [*PYTEST, "--tb=no", "-rf"],
             timeout=SUITE_TIMEOUT_S,
         )
         proved = parse_pytest(

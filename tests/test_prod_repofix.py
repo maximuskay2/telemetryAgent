@@ -439,6 +439,17 @@ class TriggerTests(unittest.TestCase):
                     self._decision(rule="error", window="ERROR boom"),
                 )
             )
+            # Nor does uvicorn's pre-traceback line, which parses as
+            # `ERROR: ...` but has no frames.
+            self.assertIsNone(
+                repo_run.should_trigger(
+                    profile,
+                    self._decision(
+                        rule="error",
+                        window="ERROR:    Exception in ASGI application",
+                    ),
+                )
+            )
             self.assertIsNone(
                 repo_run.should_trigger(profile, self._decision(window=""))
             )
@@ -777,6 +788,33 @@ class SandboxBackendTests(unittest.TestCase):
                     ["pytest", "-q", "-p", "no:cacheprovider"], timeout=180
                 )
                 self.assertEqual(result["returncode"], 0)
+                self.assertIn("1 passed", result["stdout"])
+            finally:
+                box.terminate()
+
+    def test_docker_pytest_imports_package_from_tests_dir(self) -> None:
+        from core.verify.local_runner import resolve_docker
+
+        if resolve_docker() is None:
+            self.skipTest("no docker CLI")
+        tarball = _make_tar(
+            {
+                "app/__init__.py": "",
+                "app/calc.py": "def add(a, b):\n    return a + b\n",
+                "tests/test_calc.py": (
+                    "from app.calc import add\n\n"
+                    "def test_add():\n    assert add(1, 2) == 3\n"
+                ),
+            }
+        )
+        with patch.dict(os.environ, {"TA_VERIFY": "local"}):
+            try:
+                box = repo_sandbox.open_repo_sandbox(tarball)
+            except repo_sandbox.SandboxUnavailable as exc:
+                self.skipTest(str(exc))
+            try:
+                result = box.exec(repo_run.PYTEST, timeout=180)
+                self.assertEqual(result["returncode"], 0, result["stdout"])
                 self.assertIn("1 passed", result["stdout"])
             finally:
                 box.terminate()
