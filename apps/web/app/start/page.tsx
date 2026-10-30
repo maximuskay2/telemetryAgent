@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
 
 function WatchArt() {
@@ -117,6 +118,7 @@ export default function StartPage() {
             ◆
           </span>
           <span className="text-sm font-semibold">TelemetryAgent</span>
+          <ThemeToggle className="ms-auto" />
         </div>
       </header>
 
@@ -148,7 +150,7 @@ export default function StartPage() {
               <div className="mt-5 flex flex-col gap-2">
                 <Link
                   href="/start/setup"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-[#0b1710] outline-none transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand outline-none transition-colors hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
                   Use the demo business
                   <span aria-hidden>→</span>

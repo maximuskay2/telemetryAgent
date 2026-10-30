@@ -233,7 +233,7 @@ class HardwareOptionsSection extends ConsumerWidget {
           }
         }
         if (result.options.isEmpty) {
-          return const SectionCard(
+          return SectionCard(
             title: 'Hardware · Choose a fix',
             child: Text(
               'No fix options yet.',
@@ -249,7 +249,7 @@ class HardwareOptionsSection extends ConsumerWidget {
           onExecute: (id) => _execute(ref, context, id),
         );
       },
-      loading: () => const SectionCard(
+      loading: () => SectionCard(
         title: 'Hardware · Choose a fix',
         child: Text(
           'Loading fix options…',
@@ -260,7 +260,7 @@ class HardwareOptionsSection extends ConsumerWidget {
         title: 'Hardware · Choose a fix',
         child: Text(
           'Could not load options: $error',
-          style: const TextStyle(color: Accents.muted),
+          style: TextStyle(color: Accents.muted),
         ),
       ),
     );

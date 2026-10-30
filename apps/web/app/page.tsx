@@ -1,3 +1,4 @@
+import Attribution from "./components/Attribution";
 import ActivityBar from "./mission/ActivityBar";
 import FirstVisitGate from "./mission/FirstVisitGate";
 import MissionPanes from "./mission/Panes";
@@ -17,6 +18,9 @@ export default function Home() {
             <MissionPanes />
           </div>
           <ActivityBar />
+          <footer className="border-t border-border py-2 text-center">
+            <Attribution className="inline" />
+          </footer>
         </div>
       </MissionProvider>
     </FirstVisitGate>

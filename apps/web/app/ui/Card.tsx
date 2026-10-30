@@ -13,7 +13,7 @@ export default function Card({
 }) {
   return (
     <section
-      className={`rounded-[10px] border border-border bg-surface shadow-[0_8px_30px_rgb(0,0,0/0.35),inset_0_1px_0_0_rgb(255,255,255/0.04)] ${className}`}
+      className={`rounded-[10px] border border-border bg-surface shadow-[var(--card-shadow)] ${className}`}
     >
       {title !== undefined && (
         <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">

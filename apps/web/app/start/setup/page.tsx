@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ThemeToggle from "../../components/ThemeToggle";
 import { useAgentStream } from "../../hooks/useAgentStream";
 import {
   armSystem,
@@ -435,7 +436,7 @@ export default function GuidedSetupPage() {
               return (
                 <span
                   key={doc}
-                  className={`rounded-full border px-2 py-0.5 font-mono text-[11px] ${
+                  className={`rounded-full border px-2 py-0.5 text-[11px] tabular-nums ${
                     finished
                       ? "border-ok/50 text-ok"
                       : seen
@@ -542,6 +543,7 @@ export default function GuidedSetupPage() {
           <span className="ms-auto text-xs text-text-muted">
             {done ? "Done ✓" : `Stage ${Math.min(current, 4)} of 4`}
           </span>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -572,7 +574,7 @@ export default function GuidedSetupPage() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Link
                 href="/?tour=1"
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-[#0b1710] outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Jump to the incident →
               </Link>
@@ -609,7 +611,7 @@ export default function GuidedSetupPage() {
                 >
                   <span
                     aria-hidden
-                    className="flex size-5 items-center justify-center rounded-full bg-surface-2 font-mono text-[11px]"
+                    className="flex size-5 items-center justify-center rounded-full bg-surface-2 text-[11px] tabular-nums"
                   >
                     {n}
                   </span>
@@ -624,7 +626,7 @@ export default function GuidedSetupPage() {
                   <span className="flex items-center gap-2">
                     <span
                       aria-hidden
-                      className="flex size-5 items-center justify-center rounded-full bg-brand font-mono text-[11px] text-[#0b1710]"
+                      className="flex size-5 items-center justify-center rounded-full bg-brand text-[11px] tabular-nums text-on-brand"
                     >
                       {n}
                     </span>
@@ -729,7 +731,7 @@ export default function GuidedSetupPage() {
                       status?.freezer?.status === "armed" ? (
                         <Link
                           href="/?tour=1"
-                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-[#0b1710] outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                         >
                           Back to the incident →
                         </Link>

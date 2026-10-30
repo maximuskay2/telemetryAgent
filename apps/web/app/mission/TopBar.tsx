@@ -5,6 +5,7 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
+import ThemeToggle from "../components/ThemeToggle";
 import { StatusDot } from "../ui";
 import { useMission } from "./state";
 
@@ -158,7 +159,7 @@ function TokenButton() {
                 setOperatorToken(draft.trim());
                 setTokenOpen(false);
               }}
-              className="cursor-pointer rounded-lg bg-brand px-3 py-1 text-xs font-medium text-[#0b1710] hover:bg-brand/90"
+              className="cursor-pointer rounded-lg bg-brand px-3 py-1 text-xs font-medium text-on-brand hover:bg-brand/90"
             >
               Save
             </button>
@@ -244,13 +245,13 @@ export default function TopBar() {
           })}
         </nav>
         <div className="ms-auto flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-mono text-xs tabular-nums text-text-muted" title="First watcher warning to applied fix (or verified PASS)">
+          <span className="text-xs tabular-nums text-text-muted" title="First watcher warning to applied fix (or verified PASS)">
             Warning → fix:{" "}
             <strong className="text-text">{warnFixMs === null ? "—" : formatDuration(warnFixMs)}</strong>
           </span>
           <span className="text-xs text-text-muted" title="Gate decisions this session">
-            Ignored as normal <strong className="font-mono text-ok tabular-nums">{counts.suppress}</strong>
-            {" · "}Acting <strong className="font-mono text-crit tabular-nums">{counts.act}</strong>
+            Ignored as normal <strong className="text-ok tabular-nums">{counts.suppress}</strong>
+            {" · "}Acting <strong className="text-crit tabular-nums">{counts.act}</strong>
           </span>
         </div>
       </div>
@@ -358,6 +359,7 @@ export default function TopBar() {
             <Presentation size={15} />
             <span className="hidden text-xs xl:inline">Present</span>
           </button>
+          <ThemeToggle />
         </div>
       </div>
     </header>

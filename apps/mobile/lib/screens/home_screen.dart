@@ -130,7 +130,7 @@ class ReportsTab extends ConsumerWidget {
                         ? 'No incidents yet.\nRun the demo scenario.'
                         : 'No ${filter.label.toLowerCase()} incidents.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Accents.muted),
+                    style: TextStyle(color: Accents.muted),
                   ),
                 );
               }
@@ -223,7 +223,7 @@ class RunRow extends ConsumerWidget {
         ),
         subtitle: Text(
           meta,
-          style: const TextStyle(color: Accents.muted, fontSize: 12),
+          style: TextStyle(color: Accents.muted, fontSize: 12),
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => Navigator.of(context).push(
@@ -302,7 +302,7 @@ class FeedRow extends StatelessWidget {
             if (item.tag != null)
               TextSpan(
                 text: '[${item.tag}] ',
-                style: const TextStyle(color: Accents.model, fontSize: 12),
+                style: TextStyle(color: Accents.model, fontSize: 12),
               ),
             TextSpan(text: item.message),
           ],

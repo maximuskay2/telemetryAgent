@@ -1,19 +1,47 @@
-/* Classic palette tokens — the single source of truth for web + phone.
- * These are the pre-redesign dashboard colors (mint green on near-black).
+/* Meta-style surface tokens — the single source of truth for web + phone.
+ * Light is the default (:root with no data-theme); dark overrides below.
  * Phone copies these hex values into apps/mobile/lib/theme.dart.
- * See docs/design.md for the status vocabulary. */
+ * See docs/design.md for the status vocabulary (words unchanged; only
+ * colors and type follow Meta style). */
 
 :root {
-  --bg: #0b0e10;
-  --surface: #111719;
-  --surface-2: #0d1314;
-  --border: #252d2f;
-  --text: #e7eeea;
-  --text-muted: #879694;
-  --text-faint: #667371;
-  --brand: #a5efc0;
-  --brand-cyan: #a5efc0;
-  --ok: #a5efc0;
+  color-scheme: light;
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --surface-2: #e4e6eb;
+  --border: #ced0d4;
+  --text: #050505;
+  --text-muted: #65676b;
+  --text-faint: #8a8d91;
+  --brand: #0866ff;
+  --brand-cyan: #0866ff;
+  --on-brand: #ffffff;
+  --danger: #d61c1c;
+  --ok: #0e7a2e;
+  --warn: #8a5a00;
+  --crit: #d61c1c;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #18191a;
+  --surface: #242526;
+  --surface-2: #3a3b3c;
+  --border: #3e4042;
+  --text: #e4e6eb;
+  --text-muted: #b0b3b8;
+  --text-faint: #8a8d91;
+  --brand: #0866ff;
+  /* Links and small text accents are brightened on charcoal: #0866FF
+   * text on #18191A is unreadable, so dark mode uses Meta's own
+   * dark-surface blue here. Primary fills stay #0866FF both modes. */
+  --brand-cyan: #2d88ff;
+  --on-brand: #ffffff;
+  --danger: #d61c1c;
+  --ok: #31a24c;
   --warn: #f3cf7e;
   --crit: #ff887f;
+  --card-shadow:
+    0 8px 30px rgb(0 0 0 / 0.35), inset 0 1px 0 0 rgb(255 255 255 / 0.04);
 }

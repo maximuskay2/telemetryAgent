@@ -438,13 +438,14 @@ function StepDone({ data }: { data: WizardData }) {
     <Card title="Watching ✓">
       <div className="space-y-3">
         <p className="text-sm text-text">
-          <span className="font-mono">{data.name}</span> ({data.systemId}) is
-          connected. Incidents will page the paired phone and open here.
+          <span className="font-medium">{data.name}</span> (
+          <span className="font-mono">{data.systemId}</span>) is connected.
+          Incidents will page the paired phone and open here.
         </p>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/mission"
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-[#0b1710] hover:bg-brand/90"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand hover:bg-brand/90"
           >
             Open Mission Control →
           </Link>

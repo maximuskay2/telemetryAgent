@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ThemeToggle from "../components/ThemeToggle";
 import { Sparkline } from "../ui";
 
 type Product = { sku: string; name: string; price: number; stock: number };
@@ -113,6 +114,7 @@ export default function ShopPage() {
           >
             Guided demo
           </a>
+          <ThemeToggle />
         </nav>
         <p
           className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
@@ -138,7 +140,7 @@ export default function ShopPage() {
           <p className="text-[11px] font-semibold tracking-wide text-text-faint uppercase">
             Error rate · live
           </p>
-          <p className="font-mono text-3xl tabular-nums text-text">
+          <p className="text-3xl tabular-nums text-text">
             {errorRate.length > 0
               ? `${((errorRate[errorRate.length - 1] ?? 0) * 100).toFixed(1)}%`
               : "—"}
@@ -160,13 +162,13 @@ export default function ShopPage() {
           >
             <p className="font-mono text-[11px] text-text-faint">{product.sku}</p>
             <h2 className="text-base font-semibold">{product.name}</h2>
-            <p className="font-mono text-xl text-text">${product.price.toFixed(2)}</p>
+            <p className="text-xl tabular-nums text-text">${product.price.toFixed(2)}</p>
             <p className="text-xs text-text-muted">stock: {product.stock}</p>
             <button
               type="button"
               disabled={buying !== null}
               onClick={() => buy(product.sku)}
-              className="mt-2 cursor-pointer rounded-lg bg-ok px-3 py-2 text-sm font-semibold text-[#0b1710] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 cursor-pointer rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-on-brand hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {buying === product.sku ? "Placing…" : "Buy"}
             </button>

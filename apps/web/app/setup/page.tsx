@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
 import { ReviewSection } from "./ReviewTable";
 
@@ -135,7 +136,7 @@ function ProgressRing({ pct }: { pct: number }) {
           className="stroke-brand-cyan"
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center font-mono text-xs tabular-nums text-text">
+      <span className="absolute inset-0 flex items-center justify-center text-xs tabular-nums text-text">
         {Math.round(pct)}%
       </span>
     </div>
@@ -442,6 +443,7 @@ export default function SetupPage() {
           >
             Guided demo
           </a>
+          <ThemeToggle />
         </nav>
       </header>
 
@@ -464,9 +466,9 @@ export default function SetupPage() {
               }`}
             >
               <span
-                className={`flex size-4 items-center justify-center rounded-full font-mono text-[10px] ${
+                className={`flex size-4 items-center justify-center rounded-full text-[10px] tabular-nums ${
                   active
-                    ? "bg-brand text-[#0b1710]"
+                    ? "bg-brand text-on-brand"
                     : past
                       ? "bg-ok/20 text-ok"
                       : "bg-surface-2 text-text-faint"
@@ -732,7 +734,7 @@ export default function SetupPage() {
             <Card
               title="Check · Pick the true value"
               action={
-                <span className="rounded-full bg-warn/15 px-2 py-0.5 font-mono text-[11px] tabular-nums text-warn">
+                <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] tabular-nums text-warn">
                   {conflicts.length}
                 </span>
               }
@@ -763,7 +765,7 @@ export default function SetupPage() {
                               [`${conflict.field}:${conflict.key}`]: j,
                             }))
                           }
-                          className="mt-1 accent-[#f3cf7e]"
+                          className="mt-1 accent-warn"
                         />
                         <span className="text-xs">
                           <code className="rounded bg-surface-2 px-1 font-mono text-text">
@@ -785,7 +787,7 @@ export default function SetupPage() {
             <Card
               title="Check · Pending “this is normal” votes"
               action={
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] tabular-nums text-text-muted">
                   {feedback.length}
                 </span>
               }
@@ -1002,7 +1004,7 @@ export default function SetupPage() {
         <Card
           title="Step 4 · Watch normal for a while"
           action={
-            <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] tabular-nums text-text-muted">
               {profile?.baseline?.status ?? "none"}
             </span>
           }
@@ -1066,7 +1068,7 @@ export default function SetupPage() {
                   },
                 })
               }
-              className="mt-1 accent-[#a5efc0]"
+              className="mt-1 accent-ok"
             />
             <span>
               <span role="img" aria-label="Human-only" title="Human-only — the agent never changes this">
@@ -1160,7 +1162,7 @@ export default function SetupPage() {
         <Card
           title={`Step 6 · Ready to watch ${profile.name}?`}
           action={
-            <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] tabular-nums text-text-muted">
               {profile.status}
             </span>
           }

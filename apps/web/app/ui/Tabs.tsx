@@ -43,7 +43,7 @@ export default function Tabs({
           >
             {tab.label}
             {tab.count !== undefined && (
-              <span className="rounded-full bg-bg px-1.5 font-mono text-[11px] tabular-nums">
+              <span className="rounded-full bg-bg px-1.5 text-[11px] tabular-nums">
                 {tab.count}
               </span>
             )}

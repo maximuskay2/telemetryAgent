@@ -89,7 +89,7 @@ export function ReviewSection({
     <Card
       title={title}
       action={
-        <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] tabular-nums text-text-muted">
           {rows.length}
         </span>
       }

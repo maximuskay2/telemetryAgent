@@ -1,5 +1,4 @@
 :root {
-  color-scheme: dark;
   --bg: #0b0e10;
   --panel: #111719;
   --line: #252d2f;
@@ -13,6 +12,10 @@
 .legacy * { box-sizing: border-box; }
 
 .legacy {
+  /* Pinned to the classic dark look: immune to the light default. */
+  color-scheme: dark;
+  --bg: #0b0e10;
+  --text: #e7eeea;
   min-height: 100vh;
   background: radial-gradient(ellipse at 50% -20%, #18332b 0, var(--bg) 56%);
   color: var(--text);

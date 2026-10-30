@@ -2,11 +2,11 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 const TONES: Record<string, string> = {
   primary:
-    "bg-brand text-[#0b1710] hover:bg-brand/90 focus-visible:ring-brand disabled:bg-brand/40",
+    "bg-brand text-on-brand hover:bg-brand/90 focus-visible:ring-brand disabled:bg-brand/40",
   secondary:
     "border border-border bg-surface-2 text-text hover:bg-surface-2/70 focus-visible:ring-brand disabled:opacity-50",
   danger:
-    "bg-crit text-[#0b1710] hover:bg-crit/90 focus-visible:ring-crit disabled:bg-crit/40",
+    "bg-danger text-on-brand hover:bg-danger/90 focus-visible:ring-danger disabled:bg-danger/40",
   ghost: "text-text-muted hover:bg-surface-2 hover:text-text focus-visible:ring-brand disabled:opacity-50",
 };
 

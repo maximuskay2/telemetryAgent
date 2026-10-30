@@ -72,7 +72,7 @@ export default function IncidentsPane() {
         <button
           type="button"
           onClick={() => setSheetOpen(true)}
-          className="shrink-0 rounded-md bg-brand-cyan px-2.5 py-1.5 text-xs font-semibold text-[#0b1710] hover:brightness-110"
+          className="shrink-0 rounded-md bg-brand px-2.5 py-1.5 text-xs font-semibold text-on-brand hover:brightness-110"
         >
           + New incident
         </button>

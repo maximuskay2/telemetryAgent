@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/connection.dart';
 import 'models/pending_action.dart';
@@ -12,8 +14,39 @@ import 'services/api.dart';
 import 'services/foreground.dart';
 import 'services/socket.dart';
 import 'services/storage.dart';
+import 'theme.dart';
 
 final storageProvider = Provider<PairingStorage>((ref) => PairingStorage());
+
+/// Color mode, persisted across restarts. Light is the default; the
+/// saved choice wins. Syncs AppTheme so direct palette reads agree.
+final themeModeProvider =
+    NotifierProvider<ThemeModeNotifier, ThemeMode>(ThemeModeNotifier.new);
+
+class ThemeModeNotifier extends Notifier<ThemeMode> {
+  static const key = 'ta-theme-mode';
+
+  @override
+  ThemeMode build() {
+    _load();
+    return ThemeMode.light;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(key);
+    final mode = saved == 'dark' ? ThemeMode.dark : ThemeMode.light;
+    AppTheme.mode = mode;
+    state = mode;
+  }
+
+  Future<void> setMode(ThemeMode mode) async {
+    AppTheme.mode = mode;
+    state = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, mode == ThemeMode.dark ? 'dark' : 'light');
+  }
+}
 
 /// Saved pairing, or null when the app needs the Connect screen.
 final connectionProvider =

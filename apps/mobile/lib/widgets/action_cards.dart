@@ -56,7 +56,7 @@ class PrReadyCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               proofLine,
-              style: const TextStyle(
+              style: TextStyle(
                   color: Accents.ok,
                   fontSize: 13,
                   fontWeight: FontWeight.w600),
@@ -70,7 +70,7 @@ class PrReadyCard extends StatelessWidget {
               label: const Text('Open PR'),
             )
           else
-            const Text('PR pending — the fix is still being proven.',
+            Text('PR pending — the fix is still being proven.',
                 style: TextStyle(color: Accents.muted)),
           const SizedBox(height: 8),
           if (hasMitigation) ...[
@@ -99,7 +99,7 @@ class PrReadyCard extends StatelessWidget {
               ],
             ),
           ] else
-            const Text('No mitigation proposed.',
+            Text('No mitigation proposed.',
                 style: TextStyle(color: Accents.muted)),
         ],
       ),
@@ -178,7 +178,7 @@ class _OptionGroup extends StatelessWidget {
         children: [
           Text(
             label.toUpperCase(),
-            style: const TextStyle(
+            style: TextStyle(
               color: Obsidian.textFaint,
               fontSize: 10,
               letterSpacing: 1,
@@ -223,13 +223,13 @@ class _OptionRow extends StatelessWidget {
                 if (option.detail.isNotEmpty)
                   Text(
                     option.detail,
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: Accents.muted, fontSize: 12),
                   ),
                 if (!option.safety.ok && option.safety.reason.isNotEmpty)
                   Text(
                     'Disabled: ${option.safety.reason}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         color: Accents.fail, fontSize: 12),
                   ),
               ],
@@ -246,7 +246,7 @@ class _OptionRow extends StatelessWidget {
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 optionStatusLabel(option.status),
-                style: const TextStyle(
+                style: TextStyle(
                     color: Accents.muted, fontSize: 12),
               ),
             ),
@@ -269,7 +269,7 @@ class WatchingCard extends StatelessWidget {
       trailing: const StatusBadge(BadgeState.observing),
       child: Text(
         message,
-        style: const TextStyle(color: Accents.muted),
+        style: TextStyle(color: Accents.muted),
       ),
     );
   }
@@ -293,7 +293,7 @@ class PauseAllTile extends StatelessWidget {
       children: [
         SwitchListTile(
           title: const Text('Pause all actions'),
-          subtitle: const Text(
+          subtitle: Text(
             'Stops every automatic mitigation and device command.',
             style: TextStyle(color: Accents.muted, fontSize: 12),
           ),
@@ -306,7 +306,7 @@ class PauseAllTile extends StatelessWidget {
             color: Accents.warn.withAlpha(40),
             padding: const EdgeInsets.symmetric(
                 horizontal: 16, vertical: 10),
-            child: const Text(
+            child: Text(
               'Paused — no automatic actions will run.',
               style: TextStyle(
                   fontWeight: FontWeight.bold, color: Accents.warn),

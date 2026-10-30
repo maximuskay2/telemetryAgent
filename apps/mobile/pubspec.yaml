@@ -47,6 +47,7 @@ dependencies:
   fl_chart: ^1.3.0
   url_launcher: ^6.3.3
   share_plus: ^13.3.1
+  shared_preferences: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -80,12 +81,11 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # Vendored Geist variable fonts (OFL, see assets/fonts/OFL.txt).
+  # Vendored GeistMono (OFL, see assets/fonts/OFL.txt) for code, logs
+  # and IDs only. UI type is Optimistic → Helvetica → Arial, resolved
+  # from the OS (Optimistic is proprietary: never vendor it here).
   # No google_fonts: it downloads at runtime and fails offline.
   fonts:
-    - family: GeistSans
-      fonts:
-        - asset: assets/fonts/GeistSans-Variable.ttf
     - family: GeistMono
       fonts:
         - asset: assets/fonts/GeistMono-Variable.ttf

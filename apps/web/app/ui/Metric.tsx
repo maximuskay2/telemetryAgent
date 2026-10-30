@@ -64,7 +64,7 @@ export default function Metric({
   return (
     <div className="min-w-0">
       <p className="truncate text-xs text-text-muted">{label}</p>
-      <p className={`font-mono text-xl tabular-nums ${tones[tone]}`}>
+      <p className={`text-xl tabular-nums ${tones[tone]}`}>
         {value}
         {unit && <span className="ml-1 text-xs text-text-faint">{unit}</span>}
       </p>

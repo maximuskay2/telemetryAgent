@@ -101,7 +101,7 @@ function Row({
   return (
     <div className="space-y-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="font-mono text-[13px] font-medium text-text">
+        <span className="text-[13px] font-medium text-text">
           {conn.kind}
         </span>
         <Badge tone={statusTone(status)}>{status}</Badge>

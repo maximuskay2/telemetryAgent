@@ -356,7 +356,7 @@ export default function IncidentDrawer({
                   <button
                     type="button"
                     onClick={apply}
-                    className="rounded-md bg-ok px-3 py-1.5 text-sm font-semibold text-[#0b1710] hover:brightness-110"
+                    className="rounded-md bg-brand px-3 py-1.5 text-sm font-semibold text-on-brand hover:brightness-110"
                   >
                     {entry.domain === "software" ? "Apply fix to shop" : "Apply runbook to fridge"}
                   </button>

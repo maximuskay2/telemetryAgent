@@ -91,7 +91,7 @@ export default function VetoRing() {
   const frac = Math.max(0, Math.min(1, left / total));
   const tone = left <= 5 ? "crit" : left <= 10 ? "amber" : "indigo";
   const stroke =
-    tone === "crit" ? "stroke-crit" : tone === "amber" ? "stroke-[#f3cf7e]" : "stroke-white";
+    tone === "crit" ? "stroke-crit" : tone === "amber" ? "stroke-warn" : "stroke-brand";
 
   async function decide(approve: boolean) {
     if (deciding) return;
@@ -146,7 +146,7 @@ export default function VetoRing() {
           />
         </svg>
         <div className="min-w-0">
-          <p className="font-mono text-4xl tabular-nums text-text" aria-live="polite">
+          <p className="text-4xl tabular-nums text-text" aria-live="polite">
             {left}
             <span className="ml-1 text-sm text-text-faint">s</span>
           </p>
@@ -163,7 +163,7 @@ export default function VetoRing() {
             type="button"
             disabled={deciding !== null}
             onClick={() => void decide(false)}
-            className="flex-1 rounded-md bg-crit px-3 py-2 text-sm font-semibold text-[#0b1710] hover:brightness-110 disabled:opacity-50"
+            className="flex-1 rounded-md bg-danger px-3 py-2 text-sm font-semibold text-on-brand hover:brightness-110 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -171,7 +171,7 @@ export default function VetoRing() {
             type="button"
             disabled={deciding !== null}
             onClick={() => void decide(true)}
-            className="flex-1 rounded-md bg-brand-cyan px-3 py-2 text-sm font-semibold text-[#0b1710] hover:brightness-110 disabled:opacity-50"
+            className="flex-1 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-on-brand hover:brightness-110 disabled:opacity-50"
           >
             Do it now
           </button>

@@ -216,7 +216,7 @@ class AlarmScreen extends StatelessWidget {
                             ? 'nothing applies without you'
                             : 'until auto-apply',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Accents.muted),
+                        style: TextStyle(color: Accents.muted),
                       ),
                       const SizedBox(height: 20),
                       Text(
@@ -229,7 +229,7 @@ class AlarmScreen extends StatelessWidget {
                       Text(
                         '${action.domain} · run ${action.runId}',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: Accents.muted,
                             fontFamily: 'GeistMono',
                             fontSize: 12),
@@ -239,7 +239,7 @@ class AlarmScreen extends StatelessWidget {
                         Text(
                           diagnosis,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: Obsidian.text, fontSize: 14),
                         ),
                       ],
@@ -257,7 +257,7 @@ class AlarmScreen extends StatelessWidget {
                         Text(
                           verifyLine,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: Accents.ok, fontSize: 13),
                         ),
                       ],
@@ -267,7 +267,7 @@ class AlarmScreen extends StatelessWidget {
                           error!,
                           textAlign: TextAlign.center,
                           style:
-                              const TextStyle(color: Accents.fail),
+                              TextStyle(color: Accents.fail),
                         ),
                       ],
                     ],
@@ -298,7 +298,7 @@ class AlarmScreen extends StatelessWidget {
                         busy ? null : () => onDecide(true, false),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Accents.ok,
-                      side: const BorderSide(color: Accents.ok),
+                      side: BorderSide(color: Accents.ok),
                       padding:
                           const EdgeInsets.symmetric(vertical: 16),
                       textStyle: const TextStyle(
@@ -315,7 +315,7 @@ class AlarmScreen extends StatelessWidget {
                         busy ? null : () => onDecide(false, true),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Accents.warn,
-                      side: const BorderSide(color: Accents.warn),
+                      side: BorderSide(color: Accents.warn),
                       padding:
                           const EdgeInsets.symmetric(vertical: 12),
                     ),
@@ -325,7 +325,7 @@ class AlarmScreen extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: busy ? null : onSilence,
-                  child: const Text(
+                  child: Text(
                     'Silence phone (server keeps counting)',
                     style: TextStyle(color: Accents.muted),
                   ),
@@ -374,7 +374,6 @@ class CountdownRing extends StatelessWidget {
               fontSize: 72,
               fontWeight: FontWeight.w900,
               color: color,
-              fontFamily: 'GeistMono',
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
@@ -482,15 +481,14 @@ class OutcomeScreen extends StatelessWidget {
               Text(
                 action.action,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Accents.muted),
+                style: TextStyle(color: Accents.muted),
               ),
               if (action.detail.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
                   action.detail,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: Accents.muted, fontFamily: 'GeistMono'),
+                  style: TextStyle(color: Accents.muted),
                 ),
               ],
               const SizedBox(height: 32),

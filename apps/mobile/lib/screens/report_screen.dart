@@ -175,13 +175,13 @@ class ReportBody extends StatelessWidget {
                 const SizedBox(height: 10),
                 SelectableText(
                   report.runId,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontFamily: 'GeistMono', color: Accents.muted),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _headerMeta(report),
-                  style: const TextStyle(color: Accents.muted, fontSize: 12),
+                  style: TextStyle(color: Accents.muted, fontSize: 12),
                 ),
               ],
             ),
@@ -265,7 +265,7 @@ class ReportBody extends StatelessWidget {
         title: 'Verification evidence',
         child: Text(
           report.verifyLine,
-          style: const TextStyle(
+          style: TextStyle(
               color: Accents.ok, fontWeight: FontWeight.w600),
         ),
       ));
@@ -356,7 +356,7 @@ class _Section extends StatelessWidget {
                 Expanded(
                   child: Text(
                     '${title.toUpperCase()}${meta != null && meta!.isNotEmpty ? ' · $meta' : ''}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Accents.muted,
                       fontSize: 11,
                       letterSpacing: 1.2,
@@ -395,7 +395,7 @@ class _DecisionCard extends StatelessWidget {
             _ => 'No veto window — FAIL runs and unsafe runbooks never '
                 'auto-apply.',
           },
-          style: const TextStyle(color: Accents.muted),
+          style: TextStyle(color: Accents.muted),
         ),
       );
     }
@@ -421,7 +421,7 @@ class _DecisionCard extends StatelessWidget {
           Text(
             byLine,
             style:
-                const TextStyle(color: Accents.muted, fontSize: 12),
+                TextStyle(color: Accents.muted, fontSize: 12),
           ),
           const SizedBox(height: 4),
           Text(
@@ -467,7 +467,7 @@ class _GateCard extends StatelessWidget {
           _Badge('Gate: ${verdict.label}', accent),
           if (verdict.reason.contains('auto-fix not supported')) ...[
             const SizedBox(height: 8),
-            const _Badge('Auto-fix unavailable', Accents.warn),
+            _Badge('Auto-fix unavailable', Accents.warn),
           ],
           if (verdict.reason.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -481,7 +481,7 @@ class _GateCard extends StatelessWidget {
             Text(
               'Source: ${verdict.citation}',
               style:
-                  const TextStyle(color: Accents.muted, fontSize: 12),
+                  TextStyle(color: Accents.muted, fontSize: 12),
             ),
           ],
           for (final check in verdict.checks)
@@ -490,7 +490,7 @@ class _GateCard extends StatelessWidget {
               child: Text(
                 '${check.name}: ${check.result}'
                 '${check.detail.isEmpty ? '' : ' — ${check.detail}'}',
-                style: const TextStyle(
+                style: TextStyle(
                     color: Accents.muted, fontSize: 12),
               ),
             ),
@@ -510,7 +510,7 @@ class _Stepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (steps.isEmpty) {
-      return const Text('No pipeline steps streamed yet.',
+      return Text('No pipeline steps streamed yet.',
           style: TextStyle(color: Accents.muted));
     }
     return Column(
@@ -553,12 +553,12 @@ class _StepRow extends StatelessWidget {
           ),
           if (step.model.isNotEmpty)
             Text(step.model,
-                style: const TextStyle(
+                style: TextStyle(
                     color: Accents.model, fontSize: 11)),
           if (step.durationMs > 0) ...[
             const SizedBox(width: 8),
             Text('${step.durationMs.round()}ms',
-                style: const TextStyle(
+                style: TextStyle(
                     color: Accents.muted, fontSize: 11)),
           ],
         ],
@@ -623,9 +623,9 @@ class _RunbookView extends StatelessWidget {
         if (meta.isNotEmpty)
           Text(meta.join(' · '),
               style:
-                  const TextStyle(color: Accents.muted, fontSize: 12)),
+                  TextStyle(color: Accents.muted, fontSize: 12)),
         if (runbook['disables_protection'] == true)
-          const Text('⚠ disables a protection — never auto-applied',
+          Text('⚠ disables a protection — never auto-applied',
               style: TextStyle(color: Accents.fail, fontSize: 12)),
       ],
     );
@@ -661,20 +661,20 @@ class _FinalAction extends StatelessWidget {
       }
       if (message != null && message.isNotEmpty) {
         children.add(Text(message,
-            style: const TextStyle(color: Accents.muted, fontSize: 13)));
+            style: TextStyle(color: Accents.muted, fontSize: 13)));
       }
     }
     final feedback = report.result['feedback'] as String?;
     if ((feedback ?? '').isNotEmpty) {
       children.add(Text(feedback!,
-          style: const TextStyle(color: Accents.fail, fontSize: 13)));
+          style: TextStyle(color: Accents.fail, fontSize: 13)));
     }
     final done = stepNamed(report.steps, 'done');
     if (children.isEmpty && done != null && done.message.isNotEmpty) {
       children.add(Text(done.message));
     }
     if (children.isEmpty) {
-      children.add(const Text('Nothing applied yet.',
+      children.add(Text('Nothing applied yet.',
           style: TextStyle(color: Accents.muted)));
     }
     return _Section(
@@ -716,7 +716,7 @@ class _SensorChartsState extends ConsumerState<_SensorCharts> {
   Widget build(BuildContext context) {
     final samples = ref.watch(fridgeTempsProvider);
     if (samples.length < 2) {
-      return const Text(
+      return Text(
         'Collecting live readings — open the fridge stream first.',
         style: TextStyle(color: Accents.muted),
       );
@@ -782,7 +782,7 @@ class _SensorChartsState extends ConsumerState<_SensorCharts> {
         Text(
           '${samples.length} samples',
           style:
-              const TextStyle(color: Accents.muted, fontSize: 11),
+              TextStyle(color: Accents.muted, fontSize: 11),
         ),
       ],
     );
@@ -823,7 +823,7 @@ class _ChartPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 color: Accents.muted, fontSize: 11)),
         Expanded(
           child: LineChart(
@@ -859,7 +859,7 @@ class _ChartPage extends StatelessWidget {
         Text(
           'now ${values.last.toStringAsFixed(2)}',
           style:
-              const TextStyle(color: Accents.muted, fontSize: 11),
+              TextStyle(color: Accents.muted, fontSize: 11),
         ),
       ],
     );

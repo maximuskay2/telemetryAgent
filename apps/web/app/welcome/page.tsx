@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Attribution from "../components/Attribution";
+import ThemeToggle from "../components/ThemeToggle";
 import DemoCta from "./DemoCta";
 
 /** Set to the video URL once recorded; the button stays hidden until then. */
@@ -116,6 +118,7 @@ export default function WelcomePage() {
           >
             Mission Control →
           </Link>
+          <ThemeToggle />
         </div>
       </header>
 
@@ -180,7 +183,7 @@ export default function WelcomePage() {
               <p className="flex items-center gap-2 text-sm font-semibold">
                 <span
                   aria-hidden
-                  className="flex size-5 items-center justify-center rounded-full bg-brand font-mono text-[11px] text-[#0b1710]"
+                  className="flex size-5 items-center justify-center rounded-full bg-brand text-[11px] tabular-nums text-on-brand"
                 >
                   {i + 1}
                 </span>
@@ -197,6 +200,7 @@ export default function WelcomePage() {
           Diagnosed by Muse Spark · Muse Spark Open on Baseten · Muse Wonder
           · Verified in a Modal sandbox
         </p>
+        <Attribution className="mt-2 text-center" />
         <p className="mt-4 text-center text-xs">
           <Link
             href="/setup"

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
-import { GeistSans } from "geist/font/sans";
 import "./styles.css";
 import "./tailwind.css";
+import { THEME_INIT_SCRIPT } from "./lib/theme";
 
 export const metadata: Metadata = {
   title: "Telemetry Agent",
@@ -16,7 +16,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className={GeistMono.variable}>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         {children}
       </body>
     </html>

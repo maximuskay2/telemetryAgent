@@ -19,9 +19,12 @@ class TelemetryApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connection = ref.watch(connectionProvider);
+    final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'Telemetry Agent',
-      theme: telemetryTheme,
+      theme: telemetryLightTheme,
+      darkTheme: telemetryDarkTheme,
+      themeMode: themeMode,
       home: connection.when(
         data: (conn) => conn == null
             ? const ConnectScreen()

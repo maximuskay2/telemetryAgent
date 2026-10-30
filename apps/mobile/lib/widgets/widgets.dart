@@ -76,7 +76,7 @@ class MetricTile extends StatelessWidget {
       children: [
         Text(
           label.toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             color: Obsidian.textFaint,
             fontSize: 10,
             letterSpacing: 1,
@@ -88,7 +88,7 @@ class MetricTile extends StatelessWidget {
             color: tone ?? Obsidian.text,
             fontSize: 20,
             fontWeight: FontWeight.w700,
-            fontFamily: 'GeistMono',
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
@@ -120,7 +120,7 @@ class StepperRow extends StatelessWidget {
       children: [
         for (var i = 0; i < labels.length; i++) ...[
           if (i > 0)
-            const Text('→',
+            Text('→',
                 style: TextStyle(color: Obsidian.textFaint, fontSize: 10)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -175,7 +175,7 @@ class SectionCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     '${title.toUpperCase()}${meta != null && meta!.isNotEmpty ? ' · $meta' : ''}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Obsidian.textMuted,
                       fontSize: 11,
                       letterSpacing: 1.2,
@@ -230,7 +230,7 @@ class ProviderChip extends StatelessWidget {
       ),
       child: Text(
         providerLabel(model),
-        style: const TextStyle(color: Obsidian.brandCyan, fontSize: 11),
+        style: TextStyle(color: Obsidian.brandCyan, fontSize: 11),
       ),
     );
   }

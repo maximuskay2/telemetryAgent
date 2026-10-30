@@ -4,6 +4,7 @@
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card } from "../ui";
+import ThemeToggle from "../components/ThemeToggle";
 import { checkAccessCode, getAccessCode, getConnectDoor } from "./api";
 import ConnectionsPanel from "./ConnectionsPanel";
 import { ErrorLine, Field, StepNav, inputCls } from "./ui";
@@ -116,9 +117,12 @@ function ConnectInner() {
   const systemId = useSearchParams().get("system");
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8">
-      <h1 className="mb-1 text-xl font-semibold text-text">
-        {systemId ? "Connections" : "Connect your production"}
-      </h1>
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="mb-1 text-xl font-semibold text-text">
+          {systemId ? "Connections" : "Connect your production"}
+        </h1>
+        <ThemeToggle />
+      </div>
       <p className="mb-5 text-sm text-text-muted">
         {systemId
           ? "Keys stay server-side; secrets are never shown again."
