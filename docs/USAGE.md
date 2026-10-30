@@ -320,6 +320,9 @@ direct edit to your branches.
 - A language we don't support yet gets alerts and rollback only — the
   repo test says so up front ("Detected: … · alerts and rollback only").
 
+Full per-language guide (log settings, runners, proof apps, limits):
+[docs/languages.md](languages.md).
+
 ### C.3 Hosting — roll back and restart
 
 **Option 1: Railway.** You need two values:

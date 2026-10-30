@@ -577,3 +577,4 @@ Customer-facing steps (wizard, tokens, forwarder, webhook receiver, devices): [U
 
 - [production-backend.md](production-backend.md): connections, ingest, repo-fix pipeline, mitigations.
 - [production-devices.md](production-devices.md): device options, firmware, the `/connect` wizard half of the proof run.
+- [languages.md](languages.md): per-language auto-fix guide (needs, log settings, proof apps, limits).

@@ -1,10 +1,10 @@
 # Jude status (languages)
 
-Current block: L-D5 (docs; L-D1..L-D4 on main after this commit)
+Current block: T-L1 (matrix; waiting on go adapter + php/jvm image fixes, then run)
 
-Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (this commit); L-D5 LEFT; T-L1 LEFT (needs all adapters + images)
+Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (f84e974); L-D5 DONE (this commit); T-L1 LEFT
 
-Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (below)
+Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (harness), L-D5 (docs/languages.md + 2 link lines)
 
 L-D1 verification (Oct 30, stock §1.1 base images): node 21/21 + V8 TypeError trace; java 20/20 (online then offline) + ArithmeticException; kotlin 20/20 + ArithmeticException at Cart.kt:48; go 21/21 + panic/goroutine trace; rust 21/21 + panicked-at/backtrace; php 20/20 + fatal/Stack trace. No suite covers the empty cart; every app answers 500 and keeps serving.
 
@@ -37,6 +37,7 @@ Decisions:
 - L-D4 caught a real adapter bug: PHP single_test_cmd left the baseline's ta-results.xml in place, so a failing repro parsed as failed=0 → "could not write a test that fails" draft. single_test_cmd now overwrites the report (--log-junit ta-results.xml); stdout-only runners (cargo/pytest) are immune.
 - The harness passes the image explicitly (sandbox_factory → open_repo_sandbox(tar, image=adapter.image)) because _pipeline doesn't thread it yet; see request 8.
 - E2E traces: rust/php read the adapter fixtures; the other five are verbatim trigger captures inlined in tests/test_lang_e2e.py (their trace dirs belong to James/John, so no new fixture files there).
+- L-D5 link lines (2): docs/USAGE.md §C.2 + docs/DOCUMENTATION.md doc list. Both files are outside my column, but the L-D5 acceptance row requires these links and their owners are done — minimal additive one-liners, logged here per John's Merge-1 precedent.
 
 Contract changes requested:
 1. James (Maven install): ADOPTED (his status: L-J3 uses `mvn -B -q -DskipTests test`).
