@@ -1,75 +1,146 @@
 # TelemetryAgent
 
-TelemetryAgent is a software-first autonomous SRE agent built for the
-[Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
-(Indie Developer track, Push the Frontier).
+An autonomous SRE agent on Meta's Muse models that diagnoses crashes, writes
+fixes with the open-weight **Muse Spark Open**, proves them in a **Modal
+sandbox**, and opens the **PR** — and the same reasoning core diagnoses
+physical equipment.
 
-It ingests a crash log, finds the root cause with **Muse Spark**, writes a code
-patch and a regression test with the open-weight **Muse Spark Open**, proves the
-fix by running the test in an isolated **Modal Sandbox**, retries with the
-failure output when verification fails, and opens a **GitHub pull request** once
-the fix passes.
+Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
+(Indie Developer track, Push the Frontier). The repository was started fresh
+for the event — every line was written during the hackathon (Oct 27 – Nov 4).
 
-The same reasoning core also handles **appliance telemetry** (temperature,
-current, vibration from a fridge or freezer) as a proof point beyond software:
-it classifies the anomaly, writes a diagnostic runbook, checks it against
-deterministic safety rules, and raises an alert and work order.
+## Two doors, one agent
+
+- 🟢 **Simulation route (the 3-minute demo):** advert-style landing → onboarding
+  → guided setup of a demo shop + cold-chain freezer → a coach-marked first
+  incident on Mission Control → wrap-up. Everything runs locally with our
+  simulators; nothing external breaks the video.
+- 🔵 **Production route (the real product):** connect your server (log forwarder
+  or Sentry webhook), your GitHub repo, your hosting (Railway or a signed
+  webhook) and cold-chain devices. TelemetryAgent catches a real error, proves
+  a fix on **your code** in a sandbox, and opens a **PR on your repo** — while
+  the phone rings with fix options. Nothing shuts down without a human (see
+  [the uptime promise](#uptime-promise)).
+
+## The 3-minute demo (judges start here)
+
+```bash
+# terminal 1: API (http://localhost:8001)
+TA_DATA_DIR=$PWD/data venv/bin/python -m uvicorn apps.api.main:app --port 8001
+# terminal 2: shop simulator (http://localhost:8002)
+TA_DATA_DIR=$PWD/data venv/bin/python demo/shop/app.py
+# terminal 3: dashboard (http://localhost:3000)
+NEXT_PUBLIC_API_URL=http://localhost:8001 npm run dev --workspace apps/web
+```
+
+Then open the journey:
+
+1. `http://localhost:3000/welcome` — the advert landing ("Try the live demo").
+2. `/start` — onboarding cards; `/start/setup` — guided setup arms **both**
+   demo systems at once (shop + freezer).
+3. `/` — Mission Control with the first-incident tour: inject a deadlock,
+   watch the gate decide, follow diagnose → patch → verify live, get the
+   real PR, then the wrap-up.
+
+What to look for: the **gate** cites its sources ("Expected: defrost, spec
+sheet p.2"); the **proof** is fail-to-pass in an isolated sandbox, not vibes;
+the **PR is real** (e.g. [#9](https://github.com/maximuskay2/telemetryAgent-demo/pull/9),
+a one-line lock-order fix with repro test, suite 5 passed / 0 new failures);
+every auto-action waits out a **20-second phone veto** first.
+
+## Screenshots
+
+![Mission Control](docs/screenshots/mission.png)
+![Incident detail](docs/screenshots/incident.png)
+![Shop simulator](docs/screenshots/shop.png)
+![Setup wizard](docs/screenshots/setup.png)
+
+## Interfaces
+
+- **Web dashboard:** Mission Control at `/` — shop topology, freezer state,
+  incident list with gate cards and detail drawer, agent trace and veto ring.
+  Onboarding at `/welcome`, `/start`, `/start/setup`; the pre-redesign
+  dashboard stays at `/classic`.
+- **Setup wizard:** `/setup` — upload spec docs, review the extracted profile,
+  learn a baseline, set policy, arm. Extraction quotes every value, flags
+  conflicts instead of guessing, and never lets documents set policy or hard
+  limits. After arming, every hit passes the gate: hard limits always act;
+  expected behaviours, modes and the baseline suppress with citations;
+  anything else needs proof of impact or stays a quiet observe.
+- **Mobile app** (`apps/mobile/`, Flutter): veto countdown, full-screen alarm,
+  run reports, activity feed, QR pairing, foreground service — and the
+  production action center: "PR ready / Roll back now" and "Choose a fix"
+  hardware cards plus a Pause-all toggle, all wired to the live API.
+- **Simulators:** AutoParts Lagos shop (retries, deadlocks, load) and a
+  cold-chain fridge/freezer (door, defrost, compressor) with injectable
+  faults, plus a software ESP32 (`hardware/sim_device.py`) and Wokwi
+  firmware that speak the production device protocol.
+
+## Production route (how a real customer uses it)
+
+`/welcome` → **Connect your production** → the `/connect` wizard: name the
+system →
+logs (one-liner forwarder with a `ta_live_*` key, Sentry webhook, or curl;
+live "✓ first log") → repo + Test → hosting (Railway or signed webhook) +
+test ping → device key + firmware snippet → teach normal → permissions +
+uptime promise → pair phone → Start watching.
+
+Behind it (all on `main`, `check.sh` green):
+
+- **Ingest** (`core/ingest/`, `agent/ta_forward.py`): multi-line tracebacks
+  become one candidate with parsed frames, even split across batches; the
+  stdlib forwarder buffers through API outages.
+- **Real fix pipeline** (`core/repo_fix/`): frames → repo files → tarball at
+  the failing commit → Modal sandbox (Docker fallback; customer secrets never
+  go inside) → baseline suite → repro test must FAIL → patch (≤ 3 files) →
+  repro passes + zero new failures → PR with evidence, **one open PR per
+  error fingerprint** (repeats comment instead). No tests / too big →
+  draft PR with diagnosis only, never a crash.
+- **Safe mitigations** (`core/actions/mitigate.py`): allowlist is `rollback`
+  + `restart` **only** — stop/delete/scale-to-zero are impossible by
+  construction. Railway adapter + HMAC-signed webhooks, 1 mitigation per
+  system per 10 minutes, none while learning, everything audited.
+- **Devices** (`core/devices/`, John's): hardware fix options from the run's
+  runbook + profile (defrost, setpoint within limits, compressor
+  power-cycle after the delay, backup unit, manual checklist, technician
+  dispatch), fail-closed safety, 2-minute command queue with acks.
+
+### Uptime promise
+
+Read-only by default (logs come to us; no SSH, no DB credentials). Fixes
+arrive as PRs — never direct edits. Only reversible actions run
+automatically, every action waits out the 20 s cancel window and rings the
+phone, and kill switches exist at every level (global, per-system Stop
+watching, per-connection Disconnect, Pause-all). Secrets are server-side,
+hashed/masked, never in `NEXT_PUBLIC_*`.
 
 ## Architecture
 
 ```text
-   [ Software crash log ]            [ Appliance sensor window (synthetic) ]
-             └──────────────┬──────────────┘
-                            ▼
-          muse-spark-1.3 (Meta Model API) — classify + diagnose
-                            ▼
-   meta-models/muse-spark-open on Baseten
-   (backup: Fireworks → muse-spark-1.3)
-     software → patch + pytest        appliance → runbook
-                            ▼
-     software → pytest in Modal       appliance → safety rules
-                            │
-              FAIL ─────────┴───────── PASS
-                ▼                        ▼
-   retry with feedback (max 3,     software  → GitHub PR
-   last try on muse-wonder-1.0)    appliance → alert + work order
+   [ crash log / Sentry ]   [ appliance sensors ]   [ forwarder ta_forward.py ]
+             └──────────────────────┬──────────────────────┘
+                                    ▼
+                    gate (profile + baseline + hard limits)
+                        suppress / observe / act (cited)
+                                    ▼
+               muse-spark-1.3 (Meta Model API) — diagnose
+                                    ▼
+              meta-models/muse-spark-open on Baseten
+              (backup: Fireworks → muse-spark-1.3)
+                software → patch + pytest     appliance → runbook
+                                    ▼
+              software → pytest in Modal      appliance → safety rules
+              (Docker fallback; repo runs: their code at the failing commit)
+                                    │
+                       FAIL ───────┴──────── PASS
+                         ▼                        ▼
+            retry with feedback (max 3,    software → GitHub PR
+            last try muse-wonder-1.0)     appliance → alert + work order
+                                          mitigations → rollback / restart
+                                          (20 s phone veto, audit log)
 ```
 
-Every step streams to a Next.js dashboard over WebSockets.
-
-## Interfaces
-
-- **Web dashboard (main product):** Mission Control at `/` — shop topology,
-  freezer state, incident list with gate cards and detail drawer, agent trace
-  and veto ring. The pre-redesign dashboard stays at `/classic` for now.
-
-  ![Mission Control](docs/screenshots/mission.png)
-- **Mobile app:** a Flutter app (`apps/mobile/`) with the veto countdown,
-  alarm screen, run reports and the activity feed; see
-  [`mobile-roadmap.md`](./mobile-roadmap.md).
-- **Setup wizard:** `/setup` on the dashboard. Upload spec docs, review the
-  extracted profile, learn a baseline, set policy, and arm the system; see
-  [`setup-roadmap.md`](./setup-roadmap.md).
-
-## Setup: teach it normal
-
-Every monitored system gets a profile: normal ranges, expected behaviours,
-modes, failure definitions, hard limits, and policy (`core/schemas/profile.py`).
-Upload docs at `POST /api/systems/{id}/documents` — extraction quotes every
-value, flags conflicts instead of guessing, and never lets documents set
-policy or hard limits. `POST /api/systems/{id}/baseline/start` learns what
-normal looks like (log templates, per-mode sensor bands, shop metrics);
-while learning, watchers run but never act.
-
-After arming, every watcher hit passes the gate
-(`POST /api/incidents/candidate`, `core/setup/gate.py`): hard limits always
-act; expected behaviours, current modes, and the baseline suppress with a
-cited reason; anything else needs proof of impact or it stays a quiet
-observe. Runs that start carry the gate decision, the model sees a profile
-summary, "expected" diagnoses end as `NO_ACTION`, and auto-apply needs both
-an `act` verdict and `policy.auto_fix_allowed`. Wrong calls get parked with
-"This is normal" (dashboard, phone, or `POST /api/systems/{id}/feedback`)
-and take effect only after profile-review confirmation.
+Every step streams to the dashboard and the phone over WebSockets.
 
 ## Meta models and partners
 
@@ -79,47 +150,18 @@ and take effect only after profile-review confirmation.
 | Patch, test and runbook generation | `meta-models/muse-spark-open` | Baseten |
 | Generation backup | Muse Spark Open | Fireworks |
 | Final-attempt escalation | `muse-wonder-1.0` | Meta Model API |
-| Sandbox verification | — | Modal Sandboxes |
+| Sandbox verification | — | Modal Sandboxes (Docker fallback) |
 | Development | Muse Code | `muse` CLI |
 
-## Status
+## Run it
 
-The repository was started fresh for the hackathon, so all code in it is built
-during the event (Oct 27 – Nov 4, 2026). See [`roadmap.md`](./roadmap.md) for
-the day-by-day plan and [`about.md`](./about.md) for the technical blueprint.
+Requirements: Python 3.9+, Node.js 20.9+, npm, Docker (for local
+verification), Flutter (for the mobile app).
 
-### Built during the hackathon
-
-This list is updated as features land.
-
-- Project plan aligned with the hackathon requirements (`about.md`, `roadmap.md`).
-- Typed software/appliance telemetry, diagnosis, patch/runbook and stream-event contracts (`core/schemas/`).
-- Diagnosis via `muse-spark-1.3` on the Meta Model API (`core/infer/meta_client.py`, `/api/diagnose`).
-- Patch generation on Muse Spark Open with Baseten → Fireworks → Meta failover (`core/infer/`).
-- Modal Sandbox pytest verification with fail-to-pass checks (`core/verify/sandbox.py`).
-- Shared diagnose → generate → verify → act loop with `muse-wonder-1.0` final-attempt escalation, per-stage durations and real GitHub PR creation (`core/agent/loop.py`, `core/actions/github_pr.py`).
-- FastAPI ingestion, `/api/run` agent endpoint and WebSocket streaming of every loop step (`apps/api/main.py`).
-- Seeded deadlock fixture as the end-to-end PR target (`demo/target-service/`, `samples/`).
-- Dashboard with software + appliance incident panels, inject buttons and a live event feed (`apps/web/`).
-- Appliance path: synthetic fridge/freezer telemetry with injectable faults (`core/simulate/appliance.py`), runbook generation, deterministic safety validation (`core/verify/safety_rules.py`) and SMS/work-order alerts (`core/actions/notify.py`) through the same loop.
-- Log ingestion: dashboard upload/paste with sample loader, allowlisted target files so verification is fail-to-pass against the real buggy file, and an autonomous log watcher (`core/watch/`) with warning/error/crash triggers, context windows, and per-fingerprint debounce.
-- Live demo service under concurrent load plus a one-command autonomous demo (`demo/target-service/run_service.py`, `demo/live.sh`).
-- Demo shop + virtual fridge simulators with fault injection and deploy/reset controls (`demo/shop/`, `/api/sim/*`).
-- Flutter mobile app with veto countdown, alarms, reports and feed (`apps/mobile/`).
-- Setup flow: profile schema + extraction with quotes/conflicts, 6-step wizard, simulator normal-but-scary behaviours, modes, the gate, baseline learning and mark-as-normal feedback (`core/setup/`, `demo/setup/`, `tests/test_setup_acceptance.py`).
-
-## Requirements
-
-- Python 3.9+
-- Node.js 20.9+
-- npm
-
-Setup and run instructions are added here as the API, agent loop and dashboard
-land.
-
-## Configuration
-
-Credentials live in `.env`, which is git-ignored. Never commit keys.
+```bash
+python -m venv venv && venv/bin/pip install -r requirements.txt
+cp .env.example .env   # then fill in the keys below
+```
 
 | Variable | Purpose |
 | --- | --- |
@@ -127,10 +169,68 @@ Credentials live in `.env`, which is git-ignored. Never commit keys.
 | `BASETEN_API_KEY` | Muse Spark Open on Baseten |
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | Modal Sandboxes (or `modal setup` once) |
 | `TA_VERIFY=local` | Force local Docker verification instead of Modal |
-| `GITHUB_TOKEN` | Opening pull requests on the demo target repo |
+| `GITHUB_TOKEN` | Opening pull requests (demo + connected repos) |
 | `FIREWORKS_API_KEY`, `FIREWORKS_PATCH_MODEL` | Optional backup generation provider |
+| `MOBILE_API_TOKEN` | `X-Mobile-Token` for phone approve/pause (empty = open, dev) |
+| `PRODUCTION_CONNECT_ENABLED` | `0` hides the `/connect` door (default `1`) |
+| `TA_FIXTURE_KEYS` | `1` accepts the `ta_live_fixture` key (tests only) |
+| `RAILWAY_TOKEN` | Railway rollback/restart adapter |
+| `TA_SANDBOX_IMAGE`, `DOCKER_BIN` | Docker verifier image / CLI path |
 
-Do not send sensitive log content to remote services.
+Credentials live in `.env` (git-ignored). Never commit keys, and do not
+send sensitive log content to remote services.
+
+Checks: `./scripts/check.sh` runs the Python suite, the simulation-route
+smoke test (spins the API on a spare port, arms the demo shop, runs two
+live agent runs), the web build, and `flutter analyze` + `flutter test`.
+620+ Python tests, 56 Flutter tests, all externals mocked (GitHub, Railway,
+Sentry, Modal) with live Docker + webhook coverage.
+
+## Repository layout
+
+```text
+apps/api/          FastAPI hub: runs, sim, setup, gate, actions, WS (+ routes/production.py, routes/devices.py)
+apps/web/app/      Next.js: Mission Control, welcome/start journey, setup, shop, /connect wizard
+apps/mobile/       Flutter on-call app + action center
+core/              schemas, infer, agent loop, verify (Modal/Docker/repo sandbox), actions, watch, setup, simulate
+core/connections/  production connections + ta_live_* keys + GitHub checks
+core/ingest/       traceback parsing, log/Sentry pipeline
+core/repo_fix/     locate → snapshot → sandbox → repro → patch → prove → PR
+core/devices/      hardware options + command queue (John)
+agent/             ta_forward.py stdlib log forwarder (served at /forwarder.py)
+demo/              shop + freezer simulators, samples, scenario, guided-setup profiles
+hardware/          sim_device.py software ESP32 + Wokwi firmware (John)
+examples/proof-app/ cart service with a real bug: 20 tests, Procfile, trigger script
+scripts/           check.sh, smoke_demo.sh, build-sandbox-image.sh
+tests/             unit + acceptance (test_prod_*, test_devices_*)
+docs/              PRD, DOCUMENTATION, production-backend, proof-run
+```
+
+## Roadmap index
+
+- [`roadmap.md`](./roadmap.md) — master plan + submission quick-sheet.
+- [`about.md`](./about.md) — technical blueprint.
+- [`production-roadmap.md`](./production-roadmap.md) — real integrations
+  (🔵 route), the uptime promise, and the James/John build split.
+- [`journey-roadmap.md`](./journey-roadmap.md) — the visitor golden path
+  (advert → onboarding → first fixed incident).
+- [`ui-roadmap.md`](./ui-roadmap.md), [`mobile-roadmap.md`](./mobile-roadmap.md),
+  [`setup-roadmap.md`](./setup-roadmap.md),
+  [`simulation-roadmap.md`](./simulation-roadmap.md) — look, app, setup, sims.
+
+## Status
+
+- ✅ Simulation route end to end (landing → setup → tour → wrap-up).
+- ✅ Setup profiles, gate, baseline learning, feedback, veto windows.
+- ✅ Shop + freezer simulators, Flutter app (veto, alarms, reports, feed,
+  action center).
+- ✅ Production backend: connections, ingest, repo-fix PRs (proven live:
+  [telemetryAgent-demo#9](https://github.com/maximuskay2/telemetryAgent-demo/pull/9)),
+  mitigations, pause, `/connect` wizard, devices + firmware.
+- 🚧 Human-side leftovers: push `examples/proof-app/` to its own repo and
+  deploy on Railway; compile-check the Wokwi sketch; joint proof run ×2,
+  then the video. (FCM push was descoped: no Firebase project in the
+  event window — the app uses live WebSocket alerts + foreground service.)
 
 ## License
 
