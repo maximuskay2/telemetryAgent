@@ -1,11 +1,10 @@
 # John status
-Current block: MERGE 2 (N-R3 + N-R4) — access restored, merging
+Current block: DONE — all John blocks merged; NEEDS-1/2 are human-side
 Done:
-- MERGE 2 READY (unmerged): N-R3 verified (56 flutter green, analyze clean,
-  debug APK builds); N-R4 done (connect wizard both paths + panel + second
-  door, web build green, /connect 200 + bundle strings, backend path probed
-  green, docs/production-devices.md + Proof run); 622 python green on own
-  venv; T-R1 app checks done (no stub data in lib/, sim e2e green)
+- MERGE 2 (f5b5666): N-R3 + N-R4 on main over T-R1; check.sh GREEN first try
+  (622 python, smoke, web build, 56 flutter). N-R3: live options/pause app
+  wiring; N-R4: connect wizard both paths + panel + second door,
+  docs/production-devices.md + Proof run; T-R1 app checks (no stubs, e2e)
 - MERGE 1 (e81c88d): N-R0 + N-R1 + N-R2 on main over J-R3; check.sh GREEN
   (574 python, smoke, web build, 45 flutter). Smoke needed 6 attempts: Modal
   GRPCError 'sandbox already shut down' flaked ~75% for 40 min, then green
@@ -85,18 +84,8 @@ NEEDS FROM AKINGBADE:
 - FCM push (N-R3 stretch, skipped): needs a Firebase project + google-services.json
   + backend send path; everything else is green, so say the word + hand me the
   Firebase files and I'll wire it.
-NEEDS-2 FLUTTER OUTAGE (machine-wide): two stuck foreign flutter processes hold the
-global tool startup lock, so every flutter command (mine and James's) hangs:
-UPDATE 07:05: flutter outage CLEARED by itself (both foreign PIDs gone, lock
-free). N-R3 verified: 56/56, analyze clean, APK builds. Superseded by NEEDS-3.
-- NEEDS-3 MAIN CHECKOUT UNREADABLE (blocking merge): the whole
-  ~/Documents/META/telemetry-agent/ returns EPERM (files, .git, venv, .env)
-  while the -john worktree is fine. So: no git ops (commit/push/merge),
-  no main venv (own worktree venv built, 622 green), no .env (smoke gate
-  unrunnable). Please restore access (Privacy settings / reboot), then say
-  "merge" and I run: commit N-R4 + check.sh + push prod/john + push main.
-  Work is safe: committed locally through 95b5183 + backup at
-  /tmp/john-nr3-nr4-backup.tar.gz (70 files).
-BLOCKED: MERGE 2 on NEEDS-3. Everything else is done and verified.
-Tooling: muse file-write tools lost repo access (EPERM; reads + bash fine), so
-new files are staged via /tmp + cp and edits via /tmp/jedit.py until it clears.
+Outages survived (both cleared): machine-wide flutter lock jam (foreign PIDs,
+cleared itself) and main-checkout EPERM (git/.env/venv unreadable ~2h; own
+worktree venv + /tmp staging kept work moving; backup at
+/tmp/john-nr3-nr4-backup.tar.gz).
+BLOCKED: —
