@@ -302,11 +302,21 @@ class CommandsTest(unittest.TestCase):
     def test_single(self):
         self.assertEqual(
             ADAPTER.single_test_cmd("tests/TaReproAbc123Test.php", self.PATHS),
-            ["vendor/bin/phpunit", "tests/TaReproAbc123Test.php"],
+            [
+                "vendor/bin/phpunit",
+                "--log-junit",
+                "ta-results.xml",
+                "tests/TaReproAbc123Test.php",
+            ],
         )
         self.assertEqual(
             ADAPTER.single_test_cmd("tests/TaReproAbc123Test.php", self.PEST),
-            ["vendor/bin/pest", "tests/TaReproAbc123Test.php"],
+            [
+                "vendor/bin/pest",
+                "--log-junit",
+                "ta-results.xml",
+                "tests/TaReproAbc123Test.php",
+            ],
         )
 
     def test_timeouts_and_image(self):

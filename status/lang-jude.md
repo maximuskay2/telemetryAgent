@@ -1,10 +1,10 @@
 # Jude status (languages)
 
-Current block: L-D4 (harness; L-D1/L-D2/L-D3 on main)
+Current block: L-D5 (docs; L-D1..L-D4 on main after this commit)
 
-Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (this commit); L-D4 LEFT; L-D5 LEFT; T-L1 LEFT (needs James's python-parser fix + everyone's last merge)
+Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (this commit); L-D5 LEFT; T-L1 LEFT (needs all adapters + images)
 
-Done: L-D1 (six proof apps, all suites green in sandbox images, all triggers print real traces), L-D2 (Rust adapter), L-D3 (below)
+Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (below)
 
 L-D1 verification (Oct 30, stock §1.1 base images): node 21/21 + V8 TypeError trace; java 20/20 (online then offline) + ArithmeticException; kotlin 20/20 + ArithmeticException at Cart.kt:48; go 21/21 + panic/goroutine trace; rust 21/21 + panicked-at/backtrace; php 20/20 + fatal/Stack trace. No suite covers the empty cart; every app answers 500 and keeps serving.
 
@@ -18,6 +18,11 @@ L-D3 PHP adapter (core/repo_fix/lang/php.py, ADAPTER; tests/test_lang_php.py, 31
 - PHPUnit primary via --log-junit (nested-XML normalized), stdout fallback; Pest supported (runner, JUnit, stdout shapes all real-captured).
 - E2E in a local php-image variant (James's Dockerfile.php doesn't build yet — request 4): composer install ok, baseline 20/20, repro at tests/TaRepro…Test.php FAILS (error parsed), guard fix → repro PASSES → suite 21 green, no new failures.
 
+L-D4 harness (scripts/lang_e2e.sh + tests/test_lang_e2e.py; this commit also fixes PHP single_test_cmd — see Decisions):
+- Mocked matrix (GitHub mocked, Docker real, canned repro+patch): python PASS 23s, rust PASS 6s, php PASS 10-16s; javascript/java/kotlin/go SKIP (no adapter yet). Full run 39s.
+- --live (real Baseten→Wonder models, GitHub still mocked), one run each 30 Oct: python PASS 35s, rust PASS 34s, php PASS 52s (models wrote working repro+patch from the traces first try; per-run model labels weren't captured — the harness now prints model_used).
+- Usage: ./scripts/lang_e2e.sh [langs…] [--live]; live budget enforced (3/lang/day in ~/.cache/ta-lang-e2e).
+
 Decisions:
 - Locks committed (Cargo.lock, composer.lock): proof apps are deployable services. Zero-dep apps have no lockfile. Added proof-app-go/.gitignore (was missing).
 - Trigger method where no local toolchain exists: server in the sandbox image + HOST=0.0.0.0 + port map, curl from host, trace from docker logs.
@@ -29,17 +34,21 @@ Decisions:
 - Pest detected from paths (`tests/Pest.php` ⇒ pest); both adapters are stateless (no manifest hook — avoids shared-ADAPTER races across concurrent runs).
 - PHPUnit nests JUnit XML (config > suite > class); the adapter rewraps leaf suites before the shared parser (see request 3).
 - Crate name / test namespace for repro prompts: repro_rules tells the model where to look (Cargo.toml [package] name; neighbouring tests' namespace); see request 6.
+- L-D4 caught a real adapter bug: PHP single_test_cmd left the baseline's ta-results.xml in place, so a failing repro parsed as failed=0 → "could not write a test that fails" draft. single_test_cmd now overwrites the report (--log-junit ta-results.xml); stdout-only runners (cargo/pytest) are immune.
+- The harness passes the image explicitly (sandbox_factory → open_repo_sandbox(tar, image=adapter.image)) because _pipeline doesn't thread it yet; see request 8.
+- E2E traces: rust/php read the adapter fixtures; the other five are verbatim trigger captures inlined in tests/test_lang_e2e.py (their trace dirs belong to James/John, so no new fixture files there).
 
 Contract changes requested:
-1. James (Maven install, L-J3): `dependency:go-offline test-compile` does NOT prefetch surefire providers — later `mvn -o test` fails on surefire-junit-platform:3.2.5. Suggest `mvn -B -q -DskipTests test` in the install step (verified: offline suite green after one full online run).
-2. James (ingest, DONE in L-J2? re-check): `parse_traceback` claims any `X: …` text (python-first registry order), so Rust traces (`note: …` line) and JS traces route to python. Akingbade 30 Oct: James is fixing; re-check routing after his merge (T-L1 needs it).
+1. James (Maven install): ADOPTED (his status: L-J3 uses `mvn -B -q -DskipTests test`).
+2. James (python claims all traces): FIXED in 3a65e68, verified (rust→rust, php→php, incl. legacy + monolog shapes; ClaimGateTest pins it).
 3. James (results.py): `parse_junit_xml` sums nested suites — real PHPUnit XML counts 3× (66 vs 22) and triplicates failed ids. Suggest counting leaf `<testsuite>` only (flat Surefire/Gradle reports unaffected). My adapter normalizes locally until then.
 4. James (Dockerfile.php): does not build — needs `libonig-dev libxml2-dev libsqlite3-dev` added to the apt line (mbstring/xml/pdo_sqlite extensions). Verified with a local variant image (tag jude-php-proof, uncommitted).
 5. James (L-J2 assembler `_feed_generic`): a Rust trace completes at the message line (head+message already parses), so backtrace frames become plain lines — the run keeps throw site + message (sufficient; proven in e2e) but loses callers. Request: an additive optional hook (e.g. message-line count after a colon-head) or the forwarder's `_prev_rust_head` rule in the assembler.
 6. James (generate.py): repro prompt shows the file list only — the model cannot see the Rust crate name (Cargo.toml [package]) or the PHP test namespace (neighbouring tests/composer.json). Request: append manifest text for adapters that need it.
 7. John (ta_forward.py, his file): the Rust head regex misses current rustc thread ids (`thread 'w' (164) panicked at …`) — head + message lines drop at default level (only `stack backtrace:` recovers). Also, Monolog `"exception":"[object] (…)"` lines never start a trace, so `[stacktrace]` blocks are dropped (the continue rule exists but no trace is open).
+8. James (_pipeline): pass `adapter.image` to `open_repo_sandbox` (currently always the python image) and wire per-language Modal images (his L-J0 note says "when the adapters land" — rust/php have landed). The L-D4 harness works around it via sandbox_factory.
 
-Live runs (lang · result · seconds · model): none yet (unit + Docker proofs only; live runs start at L-D4 --live)
+Live runs (lang · result · seconds · model): 30 Oct (all via lang_e2e.sh --live, GitHub mocked): python PASS 35s live-chain; rust PASS 34s live-chain; php PASS 52s live-chain. (1 of 3 daily budget used per language; js/java/kotlin/go have no adapters yet.)
 
 NEEDS FROM AKINGBADE: none
 

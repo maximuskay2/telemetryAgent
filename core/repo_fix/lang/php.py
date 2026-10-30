@@ -310,7 +310,9 @@ class _PhpAdapter:
     def single_test_cmd(
         self, test_relpath: str, paths: List[str]
     ) -> List[str]:
-        return [self._runner(paths), test_relpath]
+        # Overwrite the suite report: parse_results reads it, and the
+        # baseline's report would otherwise look like a passing repro.
+        return [self._runner(paths), "--log-junit", _JUNIT_REPORT, test_relpath]
 
     def parse_results(
         self, stdout: str, stderr: str, read_file: Callable[[str], Optional[str]]
