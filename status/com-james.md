@@ -1,6 +1,6 @@
 # James status (commercial)
-Current block: C-J2 (Phase 1 API) — C-J1 on com/james, main merge BLOCKED (see below)
-Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (c7af2a0, on com/james)
+Current block: C-J2 (this commit) — C-J1+C-J2 on com/james, main merge BLOCKED (see below)
+Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (c7af2a0), C-J2 (this commit)
 Decisions:
 - Auth provider: Clerk (dev instance, test keys). Provider proves identity
   only (sub + email); our memberships table owns orgs + roles, so we stay
@@ -39,6 +39,18 @@ Decisions:
   my repo.record_usage_event is the §8.3-table primitive — C-D4 must
   reconcile the two (engine read-model vs tables, or persist-through).
   Also create_org now pairs the owner membership (RLS RETURNING rule).
+- C-J2 DONE: core/commerce/auth.py (Clerk JWKS verify + test HS256
+  issuer, PUBLIC_PATHS, resolve_request, role/authorize helpers),
+  apps/api/routes/commerce.py (exact §8.4 JSON: orgs, members, invites,
+  transfer, pair/claim/devices/revoke, usage→Jude's summary, admin),
+  middleware + approve/disapprove/pause/execute dual rules (self-hosted
+  unchanged; hosted demo runs public, org runs member+/admin+),
+  tests/test_com_api.py (17) + tests/commerce_auth.py, PyJWT pin, docs.
+  103 commerce tests green (20+17 mine, 66 Jude's).
+- C-J2 notes: RLS reads inside resolve_request need scoped stores
+  (unscoped hides everything); middleware added BEFORE CORS so error
+  responses keep CORS headers; GET pause stays public (only the action
+  is gated); WS keeps today's behaviour until C-J3's token join.
 Contract changes requested:
 - John: tests/test_devices_e2e.py hard-codes port 8201 (your §8.5 dev
   port). Your live uvicorn on 8201 makes it fail deterministically
@@ -53,8 +65,9 @@ NEEDS FROM AKINGBADE:
   automated daily Postgres backups (staging + prod, ≥7 days).
 - Baseten/Modal remaining hackathon credit numbers (for Jude's alerts).
 - Confirm provider product-use terms (roadmap §0.1) when known.
-BLOCKED: C-J1→main merge waits for a green gate: 8201 squat (above) +
-  rotating Docker e2e flakes (php/python NO_ACTION drafts). My tree is
-  proven: 20/20 C-J1 tests, 86/86 commerce tests with Jude's, full suite
-  green except those env failures. Continuing C-J2 on com/james meanwhile;
-  will merge when the machine is quiet or John frees the port.
+BLOCKED: C-J1+C-J2→main merge waits for a green gate: 8201 squat
+  (above) + rotating Docker e2e flakes (php/python NO_ACTION drafts).
+  Proven: 37/37 C-J1+C-J2 tests, 103/103 commerce tests with Jude's,
+  full suite green except those env failures. Continuing C-J3 on
+  com/james meanwhile; will merge when the machine is quiet or John
+  frees the port.

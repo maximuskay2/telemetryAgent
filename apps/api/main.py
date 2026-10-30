@@ -31,7 +31,9 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.actions.auto_action import (
     PendingAction,
@@ -225,11 +227,61 @@ def cors_origin_regex() -> str:
 
 
 app = FastAPI(title="Telemetry Agent API", version="0.1.0", lifespan=lifespan)
+
+
+class CommerceAuthMiddleware(BaseHTTPMiddleware):
+    """Resolve commerce auth onto request.state (C-J2, §8.3).
+
+    Self-hosted (no DATABASE_URL): transparent, today's behaviour.
+    Hosted: public paths pass open; enforced paths 401/403 without valid
+    session/device credentials; everything else passes through until C-J3.
+    Added before CORS so error responses keep CORS headers.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        from core.commerce import auth as auth_module
+        from core.commerce import repo as repo_module
+
+        state = request.state
+        state.auth = auth_module.AuthContext()
+        state.org_id = ""
+        state.user_id = ""
+        state.role = ""
+        state.auth_mode = "open"
+        if not os.environ.get("DATABASE_URL", "").strip():
+            state.org_id = "self"
+            return await call_next(request)
+        try:
+            ctx = await asyncio.to_thread(
+                auth_module.resolve_request,
+                repo_module.get_store(),
+                request.url.path,
+                request.headers,
+            )
+        except auth_module.AuthError as exc:
+            return JSONResponse(
+                {"detail": exc.detail}, status_code=exc.status
+            )
+        state.auth = ctx
+        state.org_id = ctx.org_id
+        state.user_id = ctx.user_id
+        state.role = ctx.role
+        state.auth_mode = ctx.auth_mode
+        return await call_next(request)
+
+
+app.add_middleware(CommerceAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=cors_origin_regex(),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type", "X-Mobile-Token", "X-Connect-Code"],
+    allow_headers=[
+        "Content-Type",
+        "X-Mobile-Token",
+        "X-Connect-Code",
+        "Authorization",
+        "X-Org-Id",
+    ],
 )
 
 
@@ -1284,12 +1336,38 @@ class DecisionIn(BaseModel):
     )
 
 
+def _require_action_auth(request: Request, run_id: str) -> None:
+    """Decision auth: mobile token self-hosted, user role hosted (C-J2).
+
+    Hosted demo-channel runs (no org tag) stay public per §8.3; org-tagged
+    runs need member+ of that org. Unknown runs fall through to the
+    existing 404 below (no existence oracle either way).
+    """
+    if not os.environ.get("DATABASE_URL", "").strip():
+        _require_mobile_token(request)
+        return
+    from core.commerce import auth as auth_module
+
+    _domain, entry = _run_entry(run_id)
+    if entry is None:
+        return
+    ctx = getattr(request.state, "auth", None) or auth_module.AuthContext()
+    try:
+        auth_module.authorize_action_run(
+            ctx, entry if isinstance(entry, dict) else {}
+        )
+    except auth_module.AuthError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail=exc.detail
+        ) from exc
+
+
 @app.post("/api/actions/{run_id}/approve")
 async def approve_action(
     run_id: str, payload: DecisionIn, request: Request
 ) -> dict:
     """Apply the verified fix now, ending the veto window."""
-    _require_mobile_token(request)
+    _require_action_auth(request, run_id)
     try:
         action = await _decide_action(run_id, True, payload.device)
     except _ApplyError as exc:
@@ -1302,7 +1380,7 @@ async def disapprove_action(
     run_id: str, payload: DecisionIn, request: Request
 ) -> dict:
     """Cancel the auto-apply; the incident stays open for a human."""
-    _require_mobile_token(request)
+    _require_action_auth(request, run_id)
     try:
         action = await _decide_action(run_id, False, payload.device)
         feedback = None
@@ -2901,8 +2979,10 @@ def infer_level(message: str) -> str:
 
 # Production route (H0 shared commit, roadmap R-3): the ONLY main.py change
 # for the rest of the 24 h. All new routes live in the two router files.
+from apps.api.routes import commerce as _commerce_router  # noqa: E402
 from apps.api.routes import devices as _devices_router  # noqa: E402
 from apps.api.routes import production as _production_router  # noqa: E402
 
 app.include_router(_production_router.router)
 app.include_router(_devices_router.router)
+app.include_router(_commerce_router.router)

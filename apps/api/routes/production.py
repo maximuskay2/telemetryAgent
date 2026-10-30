@@ -346,7 +346,21 @@ async def set_pause(request: Request, payload: PauseState) -> PauseState:
     """Global kill switch (persisted) + `actions_paused` broadcast."""
     from apps.api.main import hub  # deferred: routers load before main ends
 
-    _require_mobile_token(request)
+    if os.environ.get("DATABASE_URL", "").strip():
+        # Hosted (C-J2): admin+ decides; still global until C-J3 per-org.
+        from core.commerce import auth as auth_module
+
+        ctx = getattr(request.state, "auth", None)
+        if ctx is None or not ctx.user_id:
+            raise HTTPException(status_code=401, detail="sign-in required")
+        try:
+            auth_module.require_roles(ctx, "admin")
+        except auth_module.AuthError as exc:
+            raise HTTPException(
+                status_code=exc.status, detail=exc.detail
+            ) from exc
+    else:
+        _require_mobile_token(request)
     paused = mitigate_actions.set_paused(payload.paused)
     await hub.broadcast(
         SimEvent(kind="actions_paused", payload={"paused": paused})

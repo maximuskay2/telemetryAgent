@@ -41,6 +41,7 @@ pydantic_core==2.46.5
 Pygments==2.21.0
 pypdf==6.21.3
 pycparser==2.23
+PyJWT==2.15.1
 python-dotenv==1.2.1
 python-multipart==0.0.20
 pyyaml==6.0.3

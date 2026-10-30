@@ -190,6 +190,8 @@ pause gate, rate limit, options safety.
 | Checks | `scripts/check.sh`, `scripts/smoke_demo.sh` |
 | Tests | `tests/test_prod_*.py` (all externals mocked; Docker + webhook live) |
 | Proof app | `examples/proof-app/` (own repo when created) |
+| Commerce store | `core/commerce/{db,schema.sql,repo,models,crypto}.py` (C-J1) |
+| Commerce auth | `core/commerce/auth.py`, `apps/api/routes/commerce.py` (C-J2) |
 
 ## Environment
 
@@ -204,6 +206,29 @@ pause gate, rate limit, options safety.
 | `MOBILE_API_TOKEN` | `X-Mobile-Token` for pause/execute (empty = open, dev) |
 | `MODEL_API_KEY` / `BASETEN_API_KEY` | Diagnose (Spark) / generate (Spark Open, Wonder last) |
 | `GITHUB_TOKEN` | Demo-repo writes only |
+| `DATABASE_URL` | Set = hosted (Postgres org data); unset = self-hosted file store |
+| `TEST_DATABASE_URL` | Bootstrap URL for DB tests (default localhost `telemetry_test`) |
+| `COMMERCE_MASTER_KEY` | base64 32B Fernet key wrapping org data keys (never committed) |
+| `COMMERCE_ADMIN_EMAILS` | comma list for `GET /api/admin/costs` (else 403) |
+| `CLERK_JWKS_URL` | session-JWT verification (unset = sign-in unavailable) |
+| `CLERK_SECRET_KEY` | email backfill at first login (optional) |
+| `TA_AUTH_TEST_ISSUER` | HS256 secret for test tokens — tests only, never deployed |
+
+## Commerce auth + orgs (C-J2, frozen §8.3/§8.4)
+
+Hosted mode (`DATABASE_URL` set) resolves every request in
+`CommerceAuthMiddleware` to `request.state.(org_id, user_id, role,
+auth_mode)`: session JWT (Clerk RS256 via JWKS; `X-Org-Id` names the org,
+membership read per request) or device token (`ta_dev_`, org-bound).
+Self-hosted stays exactly as before (mobile token / open / access code).
+
+Roles: owner (everything) > admin (connect, arm, approve, invite, revoke)
+> member (view + approve) > viewer (read-only). Org routes live in
+`apps/api/routes/commerce.py` with the exact §8.4 JSON; usage/admin data
+comes from Jude's `core/commerce/usage.py`. Approve/disapprove/pause/
+execute-option check the caller's role on org-tagged runs; untagged
+sim/demo runs stay public (demo channel). Existing routes keep their
+gates until C-J3 threads org scoping through.
 
 ## NEEDS (human)
 

@@ -10,6 +10,7 @@ queue a 2-minute device command; manual/dispatch executes resolve at once.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Literal, Optional
 
@@ -200,7 +201,23 @@ async def incident_options(run_id: str) -> OptionsResult:
 async def execute_option(
     request: Request, run_id: str, option_id: str
 ) -> OptionExecuted:
-    _require_mobile_token(request)
+    if os.environ.get("DATABASE_URL", "").strip():
+        # Hosted (C-J2): demo runs public, org runs need member+.
+        from core.commerce import auth as auth_module
+
+        _domain, _entry = _find_run(run_id)
+        if _entry is not None:
+            ctx = getattr(request.state, "auth", None)
+            if ctx is None:
+                ctx = auth_module.AuthContext()
+            try:
+                auth_module.authorize_action_run(ctx, _entry)
+            except auth_module.AuthError as exc:
+                raise HTTPException(
+                    status_code=exc.status, detail=exc.detail
+                ) from exc
+    else:
+        _require_mobile_token(request)
     if mitigate.is_paused():
         raise HTTPException(status_code=409, detail="actions paused")
     domain, entry = _find_run(run_id)
