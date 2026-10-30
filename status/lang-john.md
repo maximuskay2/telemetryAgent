@@ -2,7 +2,7 @@
 Current block: L-N1 wired + proven in Docker — branch pushed, merge BLOCKED on James test flip (see BLOCKED)
 Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged), L-N3 (13f3f70, merged), L-N4 (941288d, merged), L-N5 (e807af6, merged)
 Blocks (acceptance check Oct 30):
-- L-N1 DONE (wired): single ADAPTER (see Decisions), manifest hook, results.py delegation, 61 tests green + 1 documented skip; Docker e2e PASS on local fixture (install → baseline 3/3 → real TypeError located to src/shop.js → repro FAIL → patch → repro PASS → suite 4/4 clean, 1.3s, no models). LEFT: merge (BLOCKED below); re-run on Jude's proof-app-node when it merges (acceptance names it).
+- L-N1 DONE (wired): single ADAPTER (see Decisions), manifest hook, results.py delegation, 61 tests green + 1 documented skip; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models). LEFT: merge (BLOCKED below).
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
 - L-N3 DONE: merged + LIVE-VERIFIED — real `check_repo` on telemetryAgent-demo returns `language`/`autofix` keys matching the TS type; error path omits them (renders nothing). Both UI branches proven.
 - L-N4 DONE: merged. LEFT: live verify once a gated run carries language.
@@ -81,8 +81,12 @@ Contract changes requested:
   returns info for V8 text (exc line, zero frames), and python is
   first in `registry.parse` — so no V8/Java/Go/Rust/PHP trace
   will ever route until it requires the header or ≥1 frame
-  (James's `python.py`/`traceback.py`, L-J1/L-J2). My routing test
-  skips until then.
+  (James's `python.py`/`traceback.py`). LIVE evidence 30 Oct:
+  `registry.parse` routes Jude's proof-app-node trigger trace to
+  `python`, so L-J2 `should_trigger` would fail the run early at
+  the `detect` check (python scores 0 on node paths) — the JS
+  pipeline cannot trigger at all until this is fixed. My routing
+  test skips until then.
 - L-N3 full string wants manager+runner detail, e.g. repo-test
   response carrying `stack_detail: "npm, Vitest"`. Optional.
 Live runs (lang · result · seconds · model): —
