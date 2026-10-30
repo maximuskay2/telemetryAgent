@@ -1,0 +1,6 @@
+# Rust sandbox: cargo test runs offline against the vendored snapshot.
+FROM rust:1-slim-bookworm
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /work

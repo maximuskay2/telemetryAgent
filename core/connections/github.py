@@ -10,7 +10,7 @@ tokens from it must never be logged or returned by the API.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import httpx
@@ -20,6 +20,56 @@ from core.connections import store as connection_store
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
 TIMEOUT_S = 15.0
+
+#: GitHub top-language → `/connect` language (languages §1.1, L-J0).
+_SUPPORTED = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+    "kotlin": "kotlin",
+    "go": "go",
+    "rust": "rust",
+    "php": "php",
+}
+def _tree_paths(http: Any, repo: str, sha: str) -> List[str]:
+    """Repo file list for language detection; [] when it fails."""
+    try:
+        response = http.get(
+            f"/repos/{repo}/git/trees/{sha}", params={"recursive": "1"}
+        )
+    except httpx.HTTPError:
+        return []
+    if response.status_code != 200:
+        return []
+    try:
+        body = response.json()
+    except ValueError:
+        return []
+    return [
+        item["path"]
+        for item in body.get("tree", [])
+        if item.get("type") == "blob" and item.get("path")
+    ]
+
+
+def _detect_language(
+    http: Any, repo: str, sha: str, gh_lang: str
+) -> tuple:
+    """(language, autofix): detect_repo on the tree, rollup as fallback.
+
+    `language` names the repo even when unsupported ("/connect shows
+    alerts-and-rollback-only"); `autofix` is True only once an adapter
+    for it exists. Import is deferred: lang pulls in core.ingest.
+    """
+    from core.repo_fix.lang import by_name, detect_repo
+
+    detected = detect_repo(_tree_paths(http, repo, sha))
+    if detected:
+        language = detected[0][0]
+    else:
+        language = _SUPPORTED.get(gh_lang, gh_lang or None)
+    return language, bool(language) and by_name(language) is not None
 
 
 def _headers(token: str) -> Dict[str, str]:
@@ -85,7 +135,11 @@ def check_repo(
                 f"{_message(got)}",
                 "permissions": {"read": False, "pull_requests": False},
             }
-        default_branch = str(got.json().get("default_branch", "main"))
+        repo_meta = got.json()
+        default_branch = str(repo_meta.get("default_branch", "main"))
+        # Languages §3 (L-J0): the rollup is the fallback; the tree
+        # detection below decides whenever the tree call succeeds.
+        gh_lang = str(repo_meta.get("language") or "").strip().lower()
         base = (base_branch or "").strip() or default_branch
         ref = http.get(f"/repos/{repo}/git/ref/heads/{base}")
         if ref.status_code == 404:
@@ -120,11 +174,14 @@ def check_repo(
                 http.delete(f"/repos/{repo}/git/refs/heads/{probe}")
             except httpx.HTTPError:
                 pass  # probe left behind; harmless, detail says so below
+            language, autofix = _detect_language(http, repo, sha, gh_lang)
             return {
                 "ok": True,
                 "detail": f"connected · default branch {default_branch} · "
                 "write verified (throwaway ref created and deleted)",
                 "permissions": {"read": True, "pull_requests": True},
+                "language": language,
+                "autofix": autofix,
             }
         if created.status_code in (403, 404):
             return {

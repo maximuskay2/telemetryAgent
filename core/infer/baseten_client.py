@@ -9,7 +9,9 @@ from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import GeneratedPatch, Runbook
 
 BASETEN_BASE_URL = "https://inference.baseten.co/v1"
-GENERATION_MODEL = os.getenv("BASETEN_PATCH_MODEL", "meta-models/muse-spark-open")
+GENERATION_MODEL = os.getenv(
+    "BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026"
+)
 
 
 def _client():

@@ -1,0 +1,6 @@
+# JVM sandbox: JDK 21 + Maven for Surefire suites (Gradle repos use their wrapper).
+FROM eclipse-temurin:21-jdk
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends maven ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /work

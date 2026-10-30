@@ -63,6 +63,10 @@ class ConnectionTest(BaseModel):
     ok: bool
     detail: str = ""
     permissions: Optional[TestPermissions] = None
+    # Languages roadmap §3 (L-J0): the GitHub repo test fills these from
+    # adapter detection; other kinds leave them None.
+    language: Optional[str] = None
+    autofix: Optional[bool] = None
 
 
 class IngestLine(BaseModel):

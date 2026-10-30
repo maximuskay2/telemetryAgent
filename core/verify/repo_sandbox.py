@@ -26,16 +26,29 @@ from typing import Dict, List, Optional, Type
 from core.verify.local_runner import IMAGE as DOCKER_IMAGE
 from core.verify.local_runner import resolve_docker
 
+#: Sandbox image key → local Docker image (languages §1.6, L-J0).
+#: Built by scripts/build-sandbox-image.sh <lang>; `image=` selects one.
+SANDBOX_IMAGES = {
+    "python": DOCKER_IMAGE,
+    "node": "telemetry-agent-sandbox-node",
+    "jvm": "telemetry-agent-sandbox-jvm",
+    "go": "telemetry-agent-sandbox-go",
+    "rust": "telemetry-agent-sandbox-rust",
+    "php": "telemetry-agent-sandbox-php",
+}
+
 #: Raw bytes per Modal upload chunk (base64 argv stays far under ARG_MAX).
 UPLOAD_CHUNK = 256 * 1024
 
 MAX_OUTPUT_CHARS = 20000
 
-_WRITE_FILE = (
-    "import base64, os, sys; "
-    "os.makedirs(os.path.dirname(sys.argv[1]), exist_ok=True); "
-    "open(sys.argv[1], 'wb').write(base64.b64decode(sys.argv[2]))"
-)
+def _check_relpath(relpath: str) -> str:
+    """Guest-relative path; rejects absolute paths and `..` escapes."""
+    if not relpath or relpath.startswith(("/", "\\")):
+        raise ValueError(f"unsafe sandbox path: {relpath!r}")
+    if ".." in relpath.split("/"):
+        raise ValueError(f"unsafe sandbox path: {relpath!r}")
+    return relpath
 
 _APPEND_CHUNK = (
     "import base64, sys; "
@@ -71,6 +84,10 @@ class RepoSandbox:
         raise NotImplementedError
 
     def write_file(self, relpath: str, content: str) -> None:
+        raise NotImplementedError
+
+    def read_file(self, relpath: str) -> Optional[str]:
+        """File content from /work, or None when missing/unreadable."""
         raise NotImplementedError
 
     def terminate(self) -> None:
@@ -115,9 +132,19 @@ class ModalRepoSandbox(RepoSandbox):
         }
 
     def write_file(self, relpath: str, content: str) -> None:
+        # Portable: sh + base64 only, no guest Python assumed (L-J0).
+        rel = _check_relpath(relpath)
+        target = f"/work/{rel}"
+        parent = os.path.dirname(target)
         encoded = base64.b64encode(content.encode()).decode()
+        quoted_parent = "'" + parent.replace("'", "'\\''") + "'"
+        quoted_target = "'" + target.replace("'", "'\\''") + "'"
+        quoted_blob = "'" + encoded.replace("'", "'\\''") + "'"
         process = self._sandbox.exec(
-            "python", "-c", _WRITE_FILE, f"/work/{relpath}", encoded
+            "sh",
+            "-c",
+            f"mkdir -p -- {quoted_parent} && "
+            f"printf %s {quoted_blob} | base64 -d > {quoted_target}",
         )
         process.wait()
         if process.returncode != 0:
@@ -125,6 +152,14 @@ class ModalRepoSandbox(RepoSandbox):
                 f"Could not write {relpath} in sandbox: "
                 f"{process.stderr.read()}"
             )
+
+    def read_file(self, relpath: str) -> Optional[str]:
+        rel = _check_relpath(relpath)
+        process = self._sandbox.exec("cat", f"/work/{rel}", workdir="/work")
+        process.wait()
+        if process.returncode != 0:
+            return None
+        return process.stdout.read()
 
     def terminate(self) -> None:
         try:
@@ -136,17 +171,22 @@ class ModalRepoSandbox(RepoSandbox):
 class DockerRepoSandbox(RepoSandbox):
     backend = "docker"
 
-    def __init__(self, workdir: str, docker: str) -> None:
+    def __init__(
+        self, workdir: str, docker: str, image: str = DOCKER_IMAGE
+    ) -> None:
         self._workdir = workdir
         self._docker = docker
+        self._image = image
         self._tmp: Optional[tempfile.TemporaryDirectory] = None
 
     @classmethod
-    def create(cls, snapshot_tar: bytes, docker: str) -> "DockerRepoSandbox":
+    def create(
+        cls, snapshot_tar: bytes, docker: str, image: str = "python"
+    ) -> "DockerRepoSandbox":
         tmp = tempfile.TemporaryDirectory(prefix="ta-repo-")
         with tarfile.open(fileobj=io.BytesIO(snapshot_tar)) as tar:
             tar.extractall(path=tmp.name, members=safe_members(tar))
-        box = cls(tmp.name, docker)
+        box = cls(tmp.name, docker, SANDBOX_IMAGES.get(image, DOCKER_IMAGE))
         box._tmp = tmp
         return box
 
@@ -170,8 +210,9 @@ class DockerRepoSandbox(RepoSandbox):
                     "-e", "PYTHONDONTWRITEBYTECODE=1",
                     "-e", "HOME=/tmp",
                     "-e", "PYTHONPATH=/work/.deps",
+                    "-e", "PIP_TARGET=/work/.deps",
                     "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1",
-                    DOCKER_IMAGE,
+                    self._image,
                     *cmd,
                 ],
                 capture_output=True,
@@ -190,8 +231,8 @@ class DockerRepoSandbox(RepoSandbox):
         output = (completed.stderr or "") + (completed.stdout or "")
         if "Unable to find image" in output:
             raise SandboxUnavailable(
-                f"Docker image '{DOCKER_IMAGE}' is missing; run "
-                "./scripts/build-sandbox-image.sh first."
+                f"Docker image '{self._image}' is missing; run "
+                "./scripts/build-sandbox-image.sh to rebuild it."
             )
         return {
             "returncode": completed.returncode,
@@ -201,12 +242,21 @@ class DockerRepoSandbox(RepoSandbox):
         }
 
     def write_file(self, relpath: str, content: str) -> None:
-        if relpath.startswith("/") or ".." in relpath.split("/"):
-            raise ValueError(f"unsafe sandbox path: {relpath!r}")
-        target = os.path.join(self._workdir, relpath)
+        rel = _check_relpath(relpath)
+        target = os.path.join(self._workdir, rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w", encoding="utf-8") as handle:
             handle.write(content)
+
+    def read_file(self, relpath: str) -> Optional[str]:
+        # The container bind-mounts this dir, so the host copy is current.
+        rel = _check_relpath(relpath)
+        target = os.path.join(self._workdir, rel)
+        try:
+            with open(target, encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return None
 
     def terminate(self) -> None:
         if self._tmp is not None:
@@ -253,21 +303,26 @@ def _open_modal(snapshot_tar: bytes, timeout_s: int) -> ModalRepoSandbox:
         raise
 
 
-def _open_docker(snapshot_tar: bytes) -> DockerRepoSandbox:
+def _open_docker(snapshot_tar: bytes, image: str) -> DockerRepoSandbox:
     docker = resolve_docker()
     if docker is None:
         raise SandboxUnavailable(
             "Docker is not installed; cannot run repo verification."
         )
-    return DockerRepoSandbox.create(snapshot_tar, docker)
+    return DockerRepoSandbox.create(snapshot_tar, docker, image)
 
 
 def open_repo_sandbox(
-    snapshot_tar: bytes, timeout_s: int = 1800
+    snapshot_tar: bytes, timeout_s: int = 1800, image: str = "python"
 ) -> RepoSandbox:
-    """Upload the snapshot; Modal first, Docker on any Modal failure."""
+    """Upload the snapshot; Modal first, Docker on any Modal failure.
+
+    `image` selects the language image (SANDBOX_IMAGES keys); the Modal
+    path still uses its Python base at H0 and wires per-language images
+    when the adapters land.
+    """
     if os.environ.get("TA_VERIFY", "").lower() == "local":
-        return _open_docker(snapshot_tar)
+        return _open_docker(snapshot_tar, image)
     try:
         return _open_modal(snapshot_tar, timeout_s)
     except SandboxUnavailable:
@@ -275,7 +330,7 @@ def open_repo_sandbox(
     except Exception as exc:
         modal_reason = f"{type(exc).__name__}: {exc}"
     try:
-        return _open_docker(snapshot_tar)
+        return _open_docker(snapshot_tar, image)
     except SandboxUnavailable as exc:
         raise SandboxUnavailable(
             f"Modal failed ({modal_reason}) and Docker is unavailable "

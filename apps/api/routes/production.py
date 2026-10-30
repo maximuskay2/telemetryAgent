@@ -210,6 +210,9 @@ async def test_connection(
                 ok=result["ok"],
                 detail=result["detail"],
                 permissions=TestPermissions(**result["permissions"]),
+                # Languages §3 (L-J0): GitHub fills these; absent on failure.
+                language=result.get("language"),
+                autofix=result.get("autofix"),
             ),
         )
     return ConnectionTest(ok=True, detail="stored; waiting for first data")

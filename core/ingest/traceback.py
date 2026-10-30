@@ -49,6 +49,9 @@ class TracebackInfo:
     exc_value: str
     frames: List[Frame] = field(default_factory=list)
     raw: str = ""
+    # Languages roadmap §3 (L-J0): the registry stamps the accepting
+    # adapter's language; "python" keeps old code paths unchanged.
+    language: str = "python"
 
     @property
     def signature(self) -> str:
