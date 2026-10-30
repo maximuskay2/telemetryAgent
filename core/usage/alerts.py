@@ -39,6 +39,11 @@ def _credit_usd(provider: str, default: float, env: str) -> float:
         return default
 
 
+def provider_credits() -> dict[str, float]:
+    """Hackathon credit pool per provider (env-overridable)."""
+    return {p: _credit_usd(p, d, e) for p, d, e in _CREDITS}
+
+
 def provider_spend(store: UsageStore, provider: str) -> float:
     """Total recorded USD for a provider, all orgs, all time.
 

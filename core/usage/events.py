@@ -3,7 +3,7 @@
 Every billable-or-countable action appends one UsageEvent::
 
     org_id, system_id, run_id, kind, quantity, unit,
-    provider, language, cost_estimate_usd, at
+    provider, language, cost_estimate_usd, at, model
 
 Kind/unit vocabulary (fixed; the admin API and allowance checks
 depend on it):
@@ -65,6 +65,7 @@ class UsageEvent:
     language: str
     cost_estimate_usd: float
     at: float
+    model: str = ""  # §8.3: cost table is per provider+model
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -82,6 +83,7 @@ class UsageEvent:
             language=str(row.get("language", "")),
             cost_estimate_usd=float(row.get("cost_estimate_usd", 0.0)),
             at=float(row.get("at", 0.0)),
+            model=str(row.get("model", "")),
         )
 
 
@@ -209,12 +211,14 @@ def record_model_call(store: UsageStore,
         org_id=org_id, system_id=system_id, run_id=run_id,
         kind=Kind.MODEL_CALL, quantity=float(inp), unit="tokens_in",
         provider=provider, language=language,
-        cost_estimate_usd=inp / 1_000_000 * rate.input_usd_per_1m, at=ts))
+        cost_estimate_usd=inp / 1_000_000 * rate.input_usd_per_1m, at=ts,
+        model=model))
     store.record(UsageEvent(
         org_id=org_id, system_id=system_id, run_id=run_id,
         kind=Kind.MODEL_CALL, quantity=float(out), unit="tokens_out",
         provider=provider, language=language,
-        cost_estimate_usd=out / 1_000_000 * rate.output_usd_per_1m, at=ts))
+        cost_estimate_usd=out / 1_000_000 * rate.output_usd_per_1m, at=ts,
+        model=model))
     return cost_table.cost_of_tokens(provider, model, inp, out)
 
 
