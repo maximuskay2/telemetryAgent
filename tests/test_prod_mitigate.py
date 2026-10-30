@@ -331,6 +331,17 @@ class RailwayTests(unittest.TestCase):
         self.assertTrue(checked["ok"])
         self.assertIn("ops@acme.test", checked["detail"])
 
+    def test_railway_check_with_service_reads_deployments(self) -> None:
+        seen: list = []
+        checked = mitigate.railway_check(
+            "tok",
+            _railway_client([{"id": "d1", "status": "SUCCESS"}], seen),
+            "svc1",
+        )
+        self.assertTrue(checked["ok"])
+        self.assertIn("1 deployments", checked["detail"])
+        self.assertFalse(any("me {" in query for query in seen))
+
 
 class WindowTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -600,3 +611,7 @@ class HostingTestEndpointTests(unittest.TestCase):
                         f"/api/connections/{webhook.id}/test"
                     )
                     self.assertTrue(pinged.json()["ok"])
+            for conn_id in (railway.id, webhook.id):
+                self.assertEqual(
+                    connection_store.get_record(conn_id)["status"], "ok"
+                )

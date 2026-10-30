@@ -53,6 +53,7 @@ function Row({
     setError(null);
     try {
       setResult(await testConnection(conn.id));
+      onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Test failed.");
     } finally {

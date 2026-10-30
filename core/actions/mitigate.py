@@ -263,8 +263,23 @@ def _railway_graphql(
     return body.get("data", {}) or {}
 
 
-def railway_check(token: str, client: Optional[httpx.Client] = None) -> dict:
-    """Validate a Railway token (`me` query); used by connection test."""
+def railway_check(
+    token: str,
+    client: Optional[httpx.Client] = None,
+    service_id: str = "",
+) -> dict:
+    """Validate a Railway token; used by connection test."""
+    if service_id:
+        # Workspace tokens cannot query `me`; reading the service's
+        # deployments is exactly what rollback needs anyway.
+        try:
+            deployments = _railway_deployments(token, service_id, client)
+        except RuntimeError as exc:
+            return {"ok": False, "detail": str(exc)}
+        return {
+            "ok": True,
+            "detail": f"token can read service ({len(deployments)} deployments)",
+        }
     try:
         data = _railway_graphql(
             token, "query { me { id email } }", client=client

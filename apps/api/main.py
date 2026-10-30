@@ -224,7 +224,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=cors_origin_regex(),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Mobile-Token", "X-Connect-Code"],
 )
 
 

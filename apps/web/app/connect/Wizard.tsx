@@ -324,7 +324,7 @@ const PROMISE: string[] = [
   "Local fix first — software bugs are patched in a sandbox, never live.",
   "Fail → pass, not maybe — a fix only ships when the new test fails without it and passes with it, and the suite reports no new failures.",
   "No blast radius — the rollback/restart allowlist is exactly rollback and restart; nothing else can ever run.",
-  "Cooldown and confirmation — at most one rollback per customer per 12 h (a second needs human approval); a rollback only fires when the same error repeats 3 times in 10 minutes; a proposed rollback shows Cancel for 20 s and can be taken back while the window is open.",
+  "Cooldown and confirmation — at most one rollback or restart per system every 10 minutes (a failed attempt doesn't count); every proposed rollback opens a 20 s window and expires unless you approve it — nothing runs by itself today.",
   "Your normal, your veto — the agent learned normal from your documents, you approved the setup before anything armed; while learning, observability only, no mitigations.",
   "Pause in one tap — the app and the web show a Paused banner; paused → nothing runs.",
   "Humans for the risky rest — PRs open for review instead of merging; hardware offers safe remote options and turns the rest into technician work orders.",

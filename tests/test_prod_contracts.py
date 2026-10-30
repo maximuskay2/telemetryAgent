@@ -106,10 +106,10 @@ class StubEndpointTests(unittest.TestCase):
         with TestClient(app) as client:
             with patch.dict(os.environ, {"PRODUCTION_CONNECT_ENABLED": "1"}):
                 response = client.get("/api/connections/enabled")
-            self.assertEqual(response.json(), {"enabled": True})
+            self.assertTrue(response.json()["enabled"])
             with patch.dict(os.environ, {"PRODUCTION_CONNECT_ENABLED": "0"}):
                 response = client.get("/api/connections/enabled")
-            self.assertEqual(response.json(), {"enabled": False})
+            self.assertFalse(response.json()["enabled"])
 
     def test_connections_crud_shapes(self) -> None:
         tmp = _tmp_data()

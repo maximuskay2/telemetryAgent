@@ -9,21 +9,66 @@ import type {
   ProdConnection,
 } from "../types/production";
 
+const CODE_KEY = "ta_connect_code";
+
+/** Thrown on 401 so the page can ask for the access code again. */
+export class AccessCodeError extends Error {}
+
+export function getAccessCode(): string {
+  if (typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(CODE_KEY) ?? "";
+}
+
+export function setAccessCode(code: string): void {
+  if (code) window.sessionStorage.setItem(CODE_KEY, code);
+  else window.sessionStorage.removeItem(CODE_KEY);
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const code = getAccessCode();
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(code ? { "X-Connect-Code": code } : {}),
       ...(init?.headers ?? {}),
     },
   });
+  if (response.status === 401 && path.startsWith("/api/connections")) {
+    setAccessCode("");
+    throw new AccessCodeError(await responseDetail(response));
+  }
   if (!response.ok) throw new Error(await responseDetail(response));
   return (await response.json()) as T;
 }
 
+export type ConnectDoor = { enabled: boolean; codeRequired: boolean };
+
+export async function getConnectDoor(): Promise<ConnectDoor> {
+  const body = await req<{ enabled: boolean; code_required?: boolean }>(
+    "/api/connections/enabled",
+  );
+  return {
+    enabled: body.enabled === true,
+    codeRequired: body.code_required === true,
+  };
+}
+
 export async function getConnectEnabled(): Promise<boolean> {
-  const body = await req<{ enabled: boolean }>("/api/connections/enabled");
-  return body.enabled === true;
+  return (await getConnectDoor()).enabled;
+}
+
+/** True if the code opens the door; stores it for this tab on success. */
+export async function checkAccessCode(code: string): Promise<boolean> {
+  setAccessCode(code);
+  try {
+    await req("/api/connections/code", { method: "POST" });
+    return true;
+  } catch (err) {
+    if (err instanceof AccessCodeError) return false;
+    setAccessCode("");
+    throw err;
+  }
 }
 
 export type CreatedSystem = {

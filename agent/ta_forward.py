@@ -63,17 +63,31 @@ class Tailer:
         self.handle = None
         self.inode = None
         self.in_traceback = False
-        self._open()
+        try:
+            self._open()
+        except OSError:
+            print(f"[ta_forward] {self.path}: not there yet, waiting",
+                  file=sys.stderr)
 
-    def _open(self):
+    def _open(self, from_start=False):
         self.handle = open(self.path, "r", encoding="utf-8", errors="replace")
-        self.handle.seek(0, os.SEEK_END)
+        if not from_start:
+            self.handle.seek(0, os.SEEK_END)
         try:
             self.inode = os.fstat(self.handle.fileno()).st_ino
         except OSError:
             self.inode = None
 
     def _reopen_if_needed(self):
+        if self.handle is None:
+            # A file created after start is new: read it from the top.
+            try:
+                self._open(from_start=True)
+            except OSError:
+                return
+            print(f"[ta_forward] {self.path}: appeared, tailing",
+                  file=sys.stderr)
+            return
         try:
             stat = os.stat(self.path)
         except OSError:
@@ -94,12 +108,18 @@ class Tailer:
             self.handle.close()
         except OSError:
             pass
-        self._open()
         self.in_traceback = False
+        try:
+            self._open()
+        except OSError:
+            self.handle = None
+            return
         print(f"[ta_forward] {self.path}: {reason}, reopened", file=sys.stderr)
 
     def read_new(self):
         self._reopen_if_needed()
+        if self.handle is None:
+            return []
         try:
             chunk = self.handle.read()
         except OSError as exc:

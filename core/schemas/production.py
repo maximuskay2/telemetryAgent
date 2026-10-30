@@ -135,6 +135,7 @@ class AckResult(BaseModel):
 
 class EnabledResult(BaseModel):
     enabled: bool
+    code_required: bool = False
 
 
 class PauseState(BaseModel):

@@ -7,6 +7,7 @@ until J-R4. Shapes always match §3.4.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
 from pathlib import Path
 from typing import Optional
@@ -45,6 +46,30 @@ def _connect_enabled() -> bool:
     return raw not in ("0", "false", "no", "off", "")
 
 
+def _connect_code() -> str:
+    return os.environ.get("CONNECT_ACCESS_CODE", "").strip()
+
+
+def _require_connect_access(request: Request) -> None:
+    """Door for every connection route: switch first, then access code.
+
+    The instance has no accounts; the code is what stops strangers from
+    storing tokens, listing connections or burning model/sandbox budget.
+    """
+    if not _connect_enabled():
+        raise HTTPException(
+            status_code=403, detail="connecting is switched off here"
+        )
+    code = _connect_code()
+    if not code:
+        return
+    given = request.headers.get("X-Connect-Code", "").strip()
+    if not hmac.compare_digest(given.encode(), code.encode()):
+        raise HTTPException(
+            status_code=401, detail="bad or missing access code"
+        )
+
+
 def _require_mobile_token(request: Request) -> None:
     token = mobile_token()
     if not token:
@@ -67,7 +92,16 @@ def _bearer_key(request: Request) -> str:
 @router.get("/api/connections/enabled", response_model=EnabledResult)
 async def connections_enabled() -> EnabledResult:
     """Emergency switch for the `/connect` door (John reads, not NEXT_PUBLIC)."""
-    return EnabledResult(enabled=_connect_enabled())
+    return EnabledResult(
+        enabled=_connect_enabled(), code_required=bool(_connect_code())
+    )
+
+
+@router.post("/api/connections/code")
+async def check_connect_code(request: Request) -> dict:
+    """Lets the wizard check an access code before step 1."""
+    _require_connect_access(request)
+    return {"ok": True}
 
 
 #: Kinds whose secret the customer pastes (no generated key).
@@ -75,8 +109,11 @@ PASTED_SECRET_KINDS = ("github", "railway", "webhook")
 
 
 @router.post("/api/connections", response_model=ConnectionCreated)
-async def create_connection(payload: ConnectionCreate) -> ConnectionCreated:
+async def create_connection(
+    request: Request, payload: ConnectionCreate
+) -> ConnectionCreated:
     """Store a connection; a generated key is shown once, never again."""
+    _require_connect_access(request)
     known = setup_store.get_profile(payload.system_id) is not None
     fixture_ok = (
         payload.system_id == FIXTURE_SYSTEM_ID
@@ -95,8 +132,11 @@ async def create_connection(payload: ConnectionCreate) -> ConnectionCreated:
 
 
 @router.get("/api/connections", response_model=ConnectionList)
-async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
+async def list_connections(
+    request: Request, system_id: Optional[str] = None
+) -> ConnectionList:
     """List connections; secrets are never returned (hint only)."""
+    _require_connect_access(request)
     return ConnectionList(
         connections=connection_store.list_connections(system_id)
     )
@@ -105,8 +145,11 @@ async def list_connections(system_id: Optional[str] = None) -> ConnectionList:
 @router.post(
     "/api/connections/{connection_id}/test", response_model=ConnectionTest
 )
-async def test_connection(connection_id: str) -> ConnectionTest:
+async def test_connection(
+    request: Request, connection_id: str
+) -> ConnectionTest:
     """Stored-config check; github/railway/webhook get live checks."""
+    _require_connect_access(request)
     record = connection_store.get_record(connection_id)
     if record is None:
         raise HTTPException(status_code=404, detail="unknown connection")
@@ -115,44 +158,87 @@ async def test_connection(connection_id: str) -> ConnectionTest:
     if kind == "railway":
         secret = connection_store.get_secret(connection_id)
         if not secret:
-            return ConnectionTest(ok=False, detail="no token stored")
+            return await _record_test(
+                record, ConnectionTest(ok=False, detail="no token stored")
+            )
         result = await asyncio.to_thread(
-            mitigate_actions.railway_check, secret
+            mitigate_actions.railway_check,
+            secret,
+            None,
+            str(config.get("service_id", "") or "").strip(),
         )
-        return ConnectionTest(ok=result["ok"], detail=result["detail"])
+        return await _record_test(
+            record, ConnectionTest(ok=result["ok"], detail=result["detail"])
+        )
     if kind == "webhook":
         url = str(config.get("url", "") or "").strip()
         if not url:
-            return ConnectionTest(ok=False, detail="config.url is missing")
+            return await _record_test(
+                record,
+                ConnectionTest(ok=False, detail="config.url is missing"),
+            )
         secret = connection_store.get_secret(connection_id)
         if not secret:
-            return ConnectionTest(ok=False, detail="no secret stored")
+            return await _record_test(
+                record, ConnectionTest(ok=False, detail="no secret stored")
+            )
         result = await asyncio.to_thread(
             mitigate_actions.webhook_ping, url, secret
         )
-        return ConnectionTest(ok=result["ok"], detail=result["detail"])
+        return await _record_test(
+            record, ConnectionTest(ok=result["ok"], detail=result["detail"])
+        )
     if kind == "github":
         if not str(config.get("repo", "")).strip():
-            return ConnectionTest(ok=False, detail="config.repo is missing")
+            return await _record_test(
+                record,
+                ConnectionTest(ok=False, detail="config.repo is missing"),
+            )
         secret = connection_store.get_secret(connection_id)
         if not secret:
-            return ConnectionTest(ok=False, detail="no token stored")
+            return await _record_test(
+                record, ConnectionTest(ok=False, detail="no token stored")
+            )
         result = github_conn.check_repo(
             str(config.get("repo", "")),
             secret,
             str(config.get("base_branch", "") or ""),
         )
-        return ConnectionTest(
-            ok=result["ok"],
-            detail=result["detail"],
-            permissions=TestPermissions(**result["permissions"]),
+        return await _record_test(
+            record,
+            ConnectionTest(
+                ok=result["ok"],
+                detail=result["detail"],
+                permissions=TestPermissions(**result["permissions"]),
+            ),
         )
     return ConnectionTest(ok=True, detail="stored; waiting for first data")
 
 
+async def _record_test(record: dict, result: ConnectionTest) -> ConnectionTest:
+    """Live-checked kinds have no first delivery; the test sets status."""
+    from apps.api.main import hub  # deferred: routers load before main ends
+
+    status = "ok" if result.ok else "error"
+    connection_store.mark_seen(record["id"], status, result.detail)
+    await hub.broadcast(
+        SimEvent(
+            kind="connection_status",
+            payload={
+                "connection_id": record["id"],
+                "system_id": record.get("system_id", ""),
+                "status": status,
+                "detail": result.detail,
+            },
+        )
+    )
+    return result
+
+
 @router.delete("/api/connections/{connection_id}")
-async def delete_connection(connection_id: str) -> dict:
+async def delete_connection(request: Request, connection_id: str) -> dict:
     """Delete; the connection's key fails immediately (nothing cached)."""
+    _require_connect_access(request)
     if not connection_store.delete_connection(connection_id):
         raise HTTPException(status_code=404, detail="unknown connection")
     return {"deleted": True}

@@ -277,6 +277,7 @@ export function StepHosting({
 }) {
   const [choice, setChoice] = useState<"railway" | "webhook">("railway");
   const [token, setToken] = useState("");
+  const [serviceId, setServiceId] = useState("");
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
   const [conn, setConn] = useState<ProdConnection | null>(null);
@@ -284,7 +285,9 @@ export function StepHosting({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready =
-    choice === "railway" ? token !== "" : url.trim() !== "" && secret !== "";
+    choice === "railway"
+      ? token !== "" && serviceId.trim() !== ""
+      : url.trim() !== "" && secret !== "";
 
   async function connectAndTest() {
     setBusy(true);
@@ -294,7 +297,10 @@ export function StepHosting({
       const created = await createConnection({
         system_id: systemId,
         kind: choice,
-        config: choice === "webhook" ? { url: url.trim() } : {},
+        config:
+          choice === "webhook"
+            ? { url: url.trim() }
+            : { service_id: serviceId.trim() },
         secret: choice === "railway" ? token : secret,
       });
       setConn(created.connection);
@@ -324,16 +330,33 @@ export function StepHosting({
           ))}
         </div>
         {choice === "railway" ? (
-          <Field label="Railway API token">
-            <input
-              className={inputCls}
-              type="password"
-              autoComplete="off"
-              value={token}
-              disabled={conn != null || busy}
-              onChange={(e) => setToken(e.target.value)}
-            />
-          </Field>
+          <>
+            <Field
+              label="Railway API token"
+              hint="Account or workspace token from railway.com/account/tokens."
+            >
+              <input
+                className={inputCls}
+                type="password"
+                autoComplete="off"
+                value={token}
+                disabled={conn != null || busy}
+                onChange={(e) => setToken(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Railway service ID"
+              hint="The service to roll back: service → Settings, or `railway status --json`."
+            >
+              <input
+                className={inputCls}
+                value={serviceId}
+                disabled={conn != null || busy}
+                placeholder="778a4768-…"
+                onChange={(e) => setServiceId(e.target.value)}
+              />
+            </Field>
+          </>
         ) : (
           <>
             <Field label="Deploy webhook URL">

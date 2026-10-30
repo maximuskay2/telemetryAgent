@@ -328,6 +328,24 @@ class IngestApiTests(unittest.TestCase):
         self.assertIn("urllib.request", response.text)
 
 
+class ForwarderTailerTests(unittest.TestCase):
+    def test_missing_file_waits_then_reads_from_top(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "ta_forward_under_test", ROOT / "agent" / "ta_forward.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        log_path = os.path.join(
+            tempfile.mkdtemp(prefix="ta-forward-missing-"), "app.log"
+        )
+        tailer = module.Tailer(log_path)
+        self.assertEqual(tailer.read_new(), [])
+        Path(log_path).write_text("ERROR first line\n", encoding="utf-8")
+        self.assertEqual(tailer.read_new(), ["ERROR first line"])
+
+
 class ForwarderLiveTests(unittest.TestCase):
     def test_outage_buffers_and_delivers_once_in_order(self) -> None:
         received: list = []
