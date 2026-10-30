@@ -39,7 +39,7 @@ def _appliance_entry(started_ago_s=600.0, system_id=None):
     return entry
 
 
-def _software_entry():
+def _software_entry(**result_overrides):
     from core.schemas.remediation import ExecutionResult
 
     return {
@@ -50,6 +50,7 @@ def _software_entry():
             stderr="",
             attempts=1,
             model_used="meta:test",
+            **result_overrides,
         ),
     }
 
@@ -89,8 +90,10 @@ class DevicesRouterTests(unittest.TestCase):
         self.api_main.appliance_runs[run_id] = _appliance_entry(**kwargs)
         self.run_ids.append(run_id)
 
-    def _seed_software(self, run_id):
-        self.api_main.software_runs[run_id] = _software_entry()
+    def _seed_software(self, run_id, **result_overrides):
+        self.api_main.software_runs[run_id] = _software_entry(
+            **result_overrides
+        )
         self.run_ids.append(run_id)
 
     def _options(self, response):
@@ -132,11 +135,29 @@ class DevicesRouterTests(unittest.TestCase):
         self.assertFalse(power["safety"]["ok"])
         self.assertIn("wait", power["safety"]["reason"])
 
-    def test_software_options_empty_until_jr4(self) -> None:
+    def test_software_options_gated_without_system(self) -> None:
         self._seed_software("run-dev-sw")
-        response = self.client.get("/api/incidents/run-dev-sw/options")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["options"], [])
+        by_id = self._options(
+            self.client.get("/api/incidents/run-dev-sw/options")
+        )
+        self.assertNotIn("opt_open_pr", by_id)
+        for option_id in ("opt_rollback", "opt_restart"):
+            self.assertFalse(by_id[option_id]["safety"]["ok"])
+            self.assertEqual(
+                by_id[option_id]["safety"]["reason"], "unknown system"
+            )
+
+    def test_software_options_open_pr_when_present(self) -> None:
+        self._seed_software(
+            "run-dev-sw2", pr_url="https://github.com/acme/api/pull/7"
+        )
+        by_id = self._options(
+            self.client.get("/api/incidents/run-dev-sw2/options")
+        )
+        self.assertEqual(
+            by_id["opt_open_pr"]["url"], "https://github.com/acme/api/pull/7"
+        )
+        self.assertTrue(by_id["opt_open_pr"]["safety"]["ok"])
 
     def test_execute_manual_done(self) -> None:
         self._seed_appliance("run-dev-3")
