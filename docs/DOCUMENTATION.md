@@ -2,6 +2,13 @@
 
 How TelemetryAgent works, how to run it, and how its pieces fit together. For *what* we're building and *why*, see the [PRD](PRD.md).
 
+There are two routes through the same agent:
+
+- **Simulation route** — the AutoParts Lagos shop and the virtual freezer (§3, §8). Nothing outside this repo is touched.
+- **Production route** — real customers: log forwarder or Sentry, their GitHub repo, their Railway/webhook hosting, their devices (§17).
+
+**Step-by-step guides** (local demo, deploying, connecting a customer) live in [USAGE.md](USAGE.md). This file is the technical reference.
+
 **Contents**
 1. [Overview](#1-overview)
 2. [Architecture](#2-architecture)
@@ -153,20 +160,23 @@ All secrets live in `.env` (git-ignored). Never commit keys or paste them into l
 | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | — | Only to override `~/.modal.toml`. Set **both or neither** |
 | `TA_VERIFY` | — | `local` forces Docker verification |
 | `DOCKER_BIN`, `TA_SANDBOX_IMAGE` | auto, `telemetry-agent-sandbox` | Docker fallback runner |
-| `GITHUB_TOKEN` | — | Fine-grained token: `contents` + `pull_requests` write on the demo repo only |
+| `GITHUB_TOKEN` | — | Fine-grained token: `contents` + `pull_requests` write. Used for demo PRs; production repos use the token stored on each GitHub connection |
 | `GITHUB_DEMO_REPO`, `GITHUB_BASE_BRANCH` | `owner/repo`, `main` | Where PRs are opened |
 | `AUTO_ACTION_SECONDS` | `20` | Veto window length |
 | `AUTO_ACTION_ENABLED` | `true` | Kill switch: `false` = every action needs explicit approval |
 | `MOBILE_API_TOKEN` | — | Required on approve/disapprove/apply endpoints when set |
 | `SHOP_PORT` | `8002` | Demo shop port |
 | `INVENTORY_PATH` | `demo/target-service/inventory.py` | Inventory module the shop loads at start |
-| `TA_DATA_DIR` | `data/` | Where profiles and uploads are stored |
+| `TA_DATA_DIR` | `data/` | Profiles, uploads, production connections (secrets, mode `0600`), mitigation audit, pause flag — mount a volume in production |
 | `FRIDGE_STREAM`, `FRIDGE_TICK_S` | `0`, `1.0` | Start the fridge at boot; seconds per tick (1 tick = 1 simulated minute) |
 | `CORS_ORIGIN_REGEX` | localhost/LAN `:3000` | Allowed dashboard origins (API and shop) |
 | `API_HOST`, `API_PORT`, `WEB_PORT` | `127.0.0.1`, `8001`, `3000` | `scripts/demo.sh` |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8001` (set in `apps/web/.env.local`) | Dashboard → API |
 | `NEXT_PUBLIC_SHOP_URL` | `http://localhost:8002` | `/shop` page → shop |
-
+| `PRODUCTION_CONNECT_ENABLED` | `1` | `0` switches `/connect` off: every connection route answers 403 |
+| `CONNECT_ACCESS_CODE` | — | If set, every connection route needs header `X-Connect-Code` with this value (401 otherwise); `/connect` asks for it. The public demo sets one |
+| `RAILWAY_TOKEN` | — | Optional local copy of a Railway account/workspace token; production rollback uses the token stored on each Railway connection |
+| `TA_FIXTURE_KEYS` | — | `1` accepts the `ta_live_fixture` key (automated tests only) |
 ---
 
 ## 5. Components
@@ -286,8 +296,9 @@ Related modules: `modes.py` (mode state, overrun detection), `baseline.py` (lear
 ### Scenario — `core/simulate/scenario.py`, `demo/timeline.yaml`
 Scripted demo timeline behind **Play scenario**; `POST /api/sim/reset` restores the buggy shop module, the fridge and pending windows.
 
-### Hardware bonus — `hardware/wokwi/`
-ESP32 sketch + diagram for Wokwi.com: the same door/temperature signals from virtual firmware.
+### Hardware — `hardware/`
+- `wokwi/`: ESP32 sketch + diagram for Wokwi.com (board: ESP32 DevKit). It speaks the production device protocol (poll commands, ack, post readings) — compile-check it in Wokwi before flashing.
+- `sim_device.py`: the same protocol in Python, no hardware needed: `python3 hardware/sim_device.py --api URL --device ID --key KEY --fault door_open`.
 
 ---
 
@@ -297,6 +308,11 @@ ESP32 sketch + diagram for Wokwi.com: the same door/temperature signals from vir
 
 | Route | Purpose |
 | :--- | :--- |
+| `/welcome` | Landing page; first-time visitors to `/` are sent here |
+| `/start`, `/start/setup` | Onboarding, then guided setup that arms the demo shop + freezer together |
+| `/connect` | Production wizard (software: System → Logs → Repo → Hosting → Teach → Promise → Pair → Start; appliance: System → Device → Teach → …). `/connect?system=<id>` shows that system's connections with Test / Rotate / Disconnect |
+| `/mission` | Redirects to `/` (old links) |
+| `/kit` | UI primitives gallery (development) |
 | `/` | Mission Control: top bar (systems, warning→fix, gate counts, models, Play/Reset, pair, token, sound, focus/presenter), left pane (shop topology map + freezer tile), center pane (incident list keyed by run, gate cards, detail drawer, new-incident sheet), right pane (agent trace + veto ring), activity feed |
 | `/classic` | The pre-redesign dashboard, kept until the final video is recorded |
 | `/incidents/[id]` | Shareable incident report (drawer content; 404 state for unknown/expired runs) |
@@ -317,6 +333,7 @@ Mission components live under `apps/web/app/mission/` with shared state in `Miss
 - **Live:** WebSocket with auto-reconnect; resyncs open windows from `GET /api/actions` after reconnect. A foreground service keeps it alive while locked.
 - **Alarm:** full-screen intent over the lock screen, looping alarm-channel sound, strong vibration escalating in the last 5 s; circular countdown driven by the server deadline. **DISAPPROVE** / **APPROVE NOW** (lock after one tap). Outcome screen.
 - **Reports:** feed from `GET /api/runs` with filters; each report has the five steps, diagnosis, fix/runbook, verification, final action, temperature chart (fridge), PR link and the decision record; share as text.
+- **Production incidents:** a "Software · PR ready" card (open the PR, or **Roll back now** when hosting is connected) and cold-chain "Choose a fix" cards; a Pause-all toggle that round-trips to the server.
 - **Settings:** Test alarm, sound/vibration, permission checklist.
 - iOS: best effort (time-sensitive notification + in-app alarm). FCM push for a fully closed app is not built.
 
@@ -359,13 +376,38 @@ Base URL: `http://localhost:8001` (local) or the Railway URL. Bodies are JSON un
 | GET / PUT | `/api/systems/{id}/profile` | Read / edit profile |
 | POST | `/api/systems/{id}/profile/sample` | Load the bundled sample profile |
 | POST | `/api/systems/{id}/profile/confirm` | Human confirmation |
-| POST | `/api/systems/{id}/arm` | Arm the system |
+| POST | `/api/systems/{id}/arm` · `/disarm` | Arm / disarm ("Stop watching") |
+| DELETE | `/api/systems/{id}` | Delete a system |
 | POST / GET | `/api/systems/{id}/mode` | Set / read mode (`mode`, `until`) |
 | POST | `/api/systems/{id}/baseline/start` · `/finish` · `/observe` | Baseline learning |
 | GET | `/api/systems/{id}/baseline` | Baseline status |
 | POST / GET | `/api/systems/{id}/feedback` | "This is normal" (pending) / list |
 | POST / DELETE | `/api/systems/{id}/feedback/{fid}`(`/confirm`) | Confirm / discard feedback |
 | POST | `/api/incidents/candidate` | Watcher candidate → gate → run or suppress |
+| GET | `/api/gate/decisions` | Recent gate decisions |
+| POST / GET | `/api/demo/bootstrap` · `/api/demo/status` | Create / read the demo shop + freezer (guided setup) |
+| POST | `/api/demo/{id}/documents` · `/learn` | Guided-setup documents and learning |
+
+### Production
+Connection keys are `ta_live_*`, shown once on create. Secrets you paste (GitHub, Railway, webhook) are stored server-side and never returned — the list shows a hint only. There are no user accounts: protect the instance itself.
+
+| Method | Path | Purpose |
+| :--- | :--- | :--- |
+| GET | `/api/connections/enabled` | `{enabled, code_required}` — is `/connect` on, and does it need the access code |
+| POST | `/api/connections/code` | Check an access code (`X-Connect-Code`) → 200 or 401 |
+| POST | `/api/connections` | Create (`system_id`, `kind`: `logs`·`sentry`·`github`·`railway`·`webhook`·`device`, `config`, `secret`) → connection + one-time key |
+| GET | `/api/connections?system_id=` | List (hints only) |
+| POST | `/api/connections/{id}/test` | Live check for `github` (read + write probe), `railway` (reads `config.service_id`'s deployments), `webhook` (signed ping); the result sets the status `ok`/`error` |
+| DELETE | `/api/connections/{id}` | Disconnect; the key fails immediately |
+| POST | `/api/ingest/logs` | Log lines, `Authorization: Bearer ta_live_…` (logs key) |
+| POST | `/api/ingest/sentry/{key}` | Sentry issue-alert webhook |
+| GET | `/forwarder.py` | The log forwarder script, served by the API |
+| GET / POST | `/api/actions/pause` (POST 🔒) | Read / set the global Pause-all |
+| GET | `/api/incidents/{run_id}/options` | Fix options for an incident (open PR, rollback, restart, cold-chain fixes) with safety state |
+| POST | `/api/incidents/{run_id}/options/{option_id}/execute` 🔒 | Run one option |
+| GET | `/api/devices/{device_id}/commands` | Device polls its queue (device key) |
+| POST | `/api/devices/{device_id}/commands/{command_id}/ack` | Device acknowledges a command |
+| POST | `/api/devices/{device_id}/readings` | Device reading (device key) |
 
 ### Simulation
 | Method | Path | Purpose |
@@ -407,16 +449,23 @@ Base URL: `http://localhost:8001` (local) or the Railway URL. Bodies are JSON un
 | `scenario_step` | scenario progress |
 | `action_pending` / `action_tick` / `action_resolved` | veto window lifecycle |
 | `setup_progress` / `baseline_progress` | wizard progress |
+| `connection_status` | `connection_id`, `system_id`, `status` (`ok`/`error`), `detail` — first log/reading, or a test result |
+| `actions_paused` | `paused` (global Pause-all) |
+| `pr_opened` | production repo-fix PR opened |
+| `option_status` | progress of an incident option (open PR, rollback, restart, cold-chain fixes) |
 
 ---
 
 ## 13. Testing
 
 ```bash
-venv/bin/python -m unittest discover -s tests       # ≈290 tests, no network
+./scripts/check.sh                                   # everything below + simulation smoke + web build
+venv/bin/python -m pytest -q tests                   # ≈630 tests, no network (Docker tests need Docker running)
 cd apps/mobile && flutter test                       # mobile
 npx tsc --noEmit -p apps/web                         # dashboard types
 ```
+
+`scripts/smoke_demo.sh` starts the API on a spare port with a temporary data dir, arms the demo shop and runs two live agent runs (needs model keys).
 Model clients, Modal and HTTP are mocked in unit tests. `tests/test_setup_acceptance.py` runs the shop (S-*) and cold-chain (C-*) acceptance cases with a stubbed model. Live checks need real keys and the running demo.
 
 ---
@@ -429,8 +478,15 @@ Railway hosts the public demo (`railpack.json`: `uvicorn apps.api.main:app --hos
 | :--- | :--- |
 | API | https://api-production-0c9a.up.railway.app |
 | Web | https://web-production-926b3.up.railway.app |
+| Proof app (example customer, `maximuskay2/telemetryAgent-proof-app`) | https://proof-app-production-a916.up.railway.app |
 
 Set the same environment variables as `.env` on the Railway services (never in the repo). `NEXT_PUBLIC_API_URL` is baked into the web build, so redeploy the web service after changing it. Set `CORS_ORIGIN_REGEX` to allow the web origin.
+
+- Deploy web from its folder only: `railway up ./apps/web --path-as-root --service web` (the whole repo builds as Python).
+- The public API has `/connect` on, behind `CONNECT_ACCESS_CODE`: there are no accounts, so the code is what keeps strangers from storing tokens or spending the model/sandbox budget.
+- State lives in `TA_DATA_DIR`; Railway disks are wiped on redeploy, so mount a volume there if you store connections.
+
+Full deploy steps: [USAGE.md § B](USAGE.md#b-run-it-in-production).
 
 ---
 
@@ -449,6 +505,14 @@ Set the same environment variables as `.env` on the Railway services (never in t
 | No PR opened | `GITHUB_TOKEN` / `GITHUB_DEMO_REPO` not set | Create the demo repo and a fine-grained token |
 | Phone shows no alarm | Permissions or not paired | Settings → permission checklist + Test alarm; `API_HOST=0.0.0.0`; same Wi-Fi |
 | Defrost raises an alarm | System not armed or no profile | Run `/setup` (or load the sample profile) and arm |
+| Production errors arrive but no fix starts | System not armed, no GitHub connection, or the log has no traceback frames | `/connect` Teach → **Confirm + Arm**; connect the repo; forward full tracebacks |
+| Fix run says "collection error" / import fails | Tests can't import the app | Make `python -m pytest` work from the repo root; list deps in `requirements.txt` or `pyproject.toml` |
+| Railway test: "Not Authorized" | Project token, or token can't see the service | Use an account/workspace token from railway.com/account/tokens; check the service ID |
+| Railway test: "railway connection needs config.service_id" | Connection made without a service ID | Disconnect and reconnect with the service ID |
+| GitHub test: "can read, cannot open PRs" | Token lacks write | Fine-grained token: Contents + Pull requests **read and write** on that repo |
+| `/connect` says it's switched off | `PRODUCTION_CONNECT_ENABLED=0` | Set it to `1` (or unset) and redeploy the API |
+| `/connect` asks for an access code / "bad or missing access code" | `CONNECT_ACCESS_CODE` is set | Get the code from whoever runs the instance |
+| App on Railway/Render has no log file | Platform logs go to its own stream | Pipe `railway logs` into a file and forward that ([USAGE C.1](USAGE.md#c1-logs--ship-us-your-errors)) |
 
 ---
 
@@ -458,14 +522,20 @@ Set the same environment variables as `.env` on the Railway services (never in t
 telemetry-agent/
 ├── apps/
 │   ├── api/main.py               FastAPI hub: runs, sim, setup, gate, actions, WS
-│   ├── web/app/                  Next.js: page.tsx (/), shop/, setup/, components/
+│   ├── api/routes/               production.py (connections, ingest, pause), devices.py (commands, options)
+│   ├── web/app/                  Next.js: / (Mission Control), welcome/, start/, connect/, setup/, shop/, incidents/
 │   └── mobile/                   Flutter on-call app
+├── agent/ta_forward.py           customer log forwarder (also served at /forwarder.py)
 ├── core/
-│   ├── schemas/                  telemetry, diagnosis, remediation, events, profile
+│   ├── schemas/                  telemetry, diagnosis, remediation, events, profile, production
 │   ├── infer/                    Meta, Baseten, Fireworks clients + failover
 │   ├── agent/loop.py             shared loop (software + appliance)
 │   ├── verify/                   Modal sandbox, Docker runner, targets, safety rules, contracts
-│   ├── actions/                  GitHub PR, notify, auto-action windows
+│   ├── actions/                  GitHub PR, notify, auto-action windows, mitigate (rollback/restart)
+│   ├── connections/              connection store, key auth, GitHub checks
+│   ├── ingest/                   production log/Sentry ingest → gate
+│   ├── repo_fix/                 locate → diagnose → snapshot → sandbox → repro → patch → prove → PR
+│   ├── devices/                  device command queue + cold-chain options
 │   ├── watch/                    log watcher, rules, sensor watcher
 │   ├── setup/                    extract, gate, modes, baseline, context, store
 │   └── simulate/                 appliance windows, fridge stream, scenario
@@ -474,16 +544,36 @@ telemetry-agent/
 │   ├── target-service/           buggy inventory.py (PR target) + tests
 │   ├── setup/                    sample spec sheet, rating plate, ops guide, profiles
 │   ├── timeline.yaml, script.md  scenario + video script
-├── hardware/wokwi/               ESP32 bonus
+├── examples/proof-app/           reference customer app (real bug + tests) for the proof run
+├── hardware/                     sim_device.py (software ESP32) + wokwi/ firmware
 ├── docker/sandbox/               Docker verification image
-├── scripts/                      demo.sh, build-sandbox-image.sh
+├── scripts/                      demo.sh, check.sh, smoke_demo.sh, build-sandbox-image.sh
 ├── samples/                      crash logs
 ├── tests/                        unit + acceptance tests
-├── docs/                         PRD.md, DOCUMENTATION.md
+├── docs/                         PRD.md, DOCUMENTATION.md, USAGE.md, production-*.md, proof-run.md
 └── *.md                          about, roadmap, simulation/mobile/setup roadmaps
 ```
 
 ## 17. Production route (real integrations)
+
+How a real customer error becomes a proven PR:
+
+```
+customer app ─► ta_forward.py / Sentry ─► POST /api/ingest/* (ta_live_ key)
+                                              │ reassemble tracebacks, fingerprint
+                                              ▼
+                                      gate (same as §6) ─► armed + GitHub connected + frames?
+                                              ▼ yes
+core/repo_fix: locate frames → diagnose → snapshot repo at --commit → sandbox
+  → baseline suite → repro test must FAIL → patch (≤ 3 files) → repro PASSES, no new failures
+  → PR on the customer repo (one open PR per fingerprint; repeats comment hourly)
+  → unprovable → draft PR with diagnosis
+                                              ▼ hosting connected
+core/actions/mitigate: rollback / restart proposal → 20 s window → expires unless approved
+  gates: allowlist → paused → learning → 1 per system per 10 min → policy → hosting connection
+```
+
+Customer-facing steps (wizard, tokens, forwarder, webhook receiver, devices): [USAGE.md § C](USAGE.md#c-connect-your-production-customer-guide).
 
 - [production-backend.md](production-backend.md): connections, ingest, repo-fix pipeline, mitigations.
 - [production-devices.md](production-devices.md): device options, firmware, the `/connect` wizard half of the proof run.

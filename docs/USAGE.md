@@ -48,14 +48,24 @@ Key environment variables (full list with comments in `.env.example`):
 | `GITHUB_DEMO_REPO`, `GITHUB_BASE_BRANCH` | Demo PR target (`owner/repo`, `main`) |
 | `MOBILE_API_TOKEN` | `X-Mobile-Token` for phone approve/pause (empty = open, dev only) |
 | `AUTO_ACTION_SECONDS`, `AUTO_ACTION_ENABLED` | Veto window length (default 20 s) + master switch |
-| `PRODUCTION_CONNECT_ENABLED` | `0` hides `/connect` (default `1`) |
+| `PRODUCTION_CONNECT_ENABLED` | `0` switches `/connect` off and refuses every connection route (default `1`) |
+| `CONNECT_ACCESS_CODE` | If set, `/connect` and every connection route need this code (`X-Connect-Code` header) |
 | `TA_FIXTURE_KEYS` | `1` accepts `ta_live_fixture` (automated tests only) |
 | `RAILWAY_TOKEN` | Railway rollback/restart adapter |
 | `TA_DATA_DIR` | Data root (default `./data`): profiles, connections, audit, pause |
 | `SHOP_PORT` | Shop simulator port (default `8002`) |
 | `CORS_ORIGIN_REGEX` | Extra allowed web origins |
 
-### A.3 Run the three services
+### A.3 Run the services
+
+One command starts everything (API with the fridge stream, shop, log
+watcher, dashboard):
+
+```bash
+./scripts/demo.sh                 # API_HOST=0.0.0.0 ./scripts/demo.sh for a phone
+```
+
+Or piece by piece:
 
 ```bash
 # terminal 1 — API on :8001
@@ -64,13 +74,21 @@ venv/bin/python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8001
 # terminal 2 — shop simulator on :8002
 venv/bin/python demo/shop/app.py
 
-# terminal 3 — dashboard on :3000
+# terminal 3 — log watcher (without it, shop crashes never start a run)
+venv/bin/python -m core.watch.log_watcher --file demo/shop/logs/shop.log \
+  --api http://localhost:8001 --target inventory
+
+# terminal 4 — dashboard on :3000
 NEXT_PUBLIC_API_URL=http://localhost:8001 npm run dev --workspace apps/web
 ```
 
 Health: `curl localhost:8001/api/health`. If the dashboard shows
 "disconnected", the API isn't up or the ports mismatch (see
 `docs/DOCUMENTATION.md` §15 troubleshooting).
+
+To try the production route locally against a real app, use
+`examples/proof-app/` (a small shop with a real bug and its tests) and
+follow [`docs/proof-run.md`](./proof-run.md).
 
 ### A.4 The demo journey (3 minutes)
 
@@ -138,7 +156,9 @@ python -m uvicorn apps.api.main:app --host 0.0.0.0 --port $PORT
 - **Web service** (Node): `npm install && npm run build -w apps/web`,
   start the Next.js server. `NEXT_PUBLIC_API_URL` is **baked into the
   build** — set it to the API's public URL and redeploy web after any
-  change.
+  change. Deploying with the Railway CLI, upload only the web folder:
+  `railway up ./apps/web --path-as-root --service web` (uploading the
+  whole repo makes Railway build it as Python).
 - **Sandbox backend**: prefer Modal (`MODAL_TOKEN_ID/SECRET`) — no
   Docker daemon needed on the host. Without Modal, verification needs
   Docker on the API host (`TA_VERIFY=local` + the image from
@@ -170,14 +190,31 @@ redeploy forgets your systems, connections and pause state.
 ## C. Connect your production (customer guide)
 
 You keep your code, your repo, your hosting. TelemetryAgent reads your
-errors, proves fixes in a sandbox, and proposes — never pushes. The
-`/connect` wizard walks this in order: **Name → Logs → Repo → Hosting →
-Device → Teach → Promise → Pair → Start watching.** Each step has a
-**Test** button; green means really verified, not just saved.
+errors, proves fixes in a sandbox, and proposes — never pushes.
 
-Prerequisites: the API URL of whoever hosts your TelemetryAgent, plus —
-depending on the steps you enable — a GitHub token, a Railway token or a
-webhook receiver, and (for cold chain) an ESP32-class device.
+**Where to do this.** Open `YOUR-WEB/connect` — on the public site,
+[web-production-926b3.up.railway.app/connect](https://web-production-926b3.up.railway.app/connect).
+TelemetryAgent has no user accounts, so an instance can require an
+**access code** (`CONNECT_ACCESS_CODE`) before anyone can create, list,
+test or delete connections. The public site does: ask the team for the
+code. On your own instance (part A locally, part B on Railway) set your
+own code, or leave it empty on a private network. Secrets are never
+returned by the API, only hints.
+
+The wizard's steps depend on what you pick in step 1:
+
+- **Software:** System → Logs → Repo → Hosting → Teach → Promise → Pair →
+  Start.
+- **Appliance:** System → Device → Teach → Promise → Pair → Start.
+
+Repo and Hosting have **Connect + Test** / **Connect + Test ping**;
+green means really verified, not just saved, and the connection shows
+**ok** in the connections list. Logs and Device have no test button —
+they wait for the first log line / reading instead.
+
+Prerequisites: depending on the steps you use — a GitHub token, a
+Railway token + service ID or a webhook receiver, and (for cold chain)
+an ESP32-class device.
 
 ### C.1 Logs — ship us your errors
 
@@ -195,13 +232,31 @@ tracebacks are forwarded (tune with `--level`); multi-line tracebacks
 may span batches — the server reassembles them into one event with
 parsed frames. It tails from the end, survives rotation/truncation, and
 buffers in memory (20k lines) with backoff while the API is unreachable.
-`--file` repeats for several files. Pass `--commit` (the deployed SHA)
-so fixes snapshot the exact failing code.
+If the file doesn't exist yet it waits for it, then reads it from the
+top. `--file` repeats for several files. Pass `--commit` (the deployed
+SHA) so fixes snapshot the exact failing code.
 
-**Option 2: Sentry webhook.** Create a `sentry` connection to get a key,
-then point a Sentry issue-alert webhook at
-`https://YOUR-API/api/ingest/sentry/{key}`. Exceptions with stacktraces
-flow through the same pipeline as forwarder lines.
+**No log file? (Railway, Render, Heroku…)** Platforms write your app's
+output to their own log stream, not a file. Stream it into a file on any
+machine you control and point the forwarder at that file:
+
+```bash
+# Railway CLI (railway login + railway link in your app's folder first)
+railway logs --service myapp >> /tmp/myapp.log &
+python3 ta_forward.py --api http://YOUR-API:8001 --key ta_live_... \
+    --file /tmp/myapp.log --service myapp
+```
+
+If `railway logs` exits at once (it wants a terminal), wrap it:
+`script -q /dev/null railway logs --service myapp | perl -pe 's/\e\[[0-9;]*m//g' >> /tmp/myapp.log &`.
+On reconnect the stream may replay recent lines; a crash that already
+has an open PR only gets a comment, never a second PR.
+
+**Option 2: Sentry webhook.** The Logs step also creates a Sentry
+connection and prints its webhook URL,
+`https://YOUR-API/api/ingest/sentry/{key}`. Point a Sentry issue-alert
+webhook at it. Exceptions with stacktraces flow through the same
+pipeline as forwarder lines.
 
 **Option 3: curl (smoke test).**
 
@@ -221,7 +276,9 @@ Watch for **✓ first log** in the wizard (the connection flips
 
 ### C.2 Repo — let us open PRs
 
-Create a fine-grained GitHub token: repository access to **your** repo,
+Create a fine-grained GitHub token at
+[github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens):
+repository access to **your** repo,
 **Contents: read + write**, **Pull requests: read + write**
 (Metadata read comes free). Enter `owner/repo` + base branch + token,
 then **Test**. The test checks the repo is readable, the base branch
@@ -238,10 +295,32 @@ per error fingerprint** (repeats comment on it instead). Unprovable
 cases become **draft** PRs with diagnosis only — never a crash, never a
 direct edit to your branches.
 
+**What your repo needs for auto-fix:**
+
+- Python, with errors logged as full tracebacks whose frames point at
+  files in the repo (container paths like `/app/x.py` are matched by
+  suffix).
+- A pytest suite that runs from the repo root as `python -m pytest`.
+- Dependencies in `requirements.txt`, or a `pyproject.toml` /
+  `setup.py` / `setup.cfg` (installed with `pip install -e .`).
+- A fix that fits in at most 3 files. Anything bigger becomes a draft PR
+  with the diagnosis.
+- The system must be **armed** (Teach → Confirm + Arm). Errors from an
+  unarmed system are recorded but never start a fix.
+
 ### C.3 Hosting — roll back and restart
 
-**Option 1: Railway.** Paste an API token + service id (service
-Settings in Railway), then **Send test ping**. Afterwards:
+**Option 1: Railway.** You need two values:
+
+- **Token:** an *account or workspace* token from
+  [railway.com/account/tokens](https://railway.com/account/tokens).
+  Project tokens (Project Settings → Tokens) don't work.
+- **Service ID:** the service to roll back — in Railway open the
+  service → Settings, or run `railway status --json` in the linked
+  folder.
+
+Enter both, then **Connect + Test ping**. The test passes only if the
+token can read that service's deployments. Afterwards:
 
 - *Rollback* redeploys your newest **successful** deployment
   (zero-downtime swap).
@@ -285,7 +364,8 @@ HTTPServer(("0.0.0.0", 9000), Handler).serve_forever()
 
 Safety rails (enforced server-side, not by convention): the allowlist
 is rollback + restart **only**; max 1 mitigation per system per
-10 minutes (failures don't consume the budget); nothing runs while a
+10 minutes (failures don't consume the budget); every proposal opens a
+20 s window and **expires unless a human approves**; nothing runs while a
 system is still learning; everything is audited with approver + result.
 
 ### C.4 Devices — cold-chain hardware (optional)
@@ -305,21 +385,28 @@ is on. Behavior reference: `hardware/sim_device.py` (runs without
 hardware) and the Wokwi sketch (compile-check it in Wokwi before
 flashing — see `hardware/wokwi/`).
 
-### C.5 Teach normal, then set permissions
+### C.5 Teach normal, arm, read the promise
 
-- **Teach:** point us at runbooks/spec sheets (values are quoted, not
-  guessed) and run a short learn so the gate knows your normal. While
-  learning, we watch but never act.
-- **Promise:** tick the uptime promise: read-only by default, fixes as
-  PRs, only reversible actions automatic, 20 s cancel window on every
-  action, kill switches (global Pause-all, per-system Stop watching,
-  per-connection Disconnect). Permissions are **PR-only** or
-  **PR + rollback**.
+- **Teach:** enter the owner contact and any **hard limits** (e.g.
+  `temp_c > 8`) — a breached hard limit always counts as a real
+  incident. Click **Save**, then **Confirm + Arm**. **Don't skip Confirm
+  + Arm:** until the status reads `armed`, errors are recorded but never
+  start a fix.
+  - Want the agent to learn your normal from documents (runbooks, spec
+    sheets — values are quoted, not guessed) and a baseline run? Use
+    `/setup` for the same system; while it's learning, it watches but
+    never acts.
+- **Promise:** read what the agent may and may not do, tick "I
+  understand", continue. What you connected decides what it can do: a
+  repo alone means **PRs only**; adding Hosting allows **rollback /
+  restart proposals** too. Kill switches: global Pause-all, per-system
+  Stop watching (on `/setup`), per-connection Disconnect.
 
 ### C.6 Pair your phone, start watching
 
-Scan the QR (it carries the API URL), type the mobile token, done.
-**Start watching** arms the system.
+Scan the QR (it carries the API URL), type the mobile token, then
+**Start watching**. There's no app-store build yet: install the app from
+source (`cd apps/mobile && flutter run`, see A.6).
 
 ### C.7 Day 2: what an incident looks like
 
@@ -340,7 +427,8 @@ Scan the QR (it carries the API URL), type the mobile token, done.
    summary, PR link, mitigation + approver audit.
 
 Pause-all freezes the world in one tap. Per-connection **Disconnect**
-instantly kills that key; per-system **Stop watching** disarms.
+instantly kills that key; **Stop watching** on `/setup` disarms the
+system.
 
 ### C.8 Security notes and FAQ
 
@@ -357,11 +445,19 @@ instantly kills that key; per-system **Stop watching** disarms.
   proposals expire unless a human approves.
 - **Noisy error (same crash ×1000)?** One candidate fingerprint → one
   run at a time → one open PR; repeats add throttled comments.
-- **Leaving?** Disconnect connections (keys die instantly), Stop
-  watching, delete the system. Your repo keeps the PR history.
-- **Limits (today):** Python tracebacks for auto-fix; Railway
-  mutations verified against mocks + docs (live check needs your
-  staging service); FCM push descoped (live WebSocket alerts instead).
+- **Leaving?** Disconnect connections (keys die instantly), then Stop
+  watching and delete the system on `/setup`. Your repo keeps the PR
+  history.
+- **Limits (today):**
+  - Auto-fix is for Python tracebacks only.
+  - No user accounts: one instance = one team. The access code keeps
+    strangers out; everyone with the code sees the same systems.
+  - Railway: the token + service check runs live; the rollback and
+    restart calls are tested against mocks and Railway's docs, not yet
+    against a real rollback.
+  - No push notifications when the app is fully closed (FCM descoped);
+    alerts arrive over the live connection while the app runs.
+  - The mobile app is installed from source (Flutter), not an app store.
 
 ---
 

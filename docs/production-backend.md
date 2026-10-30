@@ -17,7 +17,9 @@ Contract source of truth: [`production-roadmap.md`](../production-roadmap.md)
 inside the new routes, so demo code never sees it.
 
 `PRODUCTION_CONNECT_ENABLED=0` hides the `/connect` door and disables
-`/api/connections` (emergency switch; default `1`).
+`/api/connections` (emergency switch; default `1`). `CONNECT_ACCESS_CODE`,
+when set, makes every connection route require the `X-Connect-Code`
+header (the instance has no accounts).
 
 ## Connections + keys (`core/connections/`, J-R0)
 
@@ -165,6 +167,7 @@ pause gate, rate limit, options safety.
 | Var | Meaning |
 |---|---|
 | `PRODUCTION_CONNECT_ENABLED` | `0` hides the `/connect` door (default `1`) |
+| `CONNECT_ACCESS_CODE` | Access code for every connection route (empty = no code) |
 | `TA_FIXTURE_KEYS` | `1` accepts `ta_live_fixture` (tests/stub phase) |
 | `TA_VERIFY` | `local` forces the Docker verifier |
 | `TA_SANDBOX_IMAGE` | Docker image (default `telemetry-agent-sandbox`) |
