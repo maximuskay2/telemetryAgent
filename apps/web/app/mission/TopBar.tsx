@@ -5,6 +5,7 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
+import AccountNav from "../commerce/AccountNav";
 import ThemeToggle from "../components/ThemeToggle";
 import { StatusDot } from "../ui";
 import { useMission } from "./state";
@@ -359,6 +360,7 @@ export default function TopBar() {
             <Presentation size={15} />
             <span className="hidden text-xs xl:inline">Present</span>
           </button>
+          <AccountNav />
           <ThemeToggle />
         </div>
       </div>

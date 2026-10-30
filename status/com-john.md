@@ -1,6 +1,7 @@
 # John status (commercial)
-Current block: Sales-ready look DONE (merged) — waiting on commercial-contracts-in for Phase 1 web/app
-Done: Sales-ready look (this branch, merged to main)
+Current block: C-N4 Phase 1 app (claim sign-in, devices, approve)
+Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (this branch)
+§8 confirmation (for C-J0): read and accepted — building web/app against the frozen §8.4 JSON with mocks per C-6. No contract issues so far.
 Decisions:
 - Tokens: light `:root` default (FB wash #F0F2F5, white cards, #050505,
   #0866FF primary + white labels), dark `[data-theme=dark]` (#18191A,
@@ -34,7 +35,20 @@ Decisions:
   survives reload, cleared→light, 9/9) + 3 screenshots in
   docs/screenshots/ (welcome-light, mission-light, mission-dark),
   visually reviewed. Full check.sh green at merge.
+Decisions (C-N3):
+- No @clerk/nextjs this round: unverifiable without keys, so the
+  SessionProvider exposes an AuthClient seam (dev mock now, Clerk
+  later). Dev mock behind NEXT_PUBLIC_COMMERCE_MOCK=1 only; real
+  mode calls §8.4 HTTP with a session JWT and degrades to honest
+  401/403/empty states. Fake dev tokens can never authenticate
+  (backend verifies Clerk JWT).
+- Sign-in without keys shows the form disabled with a "being
+  connected" notice; with the mock flag it's a working dev sign-in.
+- Presentational commerce components take props (mocked render
+  tests); pages are thin session wiring. OrgSwitcher is a native
+  select in the TopBar account cluster + members/devices headers.
 Contract changes requested: —
 Live runs (lang · result · seconds · model): —
-NEEDS FROM AKINGBADE: —
+NEEDS FROM AKINGBADE: Clerk dev publishable key (web sign-in goes
+live with it; backend JWKS is James's NEEDS).
 BLOCKED: —

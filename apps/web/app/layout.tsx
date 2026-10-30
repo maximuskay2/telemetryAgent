@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
 import "./styles.css";
 import "./tailwind.css";
+import { SessionProvider } from "./lib/session";
 import { THEME_INIT_SCRIPT } from "./lib/theme";
 
 export const metadata: Metadata = {
@@ -18,7 +19,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={GeistMono.variable}>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        {children}
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
