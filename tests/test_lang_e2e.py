@@ -273,6 +273,45 @@ def _php_repro_for(test_path):
     return PHP_REPRO_TMPL.format(cls=cls[: -len(".php")])
 
 
+# JavaScript canned outputs (John): the repro + guard patch proven in the
+# L-N1 Docker e2e. ESM (proof-app-node has "type": "module"); the repro
+# imports ../src/cart.js, so it works from any tests/ placement.
+JAVASCRIPT_REPRO = """import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { summary } from "../src/cart.js";
+
+describe("ta repro: empty-cart summary", () => {
+  it("does not throw on an empty cart", () => {
+    assert.doesNotThrow(() => summary([]));
+  });
+});
+"""
+
+JAVASCRIPT_BUG = "export function summary(items) {\n"
+JAVASCRIPT_FIX = """export function summary(items) {
+  if (items.length === 0) {
+    return {
+      lines: 0,
+      subtotal: 0,
+      discount: 0,
+      total: 0,
+      average_item_price: 0.0,
+      currency: "USD",
+    };
+  }
+"""
+
+
+def _javascript_canned(appdir):
+    cart = appdir / "src" / "cart.js"
+    content = cart.read_text()
+    assert JAVASCRIPT_BUG in content, "javascript BUG anchor moved"
+    return JAVASCRIPT_REPRO, [
+        {"path": "src/cart.js", "content": content.replace(
+            JAVASCRIPT_BUG, JAVASCRIPT_FIX, 1)}
+    ]
+
+
 # --------------------------------------------------------------------------
 # Proof-app trigger traces. Rust/PHP live in trace fixtures (also parsed
 # by the adapter suites); the rest are verbatim captures inlined here —
@@ -419,10 +458,13 @@ def _php_trace():
 
 # lang -> (adapter name, proof-app dir, trace, canned builder | None).
 # Canned outputs exist where the adapter does; the rest flip on as
-# James/John land java/go/javascript (trace + app already wired).
+# James lands java/kotlin/go (trace + app already wired).
 LANGS = {
     "python": ("python", "proof-app", PYTHON_TRACE, _python_canned),
-    "javascript": ("javascript", "proof-app-node", JAVASCRIPT_TRACE, None),
+    "javascript": (
+        "javascript", "proof-app-node", JAVASCRIPT_TRACE,
+        _javascript_canned,
+    ),
     "java": ("java", "proof-app-java", JAVA_TRACE, None),
     "kotlin": ("kotlin", "proof-app-kotlin", KOTLIN_TRACE, None),
     "go": ("go", "proof-app-go", GO_TRACE, None),

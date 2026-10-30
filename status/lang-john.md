@@ -1,8 +1,8 @@
 # John status (languages)
-Current block: ALL BLOCKS DONE (L-N1..L-N5 merged; N4 live-verified on a real gate body)
+Current block: ALL BLOCKS DONE + matrix leg enabled (L-N1..L-N5 merged; N4 live-verified; js e2e leg PASS)
 Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged), L-N3 (13f3f70, merged), L-N4 (941288d, merged), L-N5 (e807af6, merged)
 Blocks (acceptance check Oct 30):
-- L-N1 DONE (merged 762a2fa): single ADAPTER, manifest hook, results.py delegation, 62 tests green; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models); real should_trigger names adapter=javascript.
+- L-N1 DONE (merged 762a2fa): single ADAPTER, manifest hook, results.py delegation, 62 tests green; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models); real should_trigger names adapter=javascript; Jude's L-D4 matrix javascript leg enabled with canned ESM repro + guard patch — full run_repo_fix PASS in Docker with mock PR (4s). No --live run (T-L1 is Jude's, after everyone's last merge).
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
 - L-N3 DONE: merged + LIVE-VERIFIED — real `check_repo` on telemetryAgent-demo returns `language`/`autofix` keys matching the TS type; error path omits them (renders nothing). Both UI branches proven.
 - L-N4 DONE: merged + LIVE-VERIFIED — real L-J2 gate body for the proof-app-node trace (decision observe, language javascript, autofix True) embedded in the widget test; badge + verdict + reason render, no unavailable card. 6 flutter tests green.
@@ -72,6 +72,13 @@ Decisions (L-N1 wiring):
   test. Regression tests hold two captured node-20 transcripts.
 - E2E used a local `tests/fixtures/node-proof/` repo (§6.2 allows)
   since `proof-app-node` is not merged yet; no models, no GitHub.
+Decisions (matrix leg):
+- Added `_javascript_canned` + LANGS flip to Jude's
+  `tests/test_lang_e2e.py` (his file, minimal additive edit): the
+  file's own comment invites exactly this ("flip on as James/John
+  land ... javascript"), his L-D4 is merged (no conflict), and the
+  leg is the pipeline-level proof of my L-N1. Flagging here, not
+  hiding it — Jude reverts/adjusts freely.
 Contract changes requested:
 - Q1/Q2 ANSWERED by L-J0 and adopted (above). Still open:
 - (a) RESOLVED by James 3a65e68 (test now gates on adapter presence).
