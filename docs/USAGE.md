@@ -194,9 +194,9 @@ errors, proves fixes in a sandbox, and proposes — never pushes.
 
 **Where to do this.** Open `YOUR-WEB/connect` — on the public site,
 [web-production-926b3.up.railway.app/connect](https://web-production-926b3.up.railway.app/connect).
-TelemetryAgent has no user accounts, so an instance can require an
-**access code** (`CONNECT_ACCESS_CODE`) before anyone can create, list,
-test or delete connections. The public site does: ask the team for the
+Sign in first (see §D); on instances without accounts set up yet, an
+**access code** (`CONNECT_ACCESS_CODE`) can guard `/connect` instead
+before anyone can create, list, test or delete connections. The public site does: ask the team for the
 code. On your own instance (part A locally, part B on Railway) set your
 own code, or leave it empty on a private network. Secrets are never
 returned by the API, only hints.
@@ -465,14 +465,39 @@ system.
   history.
 - **Limits (today):**
   - Auto-fix is for Python tracebacks only.
-  - No user accounts: one instance = one team. The access code keeps
-    strangers out; everyone with the code sees the same systems.
+  - Accounts and orgs (see §D) are new: one instance still serves a
+    small set of teams; tell us if you need SSO or audit export.
   - Railway: the token + service check runs live; the rollback and
     restart calls are tested against mocks and Railway's docs, not yet
     against a real rollback.
   - No push notifications when the app is fully closed (FCM descoped);
     alerts arrive over the live connection while the app runs.
   - The mobile app is installed from source (Flutter), not an app store.
+
+---
+
+## D. Accounts, organizations and usage
+
+Sign in at `/signin`. Each account belongs to one or more
+**organizations**; everything (systems, connections, devices, usage)
+lives under the active org. Switch orgs from the menu in the top bar
+or on the Members, Devices and Usage pages.
+
+- **Members** (`/members`, owners/admins): who is in the org, their
+  role, and invites. Invite links are single-use and expire.
+- **Your devices** (`/devices`): phones paired for approvals. **Pair a
+  phone** shows a short code (valid 10 minutes); enter it in the app's
+  Pair screen. **Revoke** stops a phone's approvals immediately — the
+  app signs out and asks to pair again.
+- **Usage** (`/usage`): fix runs, systems and devices used this month
+  against the free allowance. Hitting a limit stops new fix runs with
+  a "free allowance reached" note; monitoring and alerts continue.
+  There are no prices and no upgrade button — billing comes later.
+
+Roles: **owners** manage everything including members; **admins**
+manage systems and devices; **members** watch and approve. A signed-out
+visitor only sees the public simulation; connecting real systems
+needs an account.
 
 ---
 

@@ -1,6 +1,7 @@
 # John status (commercial)
-Current block: C-N4 Phase 1 app (claim sign-in, devices, approve)
-Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (this branch)
+Current block: C-N3..C-N5 ready to merge (check.sh pending)
+Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (852c7e6),
+C-N4 Phase 1 app (c0806dd), C-N5 Usage page + USAGE.md §D (this branch)
 §8 confirmation (for C-J0): read and accepted — building web/app against the frozen §8.4 JSON with mocks per C-6. No contract issues so far.
 Decisions:
 - Tokens: light `:root` default (FB wash #F0F2F5, white cards, #050505,
@@ -47,6 +48,21 @@ Decisions (C-N3):
 - Presentational commerce components take props (mocked render
   tests); pages are thin session wiring. OrgSwitcher is a native
   select in the TopBar account cluster + members/devices headers.
+Decisions (C-N4):
+- Mobile keeps both auth shapes: `ta_dev_*` device tokens go in
+  `Authorization: Bearer`, legacy shared tokens stay on
+  `X-Mobile-Token`. Org id persists in secure storage alongside the
+  connection. Pair screen claims a short code (`claimAndConnect`);
+  any 401 marks unauthorized, shows "re-pair" copy, and Pair again
+  disconnects back to the Pair screen. 11 flutter tests green
+  (incl. lazy-list scroll fix: scrollUntilVisible before tapping
+  Pair again).
+Decisions (C-N5):
+- `/usage` is thin session wiring over the tested getUsage +
+  UsageView (counts vs free allowance, by-language runs, no cost
+  shown anywhere). USAGE.md gains §D (accounts/orgs/members/
+  devices/usage help); the two stale "no user accounts" lines now
+  point at §D. Screenshot usage.png, CDP 5/5 incl. no JS errors.
 Contract changes requested: —
 Live runs (lang · result · seconds · model): —
 NEEDS FROM AKINGBADE: Clerk dev publishable key (web sign-in goes
