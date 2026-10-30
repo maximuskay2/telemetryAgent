@@ -266,6 +266,53 @@ class DevicesRouterTests(unittest.TestCase):
         self.assertEqual(payload["device_id"], "sim-fridge-01")
         self.assertEqual(payload["system_id"], FIXTURE_SYSTEM_ID)
 
+    def test_readings_flips_real_device_connection(self) -> None:
+        from core.connections import store as connection_store
+
+        body = {
+            "appliance_type": "fridge",
+            "temperature_c": 3.5,
+            "current_a": 1.2,
+            "vibration_g": 0.02,
+            "door_open": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+                _, key = connection_store.create_connection(
+                    "coldstore-b", "device", {"device_id": "sim-real-01"},
+                    None,
+                )
+                self.assertIsNotNone(key)
+                first = self.client.post(
+                    "/api/devices/sim-real-01/readings",
+                    json=body,
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                self.assertEqual(first.status_code, 200)
+                stored = connection_store.list_connections("coldstore-b")
+                self.assertEqual(len(stored), 1)
+                self.assertEqual(stored[0].status, "ok")
+                self.assertGreater(stored[0].last_seen, 0)
+                events = [
+                    event for event in self.recorder.sent
+                    if event.get("kind") == "connection_status"
+                ]
+                self.assertEqual(len(events), 1)
+                self.assertEqual(
+                    events[0]["payload"]["connection_id"], stored[0].id
+                )
+                second = self.client.post(
+                    "/api/devices/sim-real-01/readings",
+                    json=body,
+                    headers={"Authorization": f"Bearer {key}"},
+                )
+                self.assertEqual(second.status_code, 200)
+                events = [
+                    event for event in self.recorder.sent
+                    if event.get("kind") == "connection_status"
+                ]
+                self.assertEqual(len(events), 1)  # only the first flip
+
     def test_readings_links_device_for_execute(self) -> None:
         self._seed_appliance("run-dev-8", system_id=FIXTURE_SYSTEM_ID)
         posted = self.client.post(

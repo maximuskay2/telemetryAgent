@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from core.actions import mitigate
 from core.actions.auto_action import mobile_token
 from core.connections import auth as key_auth
+from core.connections import store as connection_store
 from core.devices import options as device_options
 from core.devices import queue as device_queue
 from core.schemas.events import SimEvent
@@ -140,6 +141,23 @@ def _with_statuses(
         if item is not None:
             option.status = item["status"]
     return options
+
+
+async def _broadcast_connection(
+    connection_id: str, system_id: str, detail: str
+) -> None:
+    api_main = _api_main()
+    await api_main.hub.broadcast(
+        SimEvent(
+            kind="connection_status",
+            payload={
+                "connection_id": connection_id,
+                "system_id": system_id,
+                "status": "ok",
+                "detail": detail,
+            },
+        )
+    )
 
 
 async def _broadcast_option(
@@ -319,6 +337,19 @@ async def device_readings(
 ) -> dict:
     system_id = _require_device_key(request, device_id)
     device_queue.note_device_seen(system_id, device_id, time.time())
+    scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+    record = (
+        connection_store.find_record_for_key(value.strip(), "device")
+        if scheme.lower() == "bearer" and value.strip()
+        else None
+    )
+    if record is not None:
+        first = record.get("status") != "ok"
+        connection_store.mark_seen(record["id"])
+        if first:
+            await _broadcast_connection(
+                record["id"], system_id, "first reading received"
+            )
     api_main = _api_main()
     ingest = api_main.TelemetryIngestIn(
         source_id=device_id,

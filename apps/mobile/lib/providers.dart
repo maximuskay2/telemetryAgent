@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'models/connection.dart';
 import 'models/pending_action.dart';
+import 'models/production.dart';
 import 'models/run_report.dart';
 import 'models/sim_event.dart';
 import 'services/alarm.dart';
@@ -185,7 +186,58 @@ class AlarmNotifier extends Notifier<PendingAction?> {
       if (runId != null && state?.runId == runId) {
         unawaited(silence());
       }
+    } else if (event.kind == 'option_status') {
+      final runId = event.payload['run_id'] as String?;
+      if (runId != null) ref.invalidate(incidentOptionsProvider(runId));
+    } else if (event.kind == 'actions_paused') {
+      final paused = event.payload['paused'] == true;
+      ref.read(pauseProvider.notifier).applyRemote(paused);
+    } else if (event.kind == 'pr_opened') {
+      final runId = event.payload['run_id'] as String?;
+      final prUrl = event.payload['pr_url'] as String? ?? '';
+      ref.invalidate(runsProvider);
+      if (runId != null) {
+        ref.invalidate(runDetailProvider(runId));
+        ref.invalidate(incidentOptionsProvider(runId));
+      }
+      unawaited(AlarmHardware.notifyQuiet(
+        title: 'Fix PR ready',
+        body: prUrl.isEmpty ? 'Review the pull request.' : prUrl,
+      ));
     }
+  }
+}
+
+/// Production fix options for one incident, refreshed live by
+/// option_status events.
+final incidentOptionsProvider = FutureProvider.autoDispose
+    .family<IncidentOptions, String>((ref, runId) async {
+  final api = ref.watch(apiProvider);
+  if (api == null) throw const ApiError('Not connected.');
+  return api.incidentOptions(runId);
+});
+
+/// Global pause switch, kept in sync by actions_paused events.
+final pauseProvider =
+    AsyncNotifierProvider<PauseNotifier, bool>(PauseNotifier.new);
+
+class PauseNotifier extends AsyncNotifier<bool> {
+  @override
+  Future<bool> build() async {
+    final api = ref.watch(apiProvider);
+    if (api == null) return false;
+    return api.getPaused();
+  }
+
+  Future<void> setPaused(bool paused) async {
+    final api = ref.read(apiProvider);
+    if (api == null) return;
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => api.setPaused(paused));
+  }
+
+  void applyRemote(bool paused) {
+    state = AsyncData(paused);
   }
 }
 

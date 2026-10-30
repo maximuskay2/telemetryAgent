@@ -176,6 +176,11 @@ class FeedItem {
       case 'action_tick':
       case 'action_resolved':
         return 'action';
+      case 'connection_status':
+      case 'option_status':
+      case 'actions_paused':
+      case 'pr_opened':
+        return 'production';
       default:
         return kind;
     }

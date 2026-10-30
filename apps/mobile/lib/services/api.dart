@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/connection.dart';
 import '../models/pending_action.dart';
+import '../models/production.dart';
 import '../models/run_report.dart';
 
 /// Thin REST client for the agent API. Throws [ApiError] on failures.
@@ -122,6 +123,57 @@ class AgentApi {
     }
     return PendingAction.fromJson(
         Map<String, dynamic>.from(jsonDecode(response.body) as Map));
+  }
+
+  /// Production fix options for one incident (§3.4).
+  Future<IncidentOptions> incidentOptions(String runId) async {
+    final body =
+        await _getJson('/api/incidents/$runId/options') as Map<String, dynamic>;
+    return IncidentOptions.fromJson(body);
+  }
+
+  /// Execute one option; 409 carries the server's safety/paused reason.
+  Future<ExecutedOption> executeOption(String runId, String optionId) async {
+    final body = await _postJson(
+      '/api/incidents/$runId/options/$optionId/execute',
+      const {},
+    ) as Map<String, dynamic>;
+    return ExecutedOption.fromJson(body);
+  }
+
+  Future<bool> getPaused() async {
+    final body = await _getJson('/api/actions/pause') as Map<String, dynamic>;
+    return body['paused'] as bool? ?? false;
+  }
+
+  Future<bool> setPaused(bool paused) async {
+    final body = await _postJson(
+      '/api/actions/pause',
+      {'paused': paused},
+    ) as Map<String, dynamic>;
+    return body['paused'] as bool? ?? false;
+  }
+
+  Future<dynamic> _postJson(String path, Map<String, dynamic> body) async {
+    final response = await _client
+        .post(_uri(path), headers: _headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 401) {
+      throw const ApiError('Bad mobile token — re-pair this device.');
+    }
+    if (response.statusCode == 400) {
+      throw ApiError(_detailOf(response.body));
+    }
+    if (response.statusCode == 404) {
+      throw const ApiError('That one is gone — the run may be over.');
+    }
+    if (response.statusCode == 409) {
+      throw ApiError(_detailOf(response.body));
+    }
+    if (response.statusCode != 200) {
+      throw ApiError('Request failed (${response.statusCode}).');
+    }
+    return jsonDecode(response.body);
   }
 
   Future<dynamic> _getJson(String path) async {

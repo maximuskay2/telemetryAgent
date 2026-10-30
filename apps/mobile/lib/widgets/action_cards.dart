@@ -1,36 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../models/production.dart';
 import '../theme.dart';
 import 'widgets.dart';
-
-/// Scaffold data for one fix option (N-R0). Mirrors the §3.4 Option shape;
-/// replaced by the real `models/` mirror once the contracts tag lands.
-class CardOption {
-  const CardOption({
-    required this.id,
-    required this.kind,
-    required this.title,
-    this.detail = '',
-    this.url = '',
-    this.safetyOk = true,
-    this.safetyReason = '',
-    this.status = 'available',
-  });
-
-  /// open_pr|rollback|restart|remote|manual|dispatch
-  final String id;
-  final String kind;
-  final String title;
-  final String detail;
-  final String url;
-  final bool safetyOk;
-  final String safetyReason;
-
-  /// available|sent|done|failed|expired|cancelled
-  final String status;
-
-  bool get executable => safetyOk && status == 'available';
-}
 
 String optionStatusLabel(String status) => switch (status) {
       'available' => 'Available',
@@ -149,9 +121,9 @@ class HardwareFixCard extends StatelessWidget {
   });
 
   final String title;
-  final List<CardOption> remote;
-  final List<CardOption> manual;
-  final List<CardOption> dispatch;
+  final List<ProdOption> remote;
+  final List<ProdOption> manual;
+  final List<ProdOption> dispatch;
   final void Function(String optionId) onExecute;
 
   @override
@@ -193,7 +165,7 @@ class _OptionGroup extends StatelessWidget {
   });
 
   final String label;
-  final List<CardOption> options;
+  final List<ProdOption> options;
   final void Function(String optionId) onExecute;
 
   @override
@@ -224,7 +196,7 @@ class _OptionGroup extends StatelessWidget {
 class _OptionRow extends StatelessWidget {
   const _OptionRow({required this.option, required this.onExecute});
 
-  final CardOption option;
+  final ProdOption option;
   final void Function(String optionId) onExecute;
 
   @override
@@ -254,9 +226,9 @@ class _OptionRow extends StatelessWidget {
                     style: const TextStyle(
                         color: Accents.muted, fontSize: 12),
                   ),
-                if (!option.safetyOk && option.safetyReason.isNotEmpty)
+                if (!option.safety.ok && option.safety.reason.isNotEmpty)
                   Text(
-                    'Disabled: ${option.safetyReason}',
+                    'Disabled: ${option.safety.reason}',
                     style: const TextStyle(
                         color: Accents.fail, fontSize: 12),
                   ),

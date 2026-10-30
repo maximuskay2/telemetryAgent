@@ -178,6 +178,20 @@ class PauseState {
   }
 }
 
+class ExecutedOption {
+  const ExecutedOption({required this.status, this.commandId = ''});
+
+  final String status;
+  final String commandId;
+
+  factory ExecutedOption.fromJson(Map<String, dynamic> json) {
+    return ExecutedOption(
+      status: json['status'] as String? ?? '',
+      commandId: json['command_id'] as String? ?? '',
+    );
+  }
+}
+
 class SuiteSummary {
   const SuiteSummary({
     this.passed = 0,

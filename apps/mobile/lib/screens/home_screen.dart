@@ -6,6 +6,8 @@ import '../models/run_report.dart';
 import '../providers.dart';
 import '../services/socket.dart';
 import '../theme.dart';
+import '../widgets/action_cards.dart';
+import '../widgets/production_sections.dart';
 import '../widgets/widgets.dart';
 import 'report_screen.dart';
 import 'settings_screen.dart';
@@ -48,6 +50,7 @@ class HomeScreen extends ConsumerWidget {
         body: const Column(
           children: [
             OpenWindowsStrip(),
+            PauseSection(),
             Divider(height: 1),
             Expanded(
               child: TabBarView(
@@ -72,9 +75,9 @@ class LiveFeedTab extends ConsumerWidget {
     final feed = ref.watch(feedProvider);
     if (feed.isEmpty) {
       return const Center(
-        child: Text(
-          'Listening for live events…\nRun the demo scenario.',
-          textAlign: TextAlign.center,
+        child: WatchingCard(
+          message: 'All quiet — watching for incidents.\n'
+              'Listening for live events… Run the demo scenario.',
         ),
       );
     }

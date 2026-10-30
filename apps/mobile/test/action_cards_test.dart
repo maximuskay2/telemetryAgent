@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:telemetry_agent/models/production.dart';
 import 'package:telemetry_agent/widgets/action_cards.dart';
 
 Future<void> _pumpCard(WidgetTester tester, Widget card) async {
@@ -14,20 +15,20 @@ Future<void> _pumpCard(WidgetTester tester, Widget card) async {
 }
 
 const _remote = [
-  CardOption(
+  ProdOption(
     id: 'opt_defrost',
     kind: 'remote',
     title: 'Start defrost',
     detail: 'Run the defrost cycle now.',
   ),
-  CardOption(
+  ProdOption(
     id: 'opt_setpoint',
     kind: 'remote',
     title: 'Lower setpoint 1 °C',
-    safetyOk: false,
-    safetyReason: 'already at the profile minimum',
+    safety: OptionSafety(
+        ok: false, reason: 'already at the profile minimum'),
   ),
-  CardOption(
+  ProdOption(
     id: 'opt_backup',
     kind: 'remote',
     title: 'Switch to backup unit',
@@ -95,11 +96,11 @@ void main() {
           title: 'Fridge warm · run abc123',
           remote: _remote,
           manual: const [
-            CardOption(
+            ProdOption(
                 id: 'opt_door', kind: 'manual', title: 'Close the door'),
           ],
           dispatch: const [
-            CardOption(
+            ProdOption(
               id: 'opt_tech',
               kind: 'dispatch',
               title: 'Call the technician',

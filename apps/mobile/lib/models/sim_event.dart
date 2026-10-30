@@ -32,6 +32,28 @@ class SimEvent {
             '${payload['decided_by'] != null ? ' by ${payload['decided_by']}' : ''}';
       case 'gate_decision':
         return _gateSentence();
+      case 'connection_status':
+        return _connectionSentence();
+      case 'actions_paused':
+        return payload['paused'] == true
+            ? 'Actions paused — nothing automatic will run'
+            : 'Actions resumed';
+      case 'pr_opened':
+        return 'Fix PR opened: ${payload['pr_url'] ?? payload['repo'] ?? ''}';
+      default:
+        return null;
+    }
+  }
+
+  String? _connectionSentence() {
+    final status = payload['status'] as String?;
+    final system = payload['system_id'] as String? ?? '';
+    switch (status) {
+      case 'ok':
+        return 'Connected: $system ✓';
+      case 'error':
+        final detail = payload['detail'] as String? ?? 'connection error';
+        return 'Connection error: $detail';
       default:
         return null;
     }

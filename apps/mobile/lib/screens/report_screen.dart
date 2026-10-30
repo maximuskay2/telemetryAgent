@@ -10,6 +10,7 @@ import '../models/pending_action.dart';
 import '../models/run_report.dart';
 import '../providers.dart';
 import '../theme.dart';
+import '../widgets/production_sections.dart';
 import '../widgets/widgets.dart';
 import 'alarm_screen.dart' show outcomeTitle;
 
@@ -288,6 +289,12 @@ class ReportBody extends StatelessWidget {
       report: report,
       onOpenPr: onOpenPr,
     ));
+    if (report.domain == 'software') {
+      sections.add(
+          SoftwarePrSection(report: report, onOpenPr: onOpenPr));
+    } else if (report.domain == 'appliance') {
+      sections.add(HardwareOptionsSection(report: report));
+    }
     if (report.domain == 'appliance') {
       sections.add(SectionCard(
         title: 'Sensors (live stream)',
