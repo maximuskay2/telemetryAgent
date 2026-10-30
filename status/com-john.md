@@ -1,6 +1,6 @@
 # John status (commercial)
-Current block: C-N6 live-proven vs James C-J2, merging
-Done: C-N6 real-backend wiring (this branch) on top of merged C-N3..C-N5
+Current block: C-N6 MERGED to origin/main (faffc88, check.sh GREEN)
+Done: C-N6 real-backend wiring + live proof, on top of merged C-N3..C-N5
 Tag: James C-J1+C-J2 on main (cd2c809) adopted; rebased clean.
 Decisions (C-N6):
 - Real mode signs in with a pasted test JWT (local-dev <details> on
