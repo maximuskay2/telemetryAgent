@@ -182,7 +182,7 @@ class ReportBody extends StatelessWidget {
             ),
           ),
         ),
-        _DecisionCard(decision: report.decisionDetail),
+        _DecisionCard(decision: report.decisionDetail, status: report.status),
         _GateCard(gate: report.gate),
         _Section(
           title: 'Pipeline',
@@ -368,19 +368,26 @@ class _Section extends StatelessWidget {
 }
 
 class _DecisionCard extends StatelessWidget {
-  const _DecisionCard({required this.decision});
+  const _DecisionCard({required this.decision, required this.status});
 
   final PendingAction? decision;
+  final String status;
 
   @override
   Widget build(BuildContext context) {
     final action = decision;
     if (action == null) {
-      return const _Section(
+      return _Section(
         title: 'Decision record',
         child: Text(
-          'No veto window — FAIL runs and unsafe runbooks never auto-apply.',
-          style: TextStyle(color: Accents.muted),
+          switch (status) {
+            'PASS' => 'Passed — the verified fix needed no veto.',
+            'NO_ACTION' =>
+              'No action was proposed — nothing to veto.',
+            _ => 'No veto window — FAIL runs and unsafe runbooks never '
+                'auto-apply.',
+          },
+          style: const TextStyle(color: Accents.muted),
         ),
       );
     }

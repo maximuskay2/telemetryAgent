@@ -1,6 +1,14 @@
 # John status
-Current block: DONE — all John blocks merged; NEEDS-1/2 are human-side
+Current block: DONE — bugfix merge on top of docs/proof-run main
 Done:
+- BUGFIX (video-adjacent): RunRow labels a production run with its own
+  system (system_id match; kind/domain fallbacks); Decision record says
+  the fix needed no veto on PASS; /connect step list keeps single
+  numbers (list-none; the app ships Tailwind without preflight).
+  9 new widget tests (65 flutter green). For James: forwarder crash on
+  a missing log file (agent/ta_forward.py Tailer), PR titles cut
+  mid-word (core/actions/github_pr.py:292), and list_runs should add
+  system_id (the app already parses it).
 - MERGE 2 (f5b5666): N-R3 + N-R4 on main over T-R1; check.sh GREEN first try
   (622 python, smoke, web build, 56 flutter). N-R3: live options/pause app
   wiring; N-R4: connect wizard both paths + panel + second door,

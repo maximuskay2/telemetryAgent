@@ -48,6 +48,7 @@ class RunReport {
               decision: json['gate_decision'] as String,
               reason: '',
               citation: '',
+              systemId: json['system_id'] as String? ?? '',
             )
           : null,
     );

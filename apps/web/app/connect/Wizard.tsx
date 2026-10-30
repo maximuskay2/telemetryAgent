@@ -497,7 +497,7 @@ export default function Wizard() {
 
   return (
     <div className="space-y-4">
-      <ol className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+      <ol className="flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-xs">
         {titles.map((title, i) => (
           <li
             key={title}

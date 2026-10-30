@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/pending_action.dart';
 import '../models/run_report.dart';
 import '../providers.dart';
+import '../services/api.dart';
 import '../services/socket.dart';
 import '../theme.dart';
 import '../widgets/action_cards.dart';
@@ -181,6 +182,23 @@ BadgeState _badgeFor(RunReport report) {
   return BadgeState.observing;
 }
 
+/// Feed label for a run: its own system when the payload names it,
+/// else the first system of the run's kind, else the bare domain.
+/// (Matching by kind alone mislabels production runs as the demo
+/// system whenever the demo sorts first.)
+String systemLabelFor(RunReport report, List<SystemSummary> systems) {
+  final systemId = report.gate?.systemId ?? '';
+  if (systemId.isNotEmpty) {
+    for (final system in systems) {
+      if (system.systemId == systemId) return system.name;
+    }
+  }
+  for (final system in systems) {
+    if (system.kind == report.domain) return system.name;
+  }
+  return report.domain;
+}
+
 class RunRow extends ConsumerWidget {
   const RunRow({super.key, required this.report});
 
@@ -189,13 +207,7 @@ class RunRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final systems = ref.watch(systemsProvider).asData?.value ?? const [];
-    var systemName = report.domain;
-    for (final system in systems) {
-      if (system.kind == report.domain) {
-        systemName = system.name;
-        break;
-      }
-    }
+    final systemName = systemLabelFor(report, systems);
     final meta = [
       systemName,
       if (report.source.isNotEmpty) 'via ${report.source}',
