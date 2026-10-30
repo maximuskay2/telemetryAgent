@@ -1,5 +1,7 @@
 # John status (commercial)
-Current block: C-N3..C-N5 rebased on tag main, check.sh pending
+Current block: C-N3..C-N5 MERGED to origin/main (3c024d8, check.sh GREEN)
+Waiting on: James C-J2 routes (/api/orgs/*) + Clerk dev key to wire
+real auth; Jude usage events already shape-compatible.
 Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (7fcb766),
 C-N4 Phase 1 app (2506910), C-N5 Usage page + USAGE.md §D (c6fbedf)
 Tag: commercial-contracts-in adopted — rebased clean on origin/main
