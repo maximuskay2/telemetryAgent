@@ -371,6 +371,72 @@ class ParseResultsTest(unittest.TestCase):
             result.failed_ids, ["/work/suites/fail.test.js > adds big"]
         )
 
+    def test_tap_real_node20_all_pass(self):
+        # Captured from node v20.20.2 in telemetry-agent-sandbox-node:
+        # passing subtests carry no `type:` line at all.
+        tap = (
+            "TAP version 13\n"
+            "# Subtest: average\n"
+            "    # Subtest: averages a list\n"
+            "    ok 1 - averages a list\n"
+            "      ---\n"
+            "      duration_ms: 0.317375\n"
+            "      ...\n"
+            "    # Subtest: handles one item\n"
+            "    ok 2 - handles one item\n"
+            "      ---\n"
+            "      duration_ms: 0.047667\n"
+            "      ...\n"
+            "    1..2\n"
+            "ok 1 - average\n"
+            "  ---\n"
+            "  duration_ms: 0.945417\n"
+            "  type: 'suite'\n"
+            "  ...\n"
+            "1..1\n"
+            "# pass 2\n"
+            "# fail 0\n"
+        )
+        result = js.parse_results(tap, "", lambda name: None)
+        self.assertFalse(result.errored)
+        self.assertEqual((result.total, result.passed, result.failed), (2, 2, 0))
+
+    def test_tap_real_node20_failure(self):
+        # Captured from node v20.20.2: the failing subtest has no
+        # `type:` line; the failing suite summary must not count.
+        tap = (
+            "TAP version 13\n"
+            "# Subtest: s\n"
+            "    # Subtest: passes\n"
+            "    ok 1 - passes\n"
+            "      ---\n"
+            "      duration_ms: 0.371208\n"
+            "      ...\n"
+            "    # Subtest: fails\n"
+            "    not ok 2 - fails\n"
+            "      ---\n"
+            "      duration_ms: 0.550208\n"
+            "      location: '/work/f.test.js:5:3'\n"
+            "      failureType: 'testCodeFailure'\n"
+            "      code: 'ERR_ASSERTION'\n"
+            "      ...\n"
+            "    1..2\n"
+            "not ok 1 - s\n"
+            "  ---\n"
+            "  duration_ms: 1.343792\n"
+            "  type: 'suite'\n"
+            "  failureType: 'subtestsFailed'\n"
+            "  code: 'ERR_TEST_FAILURE'\n"
+            "  ...\n"
+            "1..1\n"
+            "# pass 1\n"
+            "# fail 1\n"
+        )
+        result = js.parse_results(tap, "", lambda name: None)
+        self.assertFalse(result.errored)
+        self.assertEqual((result.total, result.passed, result.failed), (2, 1, 1))
+        self.assertEqual(result.failed_ids, ["/work/f.test.js > fails"])
+
     def test_mocha_stdout(self):
         spec = (
             "\n\n  add\n"
@@ -447,6 +513,235 @@ class ReproTest(unittest.TestCase):
         rules = js.repro_rules()
         for word in ("Jest", "Vitest", "Mocha", "node:test", "MUST fail"):
             self.assertIn(word, rules)
+
+
+class DetectRunnerTest(unittest.TestCase):
+    def test_config_files(self):
+        self.assertEqual(
+            js.detect_runner(["package.json", "vitest.config.ts"]), "vitest"
+        )
+        self.assertEqual(
+            js.detect_runner(["package.json", "vite.config.js"]), "vitest"
+        )
+        self.assertEqual(
+            js.detect_runner(["package.json", "jest.config.cjs"]), "jest"
+        )
+        self.assertEqual(
+            js.detect_runner(["package.json", ".mocharc.yml"]), "mocha"
+        )
+
+    def test_manifest(self):
+        vitest = (
+            '{"scripts": {"test": "vitest run"}, '
+            '"devDependencies": {"vitest": "^1.0.0"}}'
+        )
+        self.assertEqual(js.detect_runner(["package.json"], vitest), "vitest")
+        self.assertEqual(
+            js.detect_runner(["package.json"], '{"jest": {}}'), "jest"
+        )
+        self.assertEqual(
+            js.detect_runner(
+                ["package.json"], '{"scripts": {"test": "mocha"}}'
+            ),
+            "mocha",
+        )
+        self.assertEqual(
+            js.detect_runner(
+                ["package.json"], '{"scripts": {"test": "node --test"}}'
+            ),
+            "node:test",
+        )
+
+    def test_manifest_beats_config(self):
+        vitest = '{"devDependencies": {"vitest": "^1.0.0"}}'
+        self.assertEqual(
+            js.detect_runner(["package.json", "jest.config.js"], vitest),
+            "vitest",
+        )
+
+    def test_default_is_jest(self):
+        self.assertEqual(js.detect_runner(["package.json"]), "jest")
+        self.assertEqual(js.detect_runner([]), "jest")
+
+    def test_garbage_manifest_falls_through(self):
+        self.assertEqual(
+            js.detect_runner(["package.json", ".mocharc.json"], "{nope"),
+            "mocha",
+        )
+        self.assertEqual(js.detect_runner(["package.json"], "{nope"), "jest")
+        self.assertEqual(js.detect_runner(["package.json"], "[1,2]"), "jest")
+        self.assertEqual(js.detect_runner(["package.json"], None), "jest")
+
+
+class ReproRulesRunnerTest(unittest.TestCase):
+    def test_names_known_runner(self):
+        rules = js.repro_rules("vitest")
+        self.assertTrue(
+            rules.startswith(
+                "This repo runs Vitest; write the test for Vitest. "
+            ),
+            rules,
+        )
+        self.assertIn("MUST fail", rules)
+
+    def test_unknown_runner_is_survey_only(self):
+        self.assertEqual(js.repro_rules("bogus"), js.repro_rules())
+        self.assertNotIn("This repo runs", js.repro_rules())
+
+
+class SuiteOrderTest(unittest.TestCase):
+    def test_default_probes_vitest_first(self):
+        script = js.suite_cmd(["package.json"])[2]
+        self.assertLess(
+            script.index("node_modules/.bin/vitest"),
+            script.index("node_modules/.bin/jest"),
+        )
+
+    def test_hint_moves_runner_first(self):
+        script = js.suite_cmd(["package.json"], first="jest")[2]
+        self.assertLess(
+            script.index("node_modules/.bin/jest"),
+            script.index("node_modules/.bin/vitest"),
+        )
+        single = js.single_test_cmd("t.js", ["package.json"], first="mocha")
+        self.assertLess(
+            single[2].index("node_modules/.bin/mocha"),
+            single[2].index("node_modules/.bin/vitest"),
+        )
+
+    def test_node_test_hint_keeps_default_order(self):
+        plain = js.suite_cmd(["package.json"])[2]
+        hinted = js.suite_cmd(["package.json"], first="node:test")[2]
+        self.assertEqual(hinted, plain)
+
+
+def _fresh_adapter():
+    return type(js.ADAPTER)()
+
+
+class AdapterTest(unittest.TestCase):
+    def test_identity(self):
+        self.assertEqual(js.ADAPTER.name, "javascript")
+        self.assertEqual(js.ADAPTER.image, "node")
+        self.assertEqual(
+            (js.ADAPTER.install_timeout_s, js.ADAPTER.suite_timeout_s),
+            (300, 600),
+        )
+
+    def test_suite_result_is_shared(self):
+        from core.repo_fix.lang.base import SuiteResult
+
+        self.assertIs(js.SuiteResult, SuiteResult)
+
+    def test_methods_delegate(self):
+        adapter = _fresh_adapter()
+        paths = ["package.json", "src/a.js"]
+        self.assertEqual(adapter.detect(paths), js.detect(paths))
+        self.assertTrue(adapter.trace_start("TypeError: x"))
+        self.assertTrue(adapter.trace_continues("    at f (/a.js:1:1)"))
+        parsed = adapter.parse_trace(trace("javascript", "node_typeerror.txt"))
+        self.assertIsNotNone(parsed)
+        self.assertEqual(
+            adapter.map_frame("/app/src/a.js", "f", paths), "src/a.js"
+        )
+        self.assertEqual(adapter.source_files(paths), ["src/a.js"])
+        self.assertEqual(adapter.install_cmds(paths), js.install_cmds(paths))
+        self.assertEqual(
+            adapter.suite_cmd(paths), js.suite_cmd(paths, first="jest")
+        )
+        self.assertEqual(
+            adapter.single_test_cmd("t.js", paths),
+            js.single_test_cmd("t.js", paths, first="jest"),
+        )
+        result = adapter.parse_results("hi", "", lambda name: None)
+        self.assertTrue(result.errored)
+        self.assertEqual(
+            adapter.repro_test_path("fp", paths, []),
+            js.repro_test_path("fp", paths, []),
+        )
+        self.assertEqual(adapter.repro_rules(), js.repro_rules())
+        self.assertTrue(adapter.looks_like_test("test('x', () => expect(1))"))
+
+    def test_manifest_hook_orders_and_names(self):
+        adapter = _fresh_adapter()
+        self.assertEqual(adapter.manifest_names(), ["package.json"])
+        adapter.configure_manifests(
+            {"package.json": '{"devDependencies": {"vitest": "^1.0.0"}}'}
+        )
+        script = adapter.suite_cmd(["package.json"])[2]
+        self.assertLess(
+            script.index("node_modules/.bin/vitest"),
+            script.index("node_modules/.bin/jest"),
+        )
+        self.assertIn("This repo runs Vitest", adapter.repro_rules())
+
+    def test_manifest_hook_absent_or_garbage(self):
+        adapter = _fresh_adapter()
+        adapter.configure_manifests({"package.json": None})
+        self.assertEqual(adapter.suite_cmd(["package.json"])[2],
+                         js.suite_cmd(["package.json"], first="jest")[2])
+        self.assertEqual(adapter.repro_rules(), js.repro_rules())
+        adapter.configure_manifests({})
+        adapter.configure_manifests(None)  # type: ignore[arg-type]
+        adapter.configure_manifests("junk")  # type: ignore[arg-type]
+        self.assertEqual(adapter.repro_rules(), js.repro_rules())
+
+
+class RegistryWiringTest(unittest.TestCase):
+    def test_discovered_once_python_first(self):
+        from core.repo_fix.lang import all_adapters
+
+        names = [adapter.name for adapter in all_adapters()]
+        self.assertEqual(names.count("javascript"), 1)
+        self.assertNotIn("typescript", names)  # alias, not an object
+        self.assertEqual(names[0], "python")
+
+    def test_alias_identity(self):
+        from core.repo_fix.lang import by_name
+
+        self.assertIs(by_name("javascript"), js.ADAPTER)
+        self.assertIs(by_name("typescript"), js.ADAPTER)
+
+    def test_parse_routes_v8(self):
+        from core.repo_fix.lang import parse
+
+        adapter, found = parse(trace("javascript", "node_typeerror.txt"))
+        if adapter.name == "python":
+            self.skipTest(
+                "framework: python parser claims V8 traces (needs "
+                "James L-J1/L-J2 tightening; see Contract changes "
+                "requested)"
+            )
+        self.assertIs(adapter, js.ADAPTER)
+        self.assertEqual(found.language, "javascript")
+        self.assertTrue(found.frames)
+        adapter, found = parse(trace("typescript", "tsc_sourcemap.txt"))
+        self.assertIs(adapter, js.ADAPTER)
+        self.assertEqual(found.language, "typescript")
+
+    def test_parse_routes_python_away(self):
+        from core.repo_fix.lang import parse
+
+        text = (
+            "Traceback (most recent call last):\n"
+            '  File "/app/a.py", line 1, in <module>\n'
+            "ValueError: bad\n"
+        )
+        adapter, found = parse(text)
+        self.assertEqual(adapter.name, "python")
+        self.assertEqual(found.language, "python")
+
+    def test_detect_repo(self):
+        from core.repo_fix.lang import detect_repo
+
+        self.assertEqual(
+            detect_repo(["package.json", "src/a.js"]), [("javascript", 10)]
+        )
+        self.assertEqual(
+            detect_repo(["package.json", "tsconfig.json", "src/a.ts"]),
+            [("typescript", 15)],
+        )
+        self.assertEqual(detect_repo([]), [])
 
 
 if __name__ == "__main__":

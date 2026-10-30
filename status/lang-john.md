@@ -1,12 +1,12 @@
 # John status (languages)
-Current block: L-N1..L-N5 code DONE (N1 pure + N2 merged; N3/N4/N5 coded to §3, merging) — tag watch for ADAPTER wiring
-Done: L-N1 (pure, b00fb4f), L-N2 (5cc0785, merged to main)
+Current block: L-N1 wired + proven in Docker — branch pushed, merge BLOCKED on James test flip (see BLOCKED)
+Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged), L-N3 (13f3f70, merged), L-N4 (941288d, merged), L-N5 (e807af6, merged)
 Blocks (acceptance check Oct 30):
-- L-N1 DONE (pure): 11 fixtures, 28 pure fns, tests green, merged. LEFT: ADAPTER wiring after lang-contracts-in; proof-app-node e2e (needs Jude L-D1).
+- L-N1 DONE (wired): single ADAPTER (see Decisions), manifest hook, results.py delegation, 61 tests green + 1 documented skip; Docker e2e PASS on local fixture (install → baseline 3/3 → real TypeError located to src/shop.js → repro FAIL → patch → repro PASS → suite 4/4 clean, 1.3s, no models). LEFT: merge (BLOCKED below); re-run on Jude's proof-app-node when it merges (acceptance names it).
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
-- L-N3 DONE (coded to §3): DetectedLine + optional type fields; 4 node --test cases (supported/unsupported/absent/unknown-autofix); tsc clean. LEFT: live verify once James ships repo-test language/autofix.
-- L-N4 DONE (coded to §3): gate.language model + header badge + runner meta + AUTO-FIX UNAVAILABLE card; 6 flutter tests; analyze clean. LEFT: live verify once gate carries language.
-- L-N5 DONE: USAGE.md §C.2 table + README line (see doc checklist). LEFT: none.
+- L-N3 DONE: merged; backend now sends language/autofix (James L-J0) — live verify next.
+- L-N4 DONE: merged. LEFT: live verify once a gated run carries language.
+- L-N5 DONE: merged.
 Doc review checklist (L-N5): every table row checked against roadmap §1.1 (markers, trace formats, install cmds, suite cmds) + §4 L-D5 log settings (source maps, RUST_BACKTRACE=1, full JVM traces, display_errors=stderr); Python row keeps prior meaning; armed + ≤3-files + suffix-match notes kept; unsupported-language line matches §1 unknown-language rule; README line honest (Python today, rest rolling out) with USAGE link.
 Decisions:
 - javascript.py holds pure functions only until lang-contracts-in lands
@@ -52,16 +52,40 @@ Decisions (L-N3/L-N4):
   check.sh (not my file); web type-check rides the existing next build.
 - L-N4 reads language from gate first (the §3 carrier), result fallback;
   runner was already in verifyLine, now also in the header meta.
+Decisions (L-N1 wiring):
+- Single `ADAPTER` named "javascript", NOT `ADAPTERS = [js, ts]`:
+  `test_aliases_resolve` (committed) requires
+  `by_name("typescript") is by_name("javascript")`, which a second
+  adapter object would break. TS still flows: sniffed `info.language`
+  + `refined_name` + the alias. (James's status prose says
+  `ADAPTERS = [js, ts]` — the test wins; flagging, not editing.)
+- Q2 adopted: `manifest_names`/`configure_manifests` implemented;
+  `detect_runner` = manifest → config → "jest". The manifest hint
+  orders the binary probe (matters when two runners are installed)
+  and names the runner in `repro_rules`. Command fallthrough stays
+  `node --test` (a runner-less repo can only run that offline; a
+  Jest command there would just error → draft).
+- Jest/Vitest counts+ids delegate to `results.parse_jest_json`; my
+  suite-failed-to-run and empty→errored rules layer on top.
+- TAP fix from real node 20 output: passing subtests carry NO
+  `type:` line (only suites are tagged), so "no `type:`" now means
+  test. Regression tests hold two captured node-20 transcripts.
+- E2E used a local `tests/fixtures/node-proof/` repo (§6.2 allows)
+  since `proof-app-node` is not merged yet; no models, no GitHub.
 Contract changes requested:
-- How does one module (javascript.py, java.py) serve TWO adapter names?
-  ADAPTER is singular but names are 8 ("javascript"+"typescript",
-  "java"+"kotlin"). Options: ADAPTER may be a list, or discovery reads
-  another symbol too. Blocking only the final wiring, not the pure code.
-- suite_cmd/single_test_cmd get `paths` only: repos that configure their
-  runner inside package.json (no config file) are undetectable. OK to
-  default to Jest, or will run.py pass manifest content?
-- L-N3 full string wants manager+runner detail, e.g. repo-test response
-  carrying `stack_detail: "npm, Vitest"`. Optional; UI works without it.
+- Q1/Q2 ANSWERED by L-J0 and adopted (above). Still open:
+- (a) Flip `test_typescript_detected_not_autofixable_yet` to
+  assertTrue (or gate on adapter presence): my landing makes TS
+  autofixable, so it fails now. BLOCKS my merge (James's file).
+- (b) Python parser claims every language: `parse_traceback`
+  returns info for V8 text (exc line, zero frames), and python is
+  first in `registry.parse` — so no V8/Java/Go/Rust/PHP trace
+  will ever route until it requires the header or ≥1 frame
+  (James's `python.py`/`traceback.py`, L-J1/L-J2). My routing test
+  skips until then.
+- L-N3 full string wants manager+runner detail, e.g. repo-test
+  response carrying `stack_detail: "npm, Vitest"`. Optional.
 Live runs (lang · result · seconds · model): —
 NEEDS FROM AKINGBADE: —
-BLOCKED: —
+BLOCKED: merge of L-N1 wiring to main waits on James (a): check.sh is
+red on exactly that one test; everything else green.

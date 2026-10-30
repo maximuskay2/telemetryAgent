@@ -1,16 +1,18 @@
-"""JavaScript/TypeScript language adapter (L-N1).
+"""JavaScript/TypeScript language adapter (L-N1, wired at `lang-contracts-in`).
 
-Pre-`lang-contracts-in` this module holds pure functions only, coded to the
-§3 protocol text: V8 stack parsing, path mapping, runner-agnostic result
-parsing. Wiring into `ADAPTER` happens after the tag (the 8-names-over-6-
-modules discovery shape is James's L-J0 call).
+One `ADAPTER` named `"javascript"`; TypeScript resolves through the
+registry alias (`by_name("typescript")`) and the repo refinement
+(`refined_name` → `"typescript"` when `tsconfig.json` is present) — the
+executable contract in `tests/test_lang_core.py::test_aliases_resolve`
+requires alias identity, so this module deliberately does NOT define a
+second `typescript` adapter object. `parse_trace` still sniffs
+`"typescript"` from `.ts` frames and the registry keeps that stamp.
 
-Conventions mirrored from the Python pipeline:
-- `parse_trace` returns `TracebackInfo` with frames optional (frames are
-  required by `should_trigger`, not by the parser — same as Python).
-- Fingerprint slices use `fingerprint[:12]` (same as `run.py`).
-- `SuiteResult` below mirrors the §3 dataclass until `lang.base` lands;
-  tests import it from here so the swap is invisible.
+Runner detection order (§1.1 + James's Q2 answer): configured manifest
+(`configure_manifests`) → config file → "jest" default. The suite
+commands additionally probe the installed `node_modules/.bin` binaries
+at runtime (ground truth after install); `node --test` is the final
+fallthrough because a runner-less repo can only run that offline.
 """
 
 from __future__ import annotations
@@ -18,12 +20,13 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from core.ingest.traceback import Frame, TracebackInfo
+from core.repo_fix.lang import results as shared_results
+from core.repo_fix.lang.base import SuiteResult
 
-#: §1.1 row "Image" / "Timeouts": picked by run.py once wired.
+#: §1.1 row "Image" / "Timeouts".
 IMAGE = "node"
 INSTALL_TIMEOUT_S = 300
 SUITE_TIMEOUT_S = 600
@@ -36,17 +39,6 @@ _TS_EXTS = (".ts", ".tsx", ".mts", ".cts")
 _SOURCE_EXTS = _JS_EXTS + _TS_EXTS
 
 _SKIP_DIRS = ("node_modules/", "dist/", "build/", "coverage/", ".git/")
-
-
-@dataclass
-class SuiteResult:
-    """§3 shape; replaced by `lang.base.SuiteResult` at wiring time."""
-
-    total: int
-    passed: int
-    failed: int
-    failed_ids: List[str] = field(default_factory=list)
-    errored: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -193,21 +185,10 @@ def parse_trace(text: str) -> Optional[TracebackInfo]:
                 frames.append(frame)
     if not found_head:
         return None
-    try:
-        # Post-H0: language is a real TracebackInfo field.
-        return TracebackInfo(
-            exc_type=exc_type, exc_value=exc_value, frames=frames,
-            raw=text, language=sniff_language(frames),
-        )  # type: ignore[call-arg]
-    except TypeError:
-        # Pre-H0: the field does not exist yet; the attribute still
-        # rides along so §3-shaped tests read `info.language` today.
-        info = TracebackInfo(
-            exc_type=exc_type, exc_value=exc_value, frames=frames,
-            raw=text,
-        )
-        info.language = sniff_language(frames)  # type: ignore[attr-defined]
-        return info
+    return TracebackInfo(
+        exc_type=exc_type, exc_value=exc_value, frames=frames,
+        raw=text, language=sniff_language(frames),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -324,50 +305,149 @@ def install_cmds(paths: List[str]) -> List[List[str]]:
     return [["npm", "install", "--no-audit", "--no-fund"]]
 
 
-#: Runner detection happens at runtime from the installed binaries: repos
-#: often configure Jest/Vitest/Mocha inside package.json, which the adapter
-#: boundary cannot see (`paths` only). node:test repos install no runner,
-#: so they fall through to `node --test`. Stale result files are removed
-#: first so a crashed run can never parse the previous run's JSON.
-_SUITE_SCRIPT = """\
-rm -f {jest} {vitest}
-if [ -x node_modules/.bin/vitest ]; then
-  node_modules/.bin/vitest run --reporter=json --outputFile={vitest}
-elif [ -x node_modules/.bin/jest ]; then
-  node_modules/.bin/jest --ci --json --outputFile={jest} --coverage=false --forceExit
-elif [ -x node_modules/.bin/mocha ]; then
-  node_modules/.bin/mocha --reporter spec --no-colors
-else
-  node --test --test-reporter=tap
-fi""".format(jest=JEST_RESULTS_FILE, vitest=VITEST_RESULTS_FILE)
-
-_SINGLE_SCRIPT = """\
-rm -f {jest} {vitest}
-F={testfile}
-if [ -x node_modules/.bin/vitest ]; then
-  node_modules/.bin/vitest run "$F" --reporter=json --outputFile={vitest}
-elif [ -x node_modules/.bin/jest ]; then
-  node_modules/.bin/jest --ci --json --outputFile={jest} --coverage=false --forceExit --runTestsByPath "$F"
-elif [ -x node_modules/.bin/mocha ]; then
-  node_modules/.bin/mocha --reporter spec --no-colors "$F"
-else
-  node --test --test-reporter=tap "$F"
-fi"""
-
-
-def suite_cmd(paths: List[str]) -> List[str]:
-    """Network-off suite; the runner is detected from installed binaries."""
-    return ["sh", "-c", _SUITE_SCRIPT]
+def _runner_from_manifest(text: Optional[str]) -> Optional[str]:
+    """Runner named by a package.json, or None (never raises)."""
+    if not text:
+        return None
+    try:
+        manifest = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    if isinstance(manifest.get("jest"), dict):
+        return "jest"
+    scripts = manifest.get("scripts")
+    test_script = ""
+    if isinstance(scripts, dict):
+        test_script = str(scripts.get("test") or "")
+    deps: List[str] = []
+    for key in ("dependencies", "devDependencies"):
+        section = manifest.get(key)
+        if isinstance(section, dict):
+            deps.extend(str(name) for name in section)
+    blob = test_script + "\n" + "\n".join(deps)
+    for runner in ("vitest", "jest", "mocha"):
+        if runner in blob:
+            return runner
+    if "node --test" in test_script or "node:test" in test_script:
+        return "node:test"
+    return None
 
 
-def single_test_cmd(test_relpath: str, paths: List[str]) -> List[str]:
-    """Run one test file (the repro proof); same detection as the suite."""
-    script = _SINGLE_SCRIPT.format(
-        jest=JEST_RESULTS_FILE,
-        vitest=VITEST_RESULTS_FILE,
-        testfile=shlex.quote(test_relpath),
+def _runner_from_config(paths: List[str]) -> Optional[str]:
+    """Runner named by a config file in `paths`, or None."""
+    names = _basenames(paths)
+    for name in names:
+        if name.startswith("vitest.config.") or name.startswith(
+            "vite.config."
+        ):
+            return "vitest"
+    for name in names:
+        if name.startswith("jest.config."):
+            return "jest"
+    for name in names:
+        if name == ".mocharc" or name.startswith(".mocharc."):
+            return "mocha"
+    return None
+
+
+def detect_runner(
+    paths: List[str], manifest: Optional[str] = None
+) -> str:
+    """Best-known runner: manifest → config file → "jest" (Q2 default)."""
+    hint = _runner_from_manifest(manifest)
+    if hint is not None:
+        return hint
+    hint = _runner_from_config(paths)
+    if hint is not None:
+        return hint
+    return "jest"
+
+
+#: Probe order for the suite scripts: the hinted binary runner first,
+#: the rest in the default order, `node --test` always last (it is the
+#: only thing a runner-less repo can run offline).
+_DEFAULT_BINARY_ORDER = ("vitest", "jest", "mocha")
+
+
+def _probe_order(first: Optional[str]) -> Tuple[str, ...]:
+    if first in _DEFAULT_BINARY_ORDER:
+        rest = [name for name in _DEFAULT_BINARY_ORDER if name != first]
+        return (first,) + tuple(rest)
+    return _DEFAULT_BINARY_ORDER
+
+
+_SUITE_TAIL = {
+    "vitest": (
+        "node_modules/.bin/vitest run "
+        f"--reporter=json --outputFile={VITEST_RESULTS_FILE}"
+    ),
+    "jest": (
+        "node_modules/.bin/jest --ci --json "
+        f"--outputFile={JEST_RESULTS_FILE} --coverage=false --forceExit"
+    ),
+    "mocha": "node_modules/.bin/mocha --reporter spec --no-colors",
+}
+
+_SINGLE_TAIL = {
+    "vitest": (
+        'node_modules/.bin/vitest run "$F" '
+        f"--reporter=json --outputFile={VITEST_RESULTS_FILE}"
+    ),
+    "jest": (
+        "node_modules/.bin/jest --ci --json "
+        f"--outputFile={JEST_RESULTS_FILE} --coverage=false --forceExit "
+        '--runTestsByPath "$F"'
+    ),
+    "mocha": 'node_modules/.bin/mocha --reporter spec --no-colors "$F"',
+}
+
+
+def _probe_chain(order: Tuple[str, ...], tails: Dict[str, str]) -> str:
+    lines = []
+    for index, runner in enumerate(order):
+        keyword = "if" if index == 0 else "elif"
+        lines.append(f"{keyword} [ -x node_modules/.bin/{runner} ]; then")
+        lines.append(f"  {tails[runner]}")
+    return "\n".join(lines)
+
+
+def _suite_script(first: Optional[str] = None) -> str:
+    return (
+        f"rm -f {JEST_RESULTS_FILE} {VITEST_RESULTS_FILE}\n"
+        + _probe_chain(_probe_order(first), _SUITE_TAIL)
+        + "\nelse\n  node --test --test-reporter=tap\nfi"
     )
-    return ["sh", "-c", script]
+
+
+def _single_script(test_relpath: str, first: Optional[str] = None) -> str:
+    return (
+        f"rm -f {JEST_RESULTS_FILE} {VITEST_RESULTS_FILE}\n"
+        f"F={shlex.quote(test_relpath)}\n"
+        + _probe_chain(_probe_order(first), _SINGLE_TAIL)
+        + '\nelse\n  node --test --test-reporter=tap "$F"\nfi'
+    )
+
+
+def suite_cmd(
+    paths: List[str], first: Optional[str] = None
+) -> List[str]:
+    """Network-off suite; binaries probed at runtime, `first` runner first.
+
+    Stale result files are removed first so a crashed run can never
+    parse the previous run's JSON.
+    """
+    _ = paths
+    return ["sh", "-c", _suite_script(first)]
+
+
+def single_test_cmd(
+    test_relpath: str, paths: List[str], first: Optional[str] = None
+) -> List[str]:
+    """Run one test file (the repro proof); same detection as the suite."""
+    _ = paths
+    return ["sh", "-c", _single_script(test_relpath, first)]
 
 
 # --------------------------------------------------------------------------
@@ -375,48 +455,38 @@ def single_test_cmd(test_relpath: str, paths: List[str]) -> List[str]:
 
 
 def _parse_jest_like(data: object) -> SuiteResult:
-    """Jest/Vitest `--json` report (both share the shape)."""
+    """Jest/Vitest `--json` report (both share the shape).
+
+    Counts + ids come from the shared `results.parse_jest_json`; two
+    stricter rules stay here: a suite that died before any test ran
+    (compile error) counts as a failure, and a report with zero tests
+    is `errored` — a broken run can never read as "no new failures".
+    """
     if not isinstance(data, dict):
         return SuiteResult(0, 0, 0, [], True)
     try:
-        passed = int(data.get("numPassedTests", 0))
-        failed = int(data.get("numFailedTests", 0))
+        base = shared_results.parse_jest_json(json.dumps(data))
     except (TypeError, ValueError):
         return SuiteResult(0, 0, 0, [], True)
-    failed_ids: List[str] = []
+    if base.errored:
+        return base
+    failed_ids = list(base.failed_ids)
+    failed = base.failed
     suites = data.get("testResults") or []
-    if not isinstance(suites, list):
-        return SuiteResult(0, 0, 0, [], True)
-    extra = 0
-    for suite in suites:
-        if not isinstance(suite, dict):
-            continue
-        name = str(suite.get("name") or "")
-        assertions = suite.get("assertionResults") or []
-        if not assertions:
-            # The suite died before any test ran (compile error): it
-            # counts as a failure so a broken import can never be "no
-            # new failures".
+    if isinstance(suites, list):
+        for suite in suites:
+            if not isinstance(suite, dict):
+                continue
+            if suite.get("assertionResults"):
+                continue
+            name = str(suite.get("name") or "")
             if str(suite.get("status") or "") == "failed" and name:
                 failed_ids.append(f"{name} > suite failed to run")
-                extra += 1
-            continue
-        for case in assertions:
-            if not isinstance(case, dict):
-                continue
-            if case.get("status") != "failed":
-                continue
-            title = str(case.get("title") or "test")
-            ancestors = [
-                str(part) for part in (case.get("ancestorTitles") or [])
-            ]
-            parts = [part for part in [name, *ancestors, title] if part]
-            failed_ids.append(" > ".join(parts))
-    failed += extra
-    total = passed + failed
+                failed += 1
+    total = base.passed + failed
     if total == 0:
         return SuiteResult(0, 0, 0, failed_ids, True)
-    return SuiteResult(total, passed, failed, failed_ids, False)
+    return SuiteResult(total, base.passed, failed, failed_ids, False)
 
 
 def _extract_json(text: str) -> Optional[object]:
@@ -457,21 +527,31 @@ def _tap_blocks(lines: List[str]) -> List[Tuple[bool, str, List[str]]]:
     return blocks
 
 
+def _tap_block_type(yaml: List[str]) -> Optional[str]:
+    """The TAP diagnostic `type:` of a result block, if it has one."""
+    for entry in yaml:
+        found = re.match(r"\s*type:\s*['\"]?(\w+)", entry)
+        if found:
+            return found.group(1)
+    return None
+
+
 def _parse_tap(stdout: str) -> SuiteResult:
-    """`node --test --test-reporter=tap` output."""
+    """`node --test --test-reporter=tap` output.
+
+    Suite summaries (`type: 'suite'`) never count; every other result
+    line is a test. (Real node 20 output has no `type: 'test'` lines at
+    all — only suites are tagged — so absence of `type:` means "test",
+    which also keeps foreign TAP working.)
+    """
     lines = stdout.splitlines()
     blocks = _tap_blocks(lines)
-    typed = any("type: 'test'" in line or 'type: "test"' in line
-                for _, _, yaml in blocks for line in yaml)
     total = 0
     failed = 0
     failed_ids: List[str] = []
-    for index, (is_fail, name, yaml) in enumerate(blocks):
-        if typed and not any("'test'" in line or '"test"' in line
-                              for line in yaml if "type:" in line):
+    for is_fail, name, yaml in blocks:
+        if _tap_block_type(yaml) not in (None, "test"):
             continue  # suite summary line, not a test
-        # Without node diagnostics (foreign TAP), every result line
-        # counts — suite summaries may inflate the total slightly.
         total += 1
         if not is_fail:
             continue
@@ -614,9 +694,17 @@ def repro_test_path(
     return f"tests/{name}"
 
 
-def repro_rules() -> str:
-    """Appended to the repro system prompt (runner-agnostic)."""
-    return (
+_RUNNER_LABELS = {
+    "vitest": "Vitest",
+    "jest": "Jest",
+    "mocha": "Mocha",
+    "node:test": "node:test",
+}
+
+
+def repro_rules(runner: Optional[str] = None) -> str:
+    """Appended to the repro system prompt; names `runner` when known."""
+    survey = (
         "Match the neighbouring tests' runner and style (see the file "
         "list): Jest/Vitest use test()/it() with expect(); Mocha uses "
         "describe()/it() with assert or expect; node:test imports "
@@ -626,6 +714,10 @@ def repro_rules() -> str:
         "and pass once the bug is fixed; no network, no timers, "
         "deterministic."
     )
+    if runner in _RUNNER_LABELS:
+        label = _RUNNER_LABELS[runner]
+        return f"This repo runs {label}; write the test for {label}. " + survey
+    return survey
 
 
 _TEST_FN_RE = re.compile(r"\b(?:test|it)\s*\(")
@@ -635,3 +727,87 @@ _TEST_ASSERT_RE = re.compile(r"\b(?:expect|assert)\b")
 def looks_like_test(code: str) -> bool:
     """`test(`/`it(` plus `expect`/`assert` (§1.1)."""
     return bool(_TEST_FN_RE.search(code) and _TEST_ASSERT_RE.search(code))
+
+
+# --------------------------------------------------------------------------
+# Adapter wiring (§3; discovered via `ADAPTER` by the registry)
+
+
+class _JavaScriptAdapter:
+    """The §3 adapter; every method delegates to the pure functions."""
+
+    name = "javascript"
+    image = IMAGE
+    install_timeout_s = INSTALL_TIMEOUT_S
+    suite_timeout_s = SUITE_TIMEOUT_S
+
+    def __init__(self) -> None:
+        self._manifest: Optional[str] = None
+
+    def manifest_names(self) -> List[str]:
+        """Manifests run.py fetches before the command methods (Q2 hook)."""
+        return ["package.json"]
+
+    def configure_manifests(
+        self, manifests: Dict[str, Optional[str]]
+    ) -> None:
+        try:
+            text = manifests.get("package.json")
+        except AttributeError:
+            text = None
+        self._manifest = text if isinstance(text, str) else None
+
+    def _first(self, paths: List[str]) -> str:
+        return detect_runner(paths, self._manifest)
+
+    def detect(self, paths: List[str]) -> int:
+        return detect(paths)
+
+    def trace_start(self, line: str) -> bool:
+        return trace_start(line)
+
+    def trace_continues(self, line: str) -> bool:
+        return trace_continues(line)
+
+    def parse_trace(self, text: str) -> Optional[TracebackInfo]:
+        return parse_trace(text)
+
+    def map_frame(
+        self, frame_file: str, func: str, paths: List[str]
+    ) -> Optional[str]:
+        return map_frame(frame_file, func, paths)
+
+    def source_files(self, paths: List[str]) -> List[str]:
+        return source_files(paths)
+
+    def install_cmds(self, paths: List[str]) -> List[List[str]]:
+        return install_cmds(paths)
+
+    def suite_cmd(self, paths: List[str]) -> List[str]:
+        return suite_cmd(paths, first=self._first(paths))
+
+    def single_test_cmd(
+        self, test_relpath: str, paths: List[str]
+    ) -> List[str]:
+        return single_test_cmd(
+            test_relpath, paths, first=self._first(paths)
+        )
+
+    def parse_results(
+        self, stdout: str, stderr: str, read_file: Callable[[str], Optional[str]]
+    ) -> SuiteResult:
+        return parse_results(stdout, stderr, read_file)
+
+    def repro_test_path(
+        self, fingerprint: str, paths: List[str], located: List[str]
+    ) -> str:
+        return repro_test_path(fingerprint, paths, located)
+
+    def repro_rules(self) -> str:
+        return repro_rules(_runner_from_manifest(self._manifest))
+
+    def looks_like_test(self, code: str) -> bool:
+        return looks_like_test(code)
+
+
+ADAPTER = _JavaScriptAdapter()
