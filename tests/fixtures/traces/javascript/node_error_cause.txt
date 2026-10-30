@@ -1,0 +1,23 @@
+/app/src/cause.js:5
+    throw new Error('invalid webhook payload', { cause: err });
+    ^
+
+Error: invalid webhook payload
+    at parsePayload (/app/src/cause.js:5:11)
+    at Object.<anonymous> (/app/src/cause.js:8:1)
+    ... 6 lines matching cause stack trace ...
+    at node:internal/main/run_main_module:33:47 {
+  [cause]: SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+      at JSON.parse (<anonymous>)
+      at parsePayload (/app/src/cause.js:3:17)
+      at Object.<anonymous> (/app/src/cause.js:8:1)
+      at Module._compile (node:internal/modules/cjs/loader:1968:14)
+      at Object..js (node:internal/modules/cjs/loader:2108:10)
+      at Module.load (node:internal/modules/cjs/loader:1690:32)
+      at Module._load (node:internal/modules/cjs/loader:1480:12)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+      at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)
+      at node:internal/main/run_main_module:33:47
+}
+
+Node.js v26.12.1

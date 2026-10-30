@@ -1,0 +1,11 @@
+⨯ TypeError: Cannot read properties of undefined (reading 'reduce')
+    at handler (pages/api/checkout.js:3:23)
+  1 | module.exports = function handler(req, res) {
+  2 |   const items = req.query.items;
+> 3 |   const total = items.reduce((a, b) => a + b.price, 0);
+    |                       ^
+  4 |   res.json({ total });
+  5 | };
+  6 | {
+  page: '/api/checkout'
+}

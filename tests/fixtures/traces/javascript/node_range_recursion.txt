@@ -1,0 +1,17 @@
+/app/src/recurse.js:2
+  if (n === 0) return 0;
+  ^
+
+RangeError: Maximum call stack size exceeded
+    at countdown (/app/src/recurse.js:2:3)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+    at countdown (/app/src/recurse.js:3:14)
+
+Node.js v26.12.1

@@ -1,0 +1,16 @@
+/app/dist/cart.js:5
+    return items.reduce((a, b) => a + b.price, 0);
+                 ^
+
+TypeError: Cannot read properties of null (reading 'reduce')
+    at total (/app/dist/cart.js:5:18)
+    at Object.<anonymous> (/app/dist/cart.js:7:13)
+    at Module._compile (node:internal/modules/cjs/loader:1968:14)
+    at Object..js (node:internal/modules/cjs/loader:2108:10)
+    at Module.load (node:internal/modules/cjs/loader:1690:32)
+    at Module._load (node:internal/modules/cjs/loader:1480:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v26.12.1
