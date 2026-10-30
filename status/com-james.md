@@ -1,6 +1,7 @@
 # James status (commercial)
-Current block: C-J2 (this commit) — C-J1+C-J2 on com/james, main merge BLOCKED (see below)
-Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (c7af2a0), C-J2 (this commit)
+Current block: C-J3 (Phase 2 isolation core)
+Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (2baf475),
+  C-J2 (8d6b046) — both on main, gate 1036 green
 Decisions:
 - Auth provider: Clerk (dev instance, test keys). Provider proves identity
   only (sub + email); our memberships table owns orgs + roles, so we stay
@@ -51,11 +52,11 @@ Decisions:
   (unscoped hides everything); middleware added BEFORE CORS so error
   responses keep CORS headers; GET pause stays public (only the action
   is gated); WS keeps today's behaviour until C-J3's token join.
-Contract changes requested:
-- John: tests/test_devices_e2e.py hard-codes port 8201 (your §8.5 dev
-  port). Your live uvicorn on 8201 makes it fail deterministically
-  ("sim readings never linked the device") for anyone gating while your
-  server runs. Please use a free/random port in the test (your file).
+- Merged 8d6b046 (C-J1+C-J2 over John's C-N3..C-N5, zero shared files);
+  John's 8201 freed so the devices e2e gate is reliable again.
+Contract changes requested: none (§8 frozen; John's 8201 freed — the
+  free-port hardening suggestion for test_devices_e2e.py stands as a
+  nice-to-have in his court)
 Live runs (lang · result · seconds · model): none this round
 NEEDS FROM AKINGBADE:
 - Clerk dev application: JWKS URL + test publishable/secret keys (dev only,
@@ -65,9 +66,4 @@ NEEDS FROM AKINGBADE:
   automated daily Postgres backups (staging + prod, ≥7 days).
 - Baseten/Modal remaining hackathon credit numbers (for Jude's alerts).
 - Confirm provider product-use terms (roadmap §0.1) when known.
-BLOCKED: C-J1+C-J2→main merge waits for a green gate: 8201 squat
-  (above) + rotating Docker e2e flakes (php/python NO_ACTION drafts).
-  Proven: 37/37 C-J1+C-J2 tests, 103/103 commerce tests with Jude's,
-  full suite green except those env failures. Continuing C-J3 on
-  com/james meanwhile; will merge when the machine is quiet or John
-  frees the port.
+BLOCKED: none
