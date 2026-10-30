@@ -42,6 +42,7 @@ class AlarmRoute extends ConsumerStatefulWidget {
 class _AlarmRouteState extends ConsumerState<AlarmRoute> {
   bool _busy = false;
   String? _error;
+  bool _unauthorized = false;
 
   Future<void> _decide(bool approve, [bool markNormal = false]) async {
     final api = ref.read(apiProvider);
@@ -49,6 +50,7 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
     setState(() {
       _busy = true;
       _error = null;
+      _unauthorized = false;
     });
     try {
       final decided = await api.decide(widget.action.runId, approve,
@@ -73,6 +75,7 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       setState(() {
         _busy = false;
         _error = error.message;
+        _unauthorized = error.unauthorized;
       });
     }
   }
@@ -94,8 +97,12 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       total: total,
       busy: _busy,
       error: _error,
+      unauthorized: _unauthorized,
       report: report,
       onDecide: _decide,
+      onRepair: () async {
+        await ref.read(connectionProvider.notifier).disconnect();
+      },
       onSilence: () async {
         await ref.read(alarmProvider.notifier).silence();
         if (context.mounted) Navigator.of(context).pop();
@@ -131,6 +138,8 @@ class AlarmScreen extends StatelessWidget {
     this.total = 20,
     this.busy = false,
     this.error,
+    this.unauthorized = false,
+    this.onRepair,
     this.report,
   });
 
@@ -141,6 +150,8 @@ class AlarmScreen extends StatelessWidget {
   final Future<void> Function() onSilence;
   final bool busy;
   final String? error;
+  final bool unauthorized;
+  final Future<void> Function()? onRepair;
   final RunReport? report;
 
   @override
@@ -269,6 +280,13 @@ class AlarmScreen extends StatelessWidget {
                           style:
                               TextStyle(color: Accents.fail),
                         ),
+                        if (unauthorized && onRepair != null) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton(
+                            onPressed: onRepair,
+                            child: const Text('Pair again'),
+                          ),
+                        ],
                       ],
                     ],
                   ),

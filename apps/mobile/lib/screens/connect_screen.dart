@@ -17,6 +17,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   final _url = TextEditingController(text: 'http://192.168.1.1:8001');
   final _token = TextEditingController();
   final _device = TextEditingController(text: 'phone');
+  final _code = TextEditingController();
   bool _busy = false;
   String? _error;
 
@@ -25,6 +26,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     _url.dispose();
     _token.dispose();
     _device.dispose();
+    _code.dispose();
     super.dispose();
   }
 
@@ -106,6 +108,46 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   },
             icon: const Icon(Icons.qr_code_scanner),
             label: const Text('Scan dashboard QR'),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Have a pairing code? Get one from Your devices on the web, '
+            'then claim it here to sign this phone in.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _code,
+            decoration: const InputDecoration(
+              labelText: 'Pairing code (123-456)',
+            ),
+            keyboardType: TextInputType.number,
+            autocorrect: false,
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    setState(() {
+                      _busy = true;
+                      _error = null;
+                    });
+                    final problem = await ref
+                        .read(connectionProvider.notifier)
+                        .claimAndConnect(
+                          apiUrl: _url.text.trim(),
+                          code: _code.text.trim(),
+                          deviceName: _device.text.trim().isEmpty
+                              ? 'phone'
+                              : _device.text.trim(),
+                        );
+                    if (!mounted) return;
+                    setState(() {
+                      _busy = false;
+                      _error = problem;
+                    });
+                  },
+            child: Text(_busy ? 'Claiming…' : 'Claim code & connect'),
           ),
         ],
       ),

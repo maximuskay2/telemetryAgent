@@ -12,11 +12,24 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final connection = ref.watch(connectionProvider).asData?.value;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          if (connection != null) ...[
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('This device: ${connection.deviceName}'),
+              subtitle: Text(
+                connection.orgId.isNotEmpty
+                    ? 'Signed in to org ${connection.orgId}'
+                    : 'Paired (self-hosted)',
+              ),
+            ),
+            const Divider(),
+          ],
           SwitchListTile(
             title: const Text('Dark mode'),
             subtitle: const Text('Light is the default.'),

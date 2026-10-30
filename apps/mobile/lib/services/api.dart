@@ -17,8 +17,35 @@ class AgentApi {
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (connection.token.isNotEmpty) 'X-Mobile-Token': connection.token,
+        if (connection.token.isNotEmpty)
+          if (connection.isDeviceToken)
+            'Authorization': 'Bearer ${connection.token}'
+          else
+            'X-Mobile-Token': connection.token,
       };
+
+  /// Claim a web pairing code (§8.4): per-user device token + org.
+  /// Returns (deviceToken, orgId); throws [ApiError] on a bad code.
+  Future<({String deviceToken, String orgId})> claim(String code) async {
+    final response = await _client
+        .post(
+          _uri('/api/devices/claim'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'code': code.trim()}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 400 || response.statusCode == 404) {
+      throw const ApiError('That code didn’t work — check it and retry.');
+    }
+    if (response.statusCode != 200) {
+      throw ApiError('Claim failed (${response.statusCode}).');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (
+      deviceToken: body['device_token'] as String? ?? '',
+      orgId: body['org_id'] as String? ?? '',
+    );
+  }
 
   Uri _uri(String path) =>
       Uri.parse(connection.apiUrl).replace(path: path);
@@ -107,7 +134,7 @@ class AgentApi {
         )
         .timeout(const Duration(seconds: 10));
     if (response.statusCode == 401) {
-      throw const ApiError('Bad mobile token — re-pair this device.');
+      throw const ApiError('Bad mobile token — re-pair this device.', unauthorized: true);
     }
     if (response.statusCode == 400) {
       throw ApiError(_detailOf(response.body));
@@ -159,7 +186,7 @@ class AgentApi {
         .post(_uri(path), headers: _headers, body: jsonEncode(body))
         .timeout(const Duration(seconds: 10));
     if (response.statusCode == 401) {
-      throw const ApiError('Bad mobile token — re-pair this device.');
+      throw const ApiError('Bad mobile token — re-pair this device.', unauthorized: true);
     }
     if (response.statusCode == 400) {
       throw ApiError(_detailOf(response.body));
@@ -181,7 +208,7 @@ class AgentApi {
         .get(_uri(path), headers: _headers)
         .timeout(const Duration(seconds: 10));
     if (response.statusCode == 401) {
-      throw const ApiError('Bad mobile token — re-pair this device.');
+      throw const ApiError('Bad mobile token — re-pair this device.', unauthorized: true);
     }
     if (response.statusCode != 200) {
       throw ApiError('Request failed (${response.statusCode}).');
@@ -217,9 +244,12 @@ class SystemSummary {
 }
 
 class ApiError implements Exception {
-  const ApiError(this.message);
+  const ApiError(this.message, {this.unauthorized = false});
 
   final String message;
+
+  /// True on 401: the token is dead (revoked/removed) — re-pair.
+  final bool unauthorized;
 
   @override
   String toString() => message;

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/connection.dart';
@@ -57,8 +58,9 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
   @override
   Future<Connection?> build() => ref.read(storageProvider).load();
 
-  Future<bool> saveAndConnect(Connection connection) async {
-    final api = AgentApi(connection: connection);
+  Future<bool> saveAndConnect(Connection connection,
+      {http.Client? client}) async {
+    final api = AgentApi(connection: connection, client: client);
     final ok = await api.checkHealth();
     api.close();
     if (!ok) return false;
@@ -72,6 +74,39 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
     await ref.read(storageProvider).clear();
     unawaited(Keepalive.stop());
     state = const AsyncData(null);
+  }
+
+  /// Per-user sign-in (C-N4): claim a web pairing code, then connect
+  /// with the device token. Returns an error message, or null on success.
+  Future<String?> claimAndConnect({
+    required String apiUrl,
+    required String code,
+    required String deviceName,
+    http.Client? client,
+  }) async {
+    final probe = AgentApi(
+      connection: Connection(apiUrl: apiUrl, token: '', deviceName: ''),
+      client: client,
+    );
+    try {
+      final claimed = await probe.claim(code);
+      if (claimed.deviceToken.isEmpty) return 'That code didn’t work.';
+      return await saveAndConnect(
+        Connection(
+          apiUrl: apiUrl,
+          token: claimed.deviceToken,
+          deviceName: deviceName,
+          orgId: claimed.orgId,
+        ),
+        client: client,
+      )
+          ? null
+          : 'No agent at that URL — same Wi-Fi? API running?';
+    } on ApiError catch (error) {
+      return error.message;
+    } finally {
+      probe.close();
+    }
   }
 }
 

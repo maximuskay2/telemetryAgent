@@ -12,6 +12,7 @@ class PairingStorage {
   static const _apiUrlKey = 'api_url';
   static const _tokenKey = 'mobile_token';
   static const _deviceKey = 'device_name';
+  static const _orgKey = 'org_id';
 
   Future<Connection?> load() async {
     final values = await _storage.readAll();
@@ -21,6 +22,7 @@ class PairingStorage {
       apiUrl: apiUrl,
       token: values[_tokenKey] ?? '',
       deviceName: values[_deviceKey] ?? 'phone',
+      orgId: values[_orgKey] ?? '',
     );
   }
 
@@ -28,6 +30,7 @@ class PairingStorage {
     await _storage.write(key: _apiUrlKey, value: connection.apiUrl);
     await _storage.write(key: _tokenKey, value: connection.token);
     await _storage.write(key: _deviceKey, value: connection.deviceName);
+    await _storage.write(key: _orgKey, value: connection.orgId);
   }
 
   Future<void> clear() async => _storage.deleteAll();
