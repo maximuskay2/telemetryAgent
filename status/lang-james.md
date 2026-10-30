@@ -1,6 +1,6 @@
 # James status (languages)
-Current block: L-J1 next (L-J0 done, merging)
-Done: L-J0 (this commit)
+Current block: L-J2 next (L-J0 + L-J1 done, merging L-J1)
+Done: L-J0 (8276c12, on main, tagged lang-contracts-in), L-J1 (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -28,17 +28,22 @@ Decisions:
   manifest from the repo tree (None when absent) and calls the hook once
   before any command method. Adapters that omit both get no manifests.
   JavaScript defaults to Jest when no runner is detectable.
-- L-J1 (code written, next commit): pure refactor — Python behaviour moved
-  to `lang/python.py`; `run.py`/`generate.py`/`locate.py` go through the
-  adapter; `PYTEST` and `parse_pytest` stay as shims (frozen tests import
-  them). `install_cmds` keeps the §3 `(paths)` shape: Docker exec sets
-  `PIP_TARGET=/work/.deps` (proven live: pip+import six in the sandbox
-  image). Repro prompt is `REPRO_BASE + adapter.repro_rules()` per §3.
-  `_draft` still derives its repro path from the adapter with empty
-  context — L-J2 threads the real located path (Go needs it). PR "sandbox
-  pytest" heading + "Pytest output" feedback stay python-worded until a
-  second adapter needs them. `run.py` also wires the manifest hook
-  (fetch + `configure_manifests` when the adapter defines it).
+- L-J1: pure refactor — Python behaviour moved to `lang/python.py`;
+  `run.py`/`generate.py`/`locate.py` go through the adapter; `PYTEST` and
+  `parse_pytest` stay as shims (frozen tests import them). `install_cmds`
+  keeps the §3 `(paths)` shape: Docker exec sets `PIP_TARGET=/work/.deps`
+  (proven live: pip+import six in the sandbox image). Repro prompt is
+  `REPRO_BASE + adapter.repro_rules()` per §3. `_draft` still derives its
+  repro path from the adapter with empty context — L-J2 threads the real
+  located path (Go needs it). PR "sandbox pytest" heading + "Pytest
+  output" feedback stay python-worded until a second adapter needs them.
+  `run.py` wires the manifest hook (`_configure_adapter`: fetch +
+  `configure_manifests` when the adapter defines it; no-op for Python).
+- Tag race (30 Oct): `lang-contracts-in` was pushed pointing at the
+  pre-rebase L-J0 (9da95a5) when John's L-N3..N5 landed mid-merge and the
+  first main push rejected. Deleted the remote tag, rebased L-J0 onto
+  John's main, re-verified green, pushed main (8276c12), re-tagged.
+  No force-push to main; the old commit survives on `lang/james` history.
 - Sandbox clamp (30 Oct ~13:17 UTC, RESOLVED): all paths outside this
   worktree denied with EPERM, incl. shared `.git` and
   `../telemetry-agent/{venv,.env}`. Built `.venv-local` inside the worktree
@@ -49,16 +54,17 @@ Live runs (lang · result · seconds · model): none yet
 NEEDS FROM AKINGBADE: none
 BLOCKED: none
 
-## Per-block vs §4 acceptance (30 Oct, L-J0 commit)
-- L-J0 DONE: registry discovers `ADAPTER` + `ADAPTERS`; JUnit/Jest/go
-  parsers pass fixtures; Dockerfiles node/jvm/go/rust/php from §1.1
-  (node corepack, php mbstring/xml/intl/zip/pdo_sqlite);
-  `build-sandbox-image.sh <lang>`; `read_file` + portable `write_file` +
-  `image=`; `TracebackInfo.language`; `ConnectionTest.language/autofix`;
-  full suite green (`check.sh`).
-- L-J1 LEFT: code written, uncommitted — `run.py`/`generate.py`/`locate.py`
-  wiring + `tests/test_lang_python.py` + `tests/fixtures/traces/python/`.
-  Next: commit, `check.sh`, push.
+## Per-block vs §4 acceptance (30 Oct, L-J1 commit)
+- L-J0 DONE (8276c12, main, tagged): registry discovers `ADAPTER` +
+  `ADAPTERS`; JUnit/Jest/go parsers pass fixtures; Dockerfiles
+  node/jvm/go/rust/php from §1.1; `build-sandbox-image.sh <lang>`;
+  `read_file` + portable `write_file` + `image=`;
+  `TracebackInfo.language`; `ConnectionTest.language/autofix`; 705 green.
+- L-J1 DONE (this commit): `run.py`/`generate.py`/`locate.py` call the
+  adapter only (`PYTEST`/`parse_pytest` shims kept);
+  `tests/test_lang_python.py` (parity + manifest-hook tests) +
+  `tests/fixtures/traces/python/`; `test_prod_repofix.py` untouched green;
+  722 green, `check.sh` green.
 - L-J2 LEFT: not started — assembler uses every adapter's
   `trace_start`/`trace_continues`; `should_trigger` via `registry.parse` +
   `detect`; Sentry `platform` → language; unsupported → decision

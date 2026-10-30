@@ -13,10 +13,20 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.infer import baseten_client
+from core.repo_fix.lang.python import ADAPTER as _PYTHON
 from core.infer.errors import translate
 from core.infer.meta_client import ESCALATION_MODEL, META_BASE_URL
 
 MAX_PATCH_FILES = 3
+
+#: Generic repro prompt; the adapter's repro_rules() is appended (§3).
+REPRO_BASE = (
+    "You write ONE test file that reproduces a production crash. "
+    "Return JSON {\"test_code\": \"...\"} only. Rules: import the repo's "
+    "own modules exactly as laid out in the file list; the test MUST fail "
+    "on the current code and pass once the bug is fixed; no network, no "
+    "sleep, deterministic. "
+)
 
 
 def _wonder_generate(system_prompt: str, user_content: str) -> str:
@@ -62,15 +72,6 @@ def generate_json(
     return json.loads(content), f"baseten:{baseten_client.GENERATION_MODEL}"
 
 
-REPRO_SYSTEM = (
-    "You write ONE pytest file that reproduces a production crash. "
-    "Return JSON {\"test_code\": \"...\"} only. Rules: import the repo's own "
-    "modules exactly as laid out in the file list; the test MUST fail on "
-    "the current code and pass once the bug is fixed; no network, no "
-    "sleep, deterministic; define at least one test_ function."
-)
-
-
 def generate_repro_test(
     traceback_text: str,
     exc_signature: str,
@@ -80,8 +81,10 @@ def generate_repro_test(
     attempt: int,
     max_attempts: int,
     test_path: str,
+    adapter: Any = None,
 ) -> Tuple[str, str]:
     """Repro test source + model label; raises when unusable."""
+    checker = adapter if adapter is not None else _PYTHON
     shown_files = "\n".join(file_list[:120])
     shown_contexts = "\n\n".join(
         f"--- {item['path']} (error near line {item.get('line', '?')}) ---\n"
@@ -101,10 +104,13 @@ def generate_repro_test(
         f"Suspect code:\n{shown_contexts}{feedback}"
     )
     parsed, model_used = generate_json(
-        REPRO_SYSTEM, user_content, attempt, max_attempts
+        REPRO_BASE + checker.repro_rules(),
+        user_content,
+        attempt,
+        max_attempts,
     )
     test_code = str(parsed.get("test_code", "") or "")
-    if "def test_" not in test_code:
+    if not checker.looks_like_test(test_code):
         raise ValueError("generated repro test defines no test_ function")
     return test_code, model_used
 

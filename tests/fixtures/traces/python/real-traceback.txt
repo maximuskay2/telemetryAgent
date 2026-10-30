@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "/srv/shop/orders.py", line 121, in charge
+    gateway.capture(payment)
+  File "/srv/shop/payments.py", line 44, in capture
+    raise GatewayTimeout("upstream did not answer in 5s")
+payments.GatewayTimeout: upstream did not answer in 5s
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/srv/shop/orders.py", line 124, in charge
+    retry_later(order)
+  File "/srv/shop/retry.py", line 9, in retry_later
+    queue.push(order)
+  File "/srv/shop/queue.py", line 31, in push
+    raise QueueFull("retry queue is full (256/256)")
+queue.QueueFull: retry queue is full (256/256)

@@ -65,21 +65,38 @@ def _suffixes(frame_file: str) -> List[str]:
     return ["/".join(parts[i:]) for i in range(len(parts))]
 
 
+def _suffix_match(frame_file: str, paths: List[str]) -> Optional[str]:
+    """First (longest) suffix of the frame file present in the repo."""
+    for suffix in _suffixes(frame_file):
+        if suffix in paths:
+            return suffix
+    return None
+
+
 def match_frames(
-    frames: List[Any], paths: List[str]
+    frames: List[Any],
+    paths: List[str],
+    map_frame: Optional[Callable[[str, str, List[str]], Optional[str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Match each frame to a repo path; best (deepest) first, ≤ 3 files."""
+    """Match each frame to a repo path; best (deepest) first, ≤ 3 files.
+
+    `map_frame` is the language adapter's mapper; without one, plain
+    suffix matching (the Python behaviour).
+    """
+    if map_frame is None:
+        def map_frame(name: str, func: str, known: List[str]) -> Optional[str]:
+            _ = func
+            return _suffix_match(name, known)
     by_path: Dict[str, Dict[str, Any]] = {}
     order: List[str] = []
     for frame in frames:
         name = frame.file if hasattr(frame, "file") else frame.get("file", "")
         lineno = frame.line if hasattr(frame, "line") else frame.get("line", 0)
-        for suffix in _suffixes(str(name)):
-            if suffix in paths:
-                if suffix not in by_path:
-                    by_path[suffix] = {"path": suffix, "line": lineno}
-                    order.append(suffix)
-                break
+        func = frame.func if hasattr(frame, "func") else frame.get("func", "")
+        hit = map_frame(str(name), str(func or ""), paths)
+        if hit is not None and hit not in by_path:
+            by_path[hit] = {"path": hit, "line": lineno}
+            order.append(hit)
     ranked = sorted(
         (by_path[path] for path in order),
         key=lambda item: -len(item["path"]),

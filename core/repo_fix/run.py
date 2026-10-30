@@ -27,6 +27,8 @@ from core.ingest.traceback import parse_traceback
 from core.repo_fix import generate as repo_generate
 from core.repo_fix import locate as repo_locate
 from core.repo_fix import snapshot as repo_snapshot
+from core.repo_fix.lang import by_name as _adapter_by_name
+from core.repo_fix.lang import python as _python_lang
 from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import (
     ExecutionResult,
@@ -38,12 +40,12 @@ log = logging.getLogger(__name__)
 
 REPRO_ATTEMPTS = 3
 PATCH_ATTEMPTS = 2
-INSTALL_TIMEOUT_S = 300  # 5-minute pip cap (§4)
-SUITE_TIMEOUT_S = 600
 REPRO_TIMEOUT_S = 300
-# `python -m` puts the repo root on sys.path; bare `pytest` does not, so
-# `from app.x import y` in tests/ fails collection on common layouts.
-PYTEST = ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+#: L-J1: only the Python adapter exists yet; L-J2 picks via registry.parse.
+ADAPTER = _adapter_by_name("python")
+assert ADAPTER is not None  # lang/python.py must register
+#: Legacy alias for the frozen tests; the pipeline uses adapter commands.
+PYTEST = _python_lang.PYTEST_BASE
 PR_LABEL = "telemetry-agent"
 MAX_BODY_CHARS = 4000
 
@@ -59,10 +61,6 @@ def branch_for(fingerprint: str) -> str:
     return f"telemetry-agent/fix-{fingerprint[:12]}"
 
 
-def repro_test_path(fingerprint: str) -> str:
-    return f"tests/test_telemetry_agent_{fingerprint[:12]}.py"
-
-
 def reset_run_state() -> None:
     """Clear in-flight + throttle state (tests only)."""
     _active.clear()
@@ -70,31 +68,13 @@ def reset_run_state() -> None:
 
 
 def parse_pytest(text: str) -> Dict[str, Any]:
-    """Passed/failed counts + failed test ids from `pytest -q -rf` output."""
-    passed = failed = 0
-    tail = [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip()
-    ][-5:]
-    for line in tail:
-        for count, word in re.findall(
-            r"(\d+)\s+(passed|failed|error)", line
-        ):
-            if word == "passed":
-                passed += int(count)
-            else:
-                failed += int(count)
-    failed_ids: List[str] = []
-    for line in text.splitlines():
-        match = re.match(r"^(?:FAILED|ERROR)\s+(\S+)", line.strip())
-        if match:
-            failed_ids.append(match.group(1))
+    """Legacy shim for the frozen tests; the pipeline uses the adapter."""
+    result = ADAPTER.parse_results(text, "", lambda _path: None)
     return {
-        "passed": passed,
-        "failed": failed,
-        "failed_ids": failed_ids,
-        "total": passed + failed,
+        "passed": result.passed,
+        "failed": result.failed,
+        "failed_ids": result.failed_ids,
+        "total": result.total,
     }
 
 
@@ -456,7 +436,6 @@ async def _pipeline(
     parsed = parse_traceback(traceback_text)
     assert parsed is not None  # should_trigger guarantees a parse
     branch = branch_for(fingerprint)
-    test_relpath = repro_test_path(fingerprint)
 
     # 1. Locate ---------------------------------------------------------
     _emit(run_id, "diagnose", 0, "", "ok", "locating suspect files")
@@ -471,7 +450,11 @@ async def _pipeline(
         repo_locate.fetch_tree, repo, token, sha, http
     )
     paths: List[str] = tree["paths"]
-    located = repo_locate.match_frames(parsed.frames, paths)
+    await _configure_adapter(repo, token, sha, paths, http)
+    located = repo_locate.match_frames(parsed.frames, paths, ADAPTER.map_frame)
+    test_relpath = ADAPTER.repro_test_path(
+        fingerprint, paths, [item["path"] for item in located]
+    )
     contexts: List[Dict[str, Any]] = []
     if located:
         for item in located:
@@ -593,33 +576,57 @@ async def _sandbox_exec(sandbox: Any, cmd: List[str], **kwargs: Any) -> Dict[str
     return await asyncio.to_thread(sandbox.exec, cmd, **kwargs)
 
 
+def _reader(sandbox: Any) -> Callable[[str], Optional[str]]:
+    """Sandbox read_file when it has one (fakes predate it)."""
+    return getattr(sandbox, "read_file", lambda _path: None)
+
+
+async def _configure_adapter(
+    repo: str, token: str, sha: str, paths: List[str], http: Any
+) -> None:
+    """Pass manifest text to adapters that ask (L-J0 optional hook).
+
+    Adapters MAY define `manifest_names()` + `configure_manifests()` (see
+    `lang/base.py`); Python defines neither, so this is a no-op for it.
+    Failures here never break the run — the adapter falls back.
+    """
+    names_fn = getattr(ADAPTER, "manifest_names", None)
+    configure = getattr(ADAPTER, "configure_manifests", None)
+    if not callable(names_fn) or not callable(configure):
+        return
+    try:
+        names = list(names_fn() or [])
+    except Exception:
+        return
+    if not names:
+        return
+    manifests: Dict[str, Optional[str]] = {}
+    for name in names:
+        if name not in paths:
+            manifests[name] = None
+            continue
+        try:
+            manifests[name] = await asyncio.to_thread(
+                repo_locate.read_file_at, repo, token, sha, name, http
+            )
+        except Exception:
+            manifests[name] = None
+    try:
+        configure(manifests)
+    except Exception:
+        pass
+
+
 async def _install_deps(
     run_id: str, sandbox: Any, paths: List[str]
 ) -> Optional[str]:
     """Install snapshot deps; None on success, else the failure output."""
     _emit(run_id, "verify", 0, "", "ok", "installing dependencies")
-    target = (
-        ["--target=/work/.deps"] if sandbox.backend == "docker" else []
-    )
-    if repo_snapshot.has_requirements(paths):
-        req = next(
-            path for path in paths
-            if path.rsplit("/", 1)[-1] == "requirements.txt"
-        )
+    for cmd in ADAPTER.install_cmds(paths):
         result = await _sandbox_exec(
             sandbox,
-            ["pip", "install", *target, "-r", req],
-            timeout=INSTALL_TIMEOUT_S,
-            network=True,
-        )
-        if result["returncode"] != 0:
-            return str(result["stderr"] or result["stdout"])
-        return None
-    if repo_snapshot.has_packaging(paths):
-        result = await _sandbox_exec(
-            sandbox,
-            ["pip", "install", *target, "-e", "."],
-            timeout=INSTALL_TIMEOUT_S,
+            cmd,
+            timeout=ADAPTER.install_timeout_s,
             network=True,
         )
         if result["returncode"] != 0:
@@ -627,13 +634,13 @@ async def _install_deps(
     return None
 
 
-def _suite_summary(baseline: Dict[str, Any], proved: Dict[str, Any]) -> Dict[str, int]:
+def _suite_summary(baseline: Any, proved: Any) -> Dict[str, int]:
     new_failures = len(
-        set(proved["failed_ids"]) - set(baseline["failed_ids"])
+        set(proved.failed_ids) - set(baseline.failed_ids)
     )
     return {
-        "passed": proved["passed"],
-        "failed": proved["failed"],
+        "passed": proved.passed,
+        "failed": proved.failed,
         "new_failures": new_failures,
     }
 
@@ -668,13 +675,15 @@ async def _verify_and_fix(
     _emit(run_id, "verify", 0, "", "ok", "running baseline suite")
     baseline_raw = await _sandbox_exec(
         sandbox,
-        [*PYTEST, "--tb=no", "-rf"],
-        timeout=SUITE_TIMEOUT_S,
+        ADAPTER.suite_cmd(paths),
+        timeout=ADAPTER.suite_timeout_s,
     )
-    baseline = parse_pytest(
-        str(baseline_raw["stdout"]) + "\n" + str(baseline_raw["stderr"])
+    baseline = ADAPTER.parse_results(
+        str(baseline_raw["stdout"]),
+        str(baseline_raw["stderr"]),
+        _reader(sandbox),
     )
-    if baseline["total"] == 0:
+    if baseline.total == 0:
         return await _draft(
             run_id, system_id, repo, base, token, fingerprint, sha,
             gate, http, github_pr, diagnosis,
@@ -699,11 +708,12 @@ async def _verify_and_fix(
                 parsed.raw,
                 parsed.signature,
                 contexts,
-                repo_snapshot.python_files(paths),
+                ADAPTER.source_files(paths),
                 repro_fail_output or None,
                 attempt,
                 REPRO_ATTEMPTS,
                 test_relpath,
+                adapter=ADAPTER,
             )
         except Exception as exc:
             repro_fail_output = f"generation failed: {exc}"
@@ -711,11 +721,14 @@ async def _verify_and_fix(
         await asyncio.to_thread(sandbox.write_file, test_relpath, candidate)
         ran = await _sandbox_exec(
             sandbox,
-            [*PYTEST, "--tb=short", test_relpath],
+            ADAPTER.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
         )
         output = str(ran["stdout"]) + "\n" + str(ran["stderr"])
-        if ran["returncode"] != 0 and parse_pytest(output)["failed"] > 0:
+        ran_result = ADAPTER.parse_results(
+            str(ran["stdout"]), str(ran["stderr"]), _reader(sandbox)
+        )
+        if ran["returncode"] != 0 and ran_result.failed > 0:
             repro_code = candidate  # fails on original: a real repro
             repro_fail_output = output
             repro_failed = True
@@ -755,7 +768,7 @@ async def _verify_and_fix(
             )
         rerun = await _sandbox_exec(
             sandbox,
-            [*PYTEST, "--tb=short", test_relpath],
+            ADAPTER.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
         )
         rerun_output = str(rerun["stdout"]) + "\n" + str(rerun["stderr"])
@@ -764,16 +777,18 @@ async def _verify_and_fix(
             continue
         proved_raw = await _sandbox_exec(
             sandbox,
-            [*PYTEST, "--tb=no", "-rf"],
-            timeout=SUITE_TIMEOUT_S,
+            ADAPTER.suite_cmd(paths),
+            timeout=ADAPTER.suite_timeout_s,
         )
-        proved = parse_pytest(
-            str(proved_raw["stdout"]) + "\n" + str(proved_raw["stderr"])
+        proved = ADAPTER.parse_results(
+            str(proved_raw["stdout"]),
+            str(proved_raw["stderr"]),
+            _reader(sandbox),
         )
         suite = _suite_summary(baseline, proved)
         if suite["new_failures"] > 0:
             repro_fail_output = (
-                f"new failures: {proved['failed_ids']}\n{rerun_output}"
+                f"new failures: {proved.failed_ids}\n{rerun_output}"
             )
             continue
         # 7. PR ------------------------------------------------------------
@@ -935,7 +950,9 @@ async def _draft(
             )
         }
         if repro_code:
-            files[repro_test_path(fingerprint)] = repro_code
+            files[
+                ADAPTER.repro_test_path(fingerprint, [], [])
+            ] = repro_code
         pr_url = await asyncio.to_thread(
             github_pr.open_pr,
             repo=repo,
