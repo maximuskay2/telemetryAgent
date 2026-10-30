@@ -1,6 +1,12 @@
 # John status (languages)
-Current block: L-N2 done, merging N1+N2 (pre-tag)
-Done: L-N1 (pure), L-N2 (pure) — both coded to §3, unmerged (git outage)
+Current block: L-N1 DONE (pure, b00fb4f) + L-N2 DONE (forwarder) — pushing lang/john, tag watch
+Done: L-N1 (pure, b00fb4f)
+Blocks (acceptance check Oct 30):
+- L-N1 DONE: 11 fixtures (node×6, express, next, tsc+sourcemap, tsc-sourcemap, browser), 28 pure fns, 40 tests green. LEFT: ADAPTER wiring after lang-contracts-in; proof-app-node e2e (needs Jude L-D1).
+- L-N2 DONE: union start/continue rules for all §1.1 formats, stdlib-only one file, 12 tests green, Python path byte-identical. LEFT: merge to main (needs check.sh green).
+- L-N3 LEFT: needs James L-J0 (ConnectionTest.language/autofix); web not started.
+- L-N4 LEFT: mobile not started.
+- L-N5 LEFT: USAGE.md table not started.
 Decisions:
 - javascript.py holds pure functions only until lang-contracts-in lands
   (no ADAPTER yet — the ADAPTER discovery shape is James's L-J0 call, and

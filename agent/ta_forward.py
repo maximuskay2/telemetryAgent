@@ -34,6 +34,80 @@ LEVEL_RANK = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 5
 TRACEBACK_HEADER = "Traceback (most recent call last):"
 EXC_RE = re.compile(r"^([A-Za-z_][\w.]*)(?::\s?(.*))?$")
 
+#: Trace heads for every §1.1 language (L-N2; union semantics — the
+#: forwarder only decides *whether* to forward, the server re-parses).
+#: Secondary heads (`goroutine N`, `Stack trace:`, ...) also recover a
+#: trace whose head was missed (rotation, reconnect).
+TRACE_START_RES = [
+    ("javascript",
+     re.compile(r"^(?:[\u2a2f\u00d7]\s*)?(?:Uncaught\s+)?[A-Z][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\s+\[[^\]\n]+\])?\s*:\s?")),
+    ("javascript",
+     re.compile(r"^\[[A-Z][\w$]*\s*:\s?.*\]\s*\{?\s*$")),
+    ("java",
+     re.compile(r"^(Exception in thread \"[^\"]*\"\s+)?[A-Za-z_$][\w$]*(?:\.[\w$]+)+\s*:")),
+    ("java", re.compile(r"^\s*Caused by:\s")),
+    ("go", re.compile(r"^(panic|fatal error):\s")),
+    ("go", re.compile(r"^goroutine \d+")),
+    ("go", re.compile(r"^\[signal ")),
+    ("rust", re.compile(r"^\s*stack backtrace:\s*$")),
+    ("rust", re.compile(r"^thread '[^']*' panicked at ")),
+    ("php", re.compile(r"^PHP (Fatal error|Parse error):")),
+    ("php", re.compile(r"^Stack trace:$")),
+]
+
+#: Continuation lines for any language trace (checked mid-trace only).
+TRACE_CONT_RES = [
+    re.compile(r"^\s*at\s+"),                      # V8, `at ./`, Java tab-at
+    re.compile(r"^\s*Caused by:\s"),
+    re.compile(r"^\s*Suppressed:\s"),
+    re.compile(r"^\s*\.\.\."),                   # `... N more`, V8 elision
+    re.compile(r"^goroutine \d+"),
+    re.compile(r"^\[signal "),
+    re.compile(r"^\t\S+:\d+"),                    # Go `pkg/x.go:12 +0x1d`
+    re.compile(r"^[A-Za-z_][\w./~-]*(\.\([\w~*]+\))?\.\w[\w~]*(\[[^\]]*\])?\(.*\)$"),
+    re.compile(r"^created by \S+(\s+in\s+goroutine\s+\d+)?$"),
+    re.compile(r"^\s*stack backtrace:\s*$"),
+    re.compile(r"^\s*\d+:\s"),                    # Rust `0: symbol`
+    re.compile(r"^note: "),                          # Rust tail note
+    re.compile(r"^Stack trace:$"),
+    re.compile(r"^#\d+\s"),                        # PHP `#0 /F.php(1):`
+    re.compile(r"^\s*\[cause\]:"),
+    re.compile(r"^\s*>?\s*\d*\s*\|"),           # Next.js code gutters
+    re.compile(r"^\s*[\{\}]\s*$"),
+    re.compile(r"^Node\.js v\d"),                  # Node trailer
+]
+
+
+def trace_start_lang(line):
+    """Language whose trace `line` opens, or None (L-N2 union)."""
+    stripped = line.strip()
+    if not stripped:
+        return None
+    if stripped == TRACEBACK_HEADER:
+        return None  # Python keeps its own path below
+    for lang, regex in TRACE_START_RES:
+        if regex.match(stripped):
+            if lang == "javascript" and not stripped.startswith("["):
+                name = re.match(
+                    r"^(?:[\u2a2f\u00d7]\s*)?(?:Uncaught\s+)?([A-Z][\w$]*)",
+                    stripped)
+                if name is None or len(name.group(1)) < 2:
+                    continue  # `C:\...` drive paths are not errors
+            return lang
+    return None
+
+
+def trace_continues(line):
+    """True when `line` extends any open non-Python trace (L-N2 union)."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if "[stacktrace]" in stripped:  # Laravel/Monolog context blocks
+        return True
+    if "thrown in " in stripped:  # PHP tail
+        return True
+    return any(regex.match(line) for regex in TRACE_CONT_RES)
+
 #: In-memory spool while the API is unreachable (oldest drops past this).
 MAX_BUFFERED_LINES = 20000
 
@@ -46,11 +120,14 @@ def detect_level(line):
 
 
 def is_traceback_end(line):
+    """End of the open trace: a Python exc line or any new head (L-N2)."""
     if not line or line[0] in (" ", "\t"):
         return False
     stripped = line.strip()
     if stripped == TRACEBACK_HEADER:
         return False
+    if trace_start_lang(line) is not None:
+        return True  # a new head ends the previous trace
     return EXC_RE.match(stripped) is not None
 
 
@@ -63,6 +140,8 @@ class Tailer:
         self.handle = None
         self.inode = None
         self.in_traceback = False
+        self.in_lang_trace = False
+        self._prev_rust_head = False
         try:
             self._open()
         except OSError:
@@ -109,6 +188,8 @@ class Tailer:
         except OSError:
             pass
         self.in_traceback = False
+        self.in_lang_trace = False
+        self._prev_rust_head = False
         try:
             self._open()
         except OSError:
@@ -130,13 +211,34 @@ class Tailer:
         return chunk.splitlines()
 
     def wanted(self, line):
-        """True for lines worth forwarding (level filter + tracebacks)."""
+        """True for lines worth forwarding (level filter + all traces)."""
         if self.in_traceback:
             if is_traceback_end(line):
+                # The end line is re-evaluated below: usually a plain
+                # line, sometimes the head of the next trace.
                 self.in_traceback = False
-            return True
+            else:
+                return True
         if line.strip() == TRACEBACK_HEADER:
             self.in_traceback = True
+            self.in_lang_trace = False
+            self._prev_rust_head = False
+            return True
+        if self.in_lang_trace:
+            if self._prev_rust_head and line.strip():
+                # Rust >=1.73 prints the panic message on the line after
+                # a colon-terminated head; it is the exception value.
+                self._prev_rust_head = False
+                return True
+            if trace_continues(line) or trace_start_lang(line) is not None:
+                return True
+            self.in_lang_trace = False
+            self._prev_rust_head = False
+        lang = trace_start_lang(line)
+        if lang is not None:
+            self.in_lang_trace = True
+            self._prev_rust_head = (
+                lang == "rust" and line.strip().endswith(":"))
             return True
         return LEVEL_RANK.get(detect_level(line), 20) >= self.min_rank
 
