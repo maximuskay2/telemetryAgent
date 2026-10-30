@@ -1,11 +1,11 @@
 # John status (languages)
-Current block: L-N1 merging (James fix 3a65e68 unblocked; gate running) — L-N4 live-verify pending a gated run
+Current block: ALL BLOCKS DONE (L-N1..L-N5 merged; N4 live-verified on a real gate body)
 Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged), L-N3 (13f3f70, merged), L-N4 (941288d, merged), L-N5 (e807af6, merged)
 Blocks (acceptance check Oct 30):
-- L-N1 DONE (wired; merging): single ADAPTER, manifest hook, results.py delegation, 62 tests green; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models). James 3a65e68 fixed (a)+(b); routing skip guard removed.
+- L-N1 DONE (merged 762a2fa): single ADAPTER, manifest hook, results.py delegation, 62 tests green; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models); real should_trigger names adapter=javascript.
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
 - L-N3 DONE: merged + LIVE-VERIFIED — real `check_repo` on telemetryAgent-demo returns `language`/`autofix` keys matching the TS type; error path omits them (renders nothing). Both UI branches proven.
-- L-N4 DONE: merged. LEFT: live verify once a gated run carries language.
+- L-N4 DONE: merged + LIVE-VERIFIED — real L-J2 gate body for the proof-app-node trace (decision observe, language javascript, autofix True) embedded in the widget test; badge + verdict + reason render, no unavailable card. 6 flutter tests green.
 - L-N5 DONE: merged.
 Doc review checklist (L-N5): every table row checked against roadmap §1.1 (markers, trace formats, install cmds, suite cmds) + §4 L-D5 log settings (source maps, RUST_BACKTRACE=1, full JVM traces, display_errors=stderr); Python row keeps prior meaning; armed + ≤3-files + suffix-match notes kept; unsupported-language line matches §1 unknown-language rule; README line honest (Python today, rest rolling out) with USAGE link.
 Decisions:

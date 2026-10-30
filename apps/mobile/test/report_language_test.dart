@@ -67,14 +67,29 @@ void main() {
   group('ReportBody language', () {
     testWidgets('supported run shows the language and runner',
         (tester) async {
+      // Gate map captured live: proof-app-node trigger.sh output through
+      // the real ingest pipeline (L-J2), 30 Oct (synthetic system id).
       final detail = RunReport.fromDetailJson({
-        'run_id': 'run-ts-1',
+        'run_id': 'run-js-1',
         'result': {'status': 'PASS'},
         'gate': {
-          'decision': 'act',
-          'reason': 'auto-fix',
+          'decision': 'observe',
+          'reason': 'No impact yet — watching',
           'citation': '',
-          'language': 'typescript',
+          'checks': [
+            {'name': 'hard_limit', 'result': 'pass', 'detail': 'no breach'},
+            {'name': 'armed', 'result': 'pass', 'detail': 'armed'},
+            {
+              'name': 'expected',
+              'result': 'pass',
+              'detail': 'no behaviour matched'
+            },
+            {'name': 'mode', 'result': 'skip', 'detail': 'no mode'},
+            {'name': 'baseline', 'result': 'skip', 'detail': 'baseline none'},
+            {'name': 'impact', 'result': 'pass', 'detail': 'no impact yet'},
+          ],
+          'system_id': 'acme-node',
+          'language': 'javascript',
         },
         'verification': {
           'runner': 'vitest',
@@ -84,7 +99,10 @@ void main() {
         'steps': [],
       });
       await _pumpReport(tester, detail);
-      expect(find.text('TYPESCRIPT'), findsOneWidget);
+      expect(find.text('JAVASCRIPT'), findsOneWidget);
+      expect(find.text('GATE: WATCHING'), findsOneWidget);
+      expect(find.text('No impact yet — watching'), findsOneWidget);
+      expect(find.text('AUTO-FIX UNAVAILABLE'), findsNothing);
       expect(find.text('Verified: tests fail→pass in vitest'),
           findsOneWidget);
     });
