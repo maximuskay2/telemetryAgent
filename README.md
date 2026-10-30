@@ -20,7 +20,9 @@ for the event — every line was written during the hackathon (Oct 27 – Nov 4)
   webhook) and cold-chain devices. TelemetryAgent catches a real error, proves
   a fix on **your code** in a sandbox, and opens a **PR on your repo** — while
   the phone rings with fix options. Nothing shuts down without a human (see
-  [the uptime promise](#uptime-promise)).
+  [the uptime promise](#uptime-promise)). Auto-fix today: **Python**; rolling
+  out: **JavaScript/TypeScript, Java, Kotlin, Go, Rust, PHP** (per-language
+  repo needs: [docs/USAGE.md](docs/USAGE.md)).
 
 ## The 3-minute demo (judges start here)
 

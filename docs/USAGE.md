@@ -297,16 +297,28 @@ direct edit to your branches.
 
 **What your repo needs for auto-fix:**
 
-- Python, with errors logged as full tracebacks whose frames point at
-  files in the repo (container paths like `/app/x.py` are matched by
-  suffix).
-- A pytest suite that runs from the repo root as `python -m pytest`.
-- Dependencies in `requirements.txt`, or a `pyproject.toml` /
-  `setup.py` / `setup.cfg` (installed with `pip install -e .`).
+| Language | We detect | Log the error as | Test runner (offline after install) |
+|---|---|---|---|
+| Python | `requirements.txt` / `pyproject.toml` / `setup.py` | Full `Traceback (most recent call last):` | `python -m pytest` from the repo root |
+| JavaScript / TypeScript | `package.json` (`tsconfig.json` → TS) | V8 stack (`Error: …` + `at …` lines); ship source maps (`node --enable-source-maps`) | Jest, Vitest, Mocha or `node --test` |
+| Java | `pom.xml` / `build.gradle(.kts)` | Full stack trace (`Exception in thread …` + `at …`, incl. `Caused by:`) | Maven Surefire or Gradle (`mvn -o test` / `./gradlew --offline test`) |
+| Kotlin | `build.gradle(.kts)` + `.kt` files | Full JVM stack trace, as Java | Maven or Gradle, as Java |
+| Go | `go.mod` | `panic: …` + `goroutine …` stack | `go test ./...` |
+| Rust | `Cargo.toml` | Panic location + `RUST_BACKTRACE=1` backtrace | `cargo test --offline` |
+| PHP | `composer.json` | `PHP Fatal error: …` + `Stack trace:` (`display_errors=stderr`) | PHPUnit or Pest with `--log-junit` |
+
+- Frames must point at files in the repo (container paths like
+  `/app/x.py` are matched by suffix; `dist/` JS maps back to `src/` TS
+  when the sources are in the repo).
+- Dependencies install once with network (`pip`, `npm ci` / `pnpm` /
+  `yarn --frozen-lockfile`, `mvn`, `./gradlew`, `go mod download`,
+  `cargo fetch`, `composer install`); the suite itself must run offline.
 - A fix that fits in at most 3 files. Anything bigger becomes a draft PR
   with the diagnosis.
 - The system must be **armed** (Teach → Confirm + Arm). Errors from an
   unarmed system are recorded but never start a fix.
+- A language we don't support yet gets alerts and rollback only — the
+  repo test says so up front ("Detected: … · alerts and rollback only").
 
 ### C.3 Hosting — roll back and restart
 
