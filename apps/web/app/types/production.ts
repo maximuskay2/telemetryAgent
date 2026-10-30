@@ -56,6 +56,10 @@ export type ConnectionTest = {
   ok: boolean;
   detail: string;
   permissions?: { read: boolean; pull_requests: boolean };
+  // L-N3: languages-roadmap §3 H0 (core/schemas/production.py). Absent until
+  // the backend ships the repo-language detection.
+  language?: string | null;
+  autofix?: boolean | null;
 };
 
 export type OptionSafety = {

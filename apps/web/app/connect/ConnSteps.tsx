@@ -5,6 +5,7 @@ import { useState } from "react";
 import { apiUrl } from "../lib/api";
 import { Card, StatusDot } from "../ui";
 import { createConnection, testConnection } from "./api";
+import { DetectedLine } from "./DetectedLine";
 import type { ConnectionTest, ProdConnection } from "../types/production";
 import { useConnectionLive } from "./useConnectionLive";
 import {
@@ -31,6 +32,7 @@ function TestResult({ result }: { result: ConnectionTest | null }) {
           {result.permissions.pull_requests ? "✓" : "✗"}
         </span>
       )}
+      <DetectedLine language={result.language} autofix={result.autofix} />
     </div>
   );
 }
