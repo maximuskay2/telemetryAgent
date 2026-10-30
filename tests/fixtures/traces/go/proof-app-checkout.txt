@@ -1,0 +1,26 @@
+2026/10/30 15:21:19 panic: runtime error: integer divide by zero
+goroutine 19 [running]:
+runtime/debug.Stack()
+	/usr/local/go/src/runtime/debug/stack.go:26 +0x64
+proofshop/shop.Handler.withRecovery.func1.1()
+	/app/shop/server.go:73 +0x44
+panic({0x26f940?, 0x4e81f0?})
+	/usr/local/go/src/runtime/panic.go:791 +0x124
+proofshop/shop.Summarize({0x51b920, 0x40000ae100?, 0x0})
+	/app/shop/cart.go:70 +0x1b8
+proofshop/shop.NewMux.func2({0x33b268, 0x40000bc000}, 0xffff3dd41408?)
+	/app/shop/server.go:106 +0x174
+net/http.HandlerFunc.ServeHTTP(0x400011a0e0?, {0x33b268?, 0x40000bc000?}, 0x0?)
+	/usr/local/go/src/net/http/server.go:2220 +0x38
+net/http.(*ServeMux).ServeHTTP(0x400005bae8?, {0x33b268, 0x40000bc000}, 0x40000b0140)
+	/usr/local/go/src/net/http/server.go:2747 +0x1b4
+proofshop/shop.Handler.withRecovery.func1({0x33b268?, 0x40000bc000?}, 0x0?)
+	/app/shop/server.go:79 +0x6c
+net/http.HandlerFunc.ServeHTTP(0x10?, {0x33b268?, 0x40000bc000?}, 0x40000bc000?)
+	/usr/local/go/src/net/http/server.go:2220 +0x38
+net/http.serverHandler.ServeHTTP({0x33a0d0?}, {0x33b268?, 0x40000bc000?}, 0x6?)
+	/usr/local/go/src/net/http/server.go:3210 +0xbc
+net/http.(*conn).serve(0x4000184120, {0x33b848, 0x400010cdb0})
+	/usr/local/go/src/net/http/server.go:2092 +0x4fc
+created by net/http.(*Server).Serve in goroutine 1
+	/usr/local/go/src/net/http/server.go:3360 +0x3dc

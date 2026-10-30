@@ -245,7 +245,8 @@ class ConnectFieldsTest(unittest.TestCase):
         result = self._check("Go", [])
         self.assertTrue(result["ok"])
         self.assertEqual(result["language"], "go")
-        self.assertFalse(result["autofix"])
+        # Gated like typescript: True now the go ADAPTER exists.
+        self.assertEqual(result["autofix"], by_name("go") is not None)
 
     def test_unsupported_language_not_autofixable(self):
         result = self._check("Cobol", ["main.cob"])

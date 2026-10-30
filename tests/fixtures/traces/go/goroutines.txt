@@ -1,0 +1,7 @@
+panic: worker blew up
+
+goroutine 5 [running]:
+main.worker()
+	/s/goroutines.go:7 +0x2c
+created by main.main in goroutine 1
+	/s/goroutines.go:10 +0x24

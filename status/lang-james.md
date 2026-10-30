@@ -1,7 +1,7 @@
 # James status (languages)
-Current block: L-J4 next (L-J3 done, merging)
+Current block: L-J5 next (L-J4 done, merging)
 Done: L-J0 (8276c12, on main, tagged lang-contracts-in), L-J1 (c2c2d8a),
-  L-J2 (31ad582), checkpoint (3a65e68), L-J3 (this commit)
+  L-J2 (31ad582), checkpoint (3a65e68), L-J3 (3aed4f1), L-J4 (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -88,6 +88,11 @@ Decisions:
   re-runnable scratch runs live at /tmp/e2e_java.py + /tmp/e2e_kotlin.py.
   Gradle path implemented per §1.1 + unit-tested, E2E-unproven (no
   Gradle proof app exists).
+- L-J4: recovered panics (`log.Printf` + `debug.Stack`) carry a timestamp
+  and keep the `goroutine` line — both tolerated; `fatal error:` (no
+  panic line) stays unsupported, noted limit. proof-app-go E2E PASS
+  (~2 min, zero-dep). `test_rollup_fallback_when_tree_empty` now gates
+  `autofix` on adapter presence (same as the TS flip).
 - Tag race (30 Oct): `lang-contracts-in` was pushed pointing at the
   pre-rebase L-J0 (9da95a5) when John's L-N3..N5 landed mid-merge and the
   first main push rejected. Deleted the remote tag, rebased L-J0 onto
@@ -121,11 +126,15 @@ BLOCKED: none
 - Checkpoint DONE (this commit): python claim gate + `ClaimGateTest`
   (node/go/java/rust/php), TS autofix test gated, `venv` ignored;
   743 green, `check.sh` green. Unblocks John's L-N1 wiring merge.
-- L-J3 DONE (this commit): `lang/java.py` (JVM parser, package→path
+- L-J3 DONE (3aed4f1, main): `lang/java.py` (JVM parser, package→path
   incl. multi-module, Maven+Gradle, surefire XML + stdout fallbacks);
   8 real fixtures (6 java + 2 kotlin); Modal images + image threading;
-  proof-app-java + proof-app-kotlin E2E PASS in Docker (mocked GitHub);
-  833 green, `check.sh` green.
+  proof-app-java + proof-app-kotlin E2E PASS in Docker (mocked GitHub).
+- L-J4 DONE (this commit): `lang/go.py` (panic + goroutine parser with
+  `log.Printf` timestamp tolerance, module-path stripping, `go test`
+  JSON); 6 real fixtures; `GOMODCACHE`/`GOCACHE` (+ preemptive
+  `CARGO_HOME` for Jude) pinned to /work; proof-app-go E2E PASS in
+  Docker (mocked GitHub, /tmp/e2e_go.py); 919 green, `check.sh` green.
 - L-J4 LEFT: not started — `lang/go.py` (panic parser, module-path strip,
   `go test -json`). proof-app-go on main — E2E unblocked.
 - L-J5 LEFT: not started — snapshot filter (`target/`, `build/`,

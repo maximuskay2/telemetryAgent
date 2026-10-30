@@ -1,0 +1,7 @@
+panic: boom from lib
+
+goroutine 1 [running]:
+proofshop-go/scratchlib.Boom(...)
+	/s/scratchlib/lib.go:3
+main.main()
+	/s/unrecovered.go:5 +0x30

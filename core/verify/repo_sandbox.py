@@ -267,10 +267,14 @@ class DockerRepoSandbox(RepoSandbox):
                     "-e", "PYTHONPATH=/work/.deps",
                     "-e", "PIP_TARGET=/work/.deps",
                     "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1",
-                    # Throwaway run per exec: only /work persists, so JVM
-                    # caches live there (go/rust add theirs in L-J4/L-D2).
+                    # Throwaway run per exec: only /work persists, so every
+                    # toolchain cache lives there (else install-time downloads
+                    # vanish before the suite runs).
                     "-e", "MAVEN_OPTS=-Dmaven.repo.local=/work/.m2",
                     "-e", "GRADLE_USER_HOME=/work/.gradle",
+                    "-e", "GOMODCACHE=/work/.gomod",
+                    "-e", "GOCACHE=/work/.gocache",
+                    "-e", "CARGO_HOME=/work/.cargo",
                     self._image,
                     *cmd,
                 ],
