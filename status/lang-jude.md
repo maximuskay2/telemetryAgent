@@ -1,8 +1,8 @@
 # Jude status (languages)
 
-Current block: T-L1 (matrix; waiting on go adapter + php/jvm image fixes, then run)
+Current block: T-L1 (6/7 live PASS; waiting on James L-J4 Go adapter for the last cell)
 
-Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (f84e974); L-D5 DONE (this commit); T-L1 LEFT
+Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (901ab0b); L-D4 DONE (f84e974); L-D5 DONE (77ee810); T-L1 LEFT (go only)
 
 Done: L-D1 (six proof apps), L-D2 (Rust adapter), L-D3 (PHP adapter), L-D4 (harness), L-D5 (docs/languages.md + 2 link lines)
 
@@ -49,7 +49,9 @@ Contract changes requested:
 7. John (ta_forward.py, his file): the Rust head regex misses current rustc thread ids (`thread 'w' (164) panicked at …`) — head + message lines drop at default level (only `stack backtrace:` recovers). Also, Monolog `"exception":"[object] (…)"` lines never start a trace, so `[stacktrace]` blocks are dropped (the continue rule exists but no trace is open).
 8. James (_pipeline): pass `adapter.image` to `open_repo_sandbox` (currently always the python image) and wire per-language Modal images (his L-J0 note says "when the adapters land" — rust/php have landed). The L-D4 harness works around it via sandbox_factory.
 
-Live runs (lang · result · seconds · model): 30 Oct (all via lang_e2e.sh --live, GitHub mocked): python PASS 35s live-chain; rust PASS 34s live-chain; php PASS 52s live-chain. (1 of 3 daily budget used per language; js/java/kotlin/go have no adapters yet.)
+Live runs (lang · result · seconds · model): all via lang_e2e.sh --live, GitHub mocked, 30 Oct.
+- Round 1 (L-D4): python PASS 35s live-chain; rust PASS 34s live-chain; php PASS 52s live-chain (model labels not captured; harness fixed since).
+- Round 2 (T-L1 partial, 6/7): python PASS 37s baseten:muse-spark-open-1026; javascript PASS 29s baseten:muse-spark-open-1026; java PASS 157s baseten:muse-spark-open-1026; kotlin PASS 206s baseten:muse-spark-open-1026; rust PASS 24s baseten:muse-spark-open-1026; php PASS 38s baseten:muse-spark-open-1026; go SKIP (no adapter). Total 490s. Budget used: python/rust/php 2 of 3, js/java/kotlin 1 of 3.
 
 NEEDS FROM AKINGBADE: none
 

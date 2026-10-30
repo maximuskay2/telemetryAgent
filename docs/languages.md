@@ -17,15 +17,16 @@ log, and the known limits.
 | Language | Detect | Test runner | Repro test | Status |
 |---|---|---|---|---|
 | Python | `requirements.txt` / `pyproject.toml` | `python -m pytest` | `tests/test_telemetry_agent_<fp>.py` | ✅ Live (proven in production) |
-| JavaScript / TypeScript | `package.json` (`tsconfig.json` → TS) | Jest, Vitest, Mocha, `node --test` | `ta_repro_<fp>.test.<ext>` by repo convention | ✅ Adapter wired, matrix proof pending |
-| Java | `pom.xml` / `build.gradle(.kts)` | Maven Surefire / Gradle | `src/test/java/<pkg>/TaRepro<Fp>Test.java` | 🔶 Adapter landed, end-to-end proof pending |
-| Kotlin | `build.gradle(.kts)` + `.kt` files | Maven / Gradle | `src/test/kotlin/<pkg>/TaRepro<Fp>Test.kt` | 🔶 Adapter landed, end-to-end proof pending |
+| JavaScript / TypeScript | `package.json` (`tsconfig.json` → TS) | Jest, Vitest, Mocha, `node --test` | `ta_repro_<fp>.test.<ext>` by repo convention | ✅ Live matrix PASS (29s) |
+| Java | `pom.xml` / `build.gradle(.kts)` | Maven Surefire / Gradle | `src/test/java/<pkg>/TaRepro<Fp>Test.java` | ✅ Live matrix PASS (157s) |
+| Kotlin | `build.gradle(.kts)` + `.kt` files | Maven / Gradle | `src/test/kotlin/<pkg>/TaRepro<Fp>Test.kt` | ✅ Live matrix PASS (206s) |
 | Go | `go.mod` | `go test ./...` | `ta_repro_<fp>_test.go` next to the crash file | 🔶 Adapter in progress |
-| Rust | `Cargo.toml` | `cargo test --offline` | `tests/ta_repro_<fp>.rs` (inline module if no lib target) | ✅ Adapter + Docker proof done |
-| PHP | `composer.json` | PHPUnit / Pest (`--log-junit`) | `tests/TaRepro<Fp>Test.php` | ✅ Adapter + Docker proof done |
+| Rust | `Cargo.toml` | `cargo test --offline` | `tests/ta_repro_<fp>.rs` (inline module if no lib target) | ✅ Live matrix PASS (24s) |
+| PHP | `composer.json` | PHPUnit / Pest (`--log-junit`) | `tests/TaRepro<Fp>Test.php` | ✅ Live matrix PASS (38s) |
 
-`<fp>` is the 12-char error fingerprint. Status as of 30 Oct; `/connect`
-repo test always reports the live answer per repo.
+`<fp>` is the 12-char error fingerprint. Timings are the 30 Oct live
+matrix (`scripts/lang_e2e.sh --live`, GitHub mocked, Baseten models);
+`/connect` repo test always reports the live answer per repo.
 
 ## What each language needs
 
