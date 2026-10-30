@@ -114,7 +114,28 @@ class RunReport {
         ? 'Verified: tests fail→pass'
         : 'Verified: tests fail→pass in $runner';
   }
+
+  /// Incident language (L-N4): the gate body carries it (roadmap §3 H0),
+  /// with result['language'] as a fallback. '' until the backend sends it.
+  String get language {
+    final fromGate = gate?.language ?? '';
+    if (fromGate.isNotEmpty) return fromGate;
+    return result['language'] as String? ?? '';
+  }
 }
+
+/// Friendly display label for an adapter language name (L-N4).
+String languageLabel(String language) => switch (language) {
+      'python' => 'Python',
+      'javascript' => 'JavaScript',
+      'typescript' => 'TypeScript',
+      'java' => 'Java',
+      'kotlin' => 'Kotlin',
+      'go' => 'Go',
+      'rust' => 'Rust',
+      'php' => 'PHP',
+      _ => language,
+    };
 
 /// The setup gate's verdict for the candidate behind this run:
 /// suppress / observe / act, with reason, citation, and per-check detail.
@@ -125,6 +146,7 @@ class GateDecision {
     required this.citation,
     this.checks = const [],
     this.systemId = '',
+    this.language = '',
   });
 
   final String decision;
@@ -132,6 +154,7 @@ class GateDecision {
   final String citation;
   final List<GateCheck> checks;
   final String systemId;
+  final String language;
 
   factory GateDecision.fromJson(Map<String, dynamic> json) {
     final rawChecks = json['checks'];
@@ -140,6 +163,7 @@ class GateDecision {
       reason: json['reason'] as String? ?? '',
       citation: json['citation'] as String? ?? '',
       systemId: json['system_id'] as String? ?? '',
+      language: json['language'] as String? ?? '',
       checks: rawChecks is List
           ? rawChecks
               .whereType<Map>()

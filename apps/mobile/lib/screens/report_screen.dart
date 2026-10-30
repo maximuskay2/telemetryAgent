@@ -161,6 +161,11 @@ class ReportBody extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     _Badge(report.domain, Accents.model),
+                    if (report.language.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      _Badge(
+                          languageLabel(report.language), Accents.model),
+                    ],
                     if (report.source.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       _Badge('via ${report.source}', Accents.muted),
@@ -202,6 +207,9 @@ class ReportBody extends StatelessWidget {
     if (attempts != null) parts.add('$attempts attempt(s)');
     final model = report.result['model_used'] as String?;
     if (model != null && model.isNotEmpty) parts.add(model);
+    if (report.verificationRunner.isNotEmpty) {
+      parts.add('runner ${report.verificationRunner}');
+    }
     if (parts.isEmpty) return 'no timing info yet';
     return parts.join(' · ');
   }
@@ -457,6 +465,10 @@ class _GateCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _Badge('Gate: ${verdict.label}', accent),
+          if (verdict.reason.contains('auto-fix not supported')) ...[
+            const SizedBox(height: 8),
+            const _Badge('Auto-fix unavailable', Accents.warn),
+          ],
           if (verdict.reason.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
