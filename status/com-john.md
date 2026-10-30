@@ -1,7 +1,12 @@
 # John status (commercial)
-Current block: C-N3..C-N5 ready to merge (check.sh pending)
-Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (852c7e6),
-C-N4 Phase 1 app (c0806dd), C-N5 Usage page + USAGE.md §D (this branch)
+Current block: C-N3..C-N5 rebased on tag main, check.sh pending
+Done: C-N1+C-N2 sales look (merged 0c63127), C-N3 Phase 1 web (7fcb766),
+C-N4 Phase 1 app (2506910), C-N5 Usage page + USAGE.md §D (c6fbedf)
+Tag: commercial-contracts-in adopted — rebased clean on origin/main
+(4820876, Jude usage/allowance). No /api/orgs routes on main yet
+(James C-J1 still on com/james), so mocks stay; verified my Usage
+type matches Jude's usage_summary keys exactly (incl. by_language).
+Freed port 8201 (stopped my API) — James's C-J1 merge unblocked.
 §8 confirmation (for C-J0): read and accepted — building web/app against the frozen §8.4 JSON with mocks per C-6. No contract issues so far.
 Decisions:
 - Tokens: light `:root` default (FB wash #F0F2F5, white cards, #050505,
