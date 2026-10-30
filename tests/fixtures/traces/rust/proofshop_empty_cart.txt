@@ -1,0 +1,33 @@
+proof-shop-rust listening on 0.0.0.0:8325
+
+thread 'proof-shop-worker' (20) panicked at src/cart.rs:70:19:
+attempt to divide by zero
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_const::panic_const_div_by_zero
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:175:17
+   3: proof_shop_rust::cart::summary
+             at ./src/cart.rs:70:19
+   4: proof_shop_rust::server::handle
+             at ./src/server.rs:280:23
+   5: proof_shop_rust::server::handle_connection
+             at ./src/server.rs:334:28
+   6: proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0}
+             at ./src/server.rs:348:21
+   7: <proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+   8: <core::panic::unwind_safe::AssertUnwindSafe<proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0}> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panic/unwind_safe.rs:275:9
+   9: std::panicking::catch_unwind::do_call::<core::panic::unwind_safe::AssertUnwindSafe<proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0}>, ()>
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:576:43
+  10: __rust_try
+  11: std::panicking::catch_unwind::<(), core::panic::unwind_safe::AssertUnwindSafe<proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0}>>
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:544:19
+  12: std::panic::catch_unwind::<core::panic::unwind_safe::AssertUnwindSafe<proof_shop_rust::server::run_on_listener::{closure#0}::{closure#0}>, ()>
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panic.rs:359:14
+  13: proof_shop_rust::server::run_on_listener::{closure#0}
+             at ./src/server.rs:347:32
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

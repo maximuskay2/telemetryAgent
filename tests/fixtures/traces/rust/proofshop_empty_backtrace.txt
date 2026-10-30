@@ -1,0 +1,6 @@
+proof-shop-rust listening on 0.0.0.0:8325
+
+thread 'proof-shop-worker' (164) panicked at src/cart.rs:70:19:
+attempt to divide by zero
+stack backtrace:
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

@@ -1,0 +1,1 @@
+thread 'main' panicked at 'attempt to divide by zero', src/main.rs:2:5

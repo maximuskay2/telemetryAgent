@@ -1,0 +1,15 @@
+
+thread 'main' (11) panicked at src/bin/custom_panic.rs:1:40:
+order total went negative: -50
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+   1: core::panicking::panic_fmt
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+   2: custom_panic::charge
+             at ./src/bin/custom_panic.rs:1:40
+   3: custom_panic::main
+             at ./src/bin/custom_panic.rs:2:13
+   4: <fn() as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
