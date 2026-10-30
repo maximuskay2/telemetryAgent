@@ -1,0 +1,14 @@
+checkout empty cart -> HTTP 500 (expect 500)
+--- production trace ---
+[Fri Oct 30 14:12:35 2026] PHP 8.5.12 Development Server (http://127.0.0.1:8326) started
+[Fri Oct 30 14:12:35 2026] 127.0.0.1:60020 Accepted
+[Fri Oct 30 14:12:35 2026] 127.0.0.1:60020 Closing
+[Fri Oct 30 14:12:35 2026] 127.0.0.1:60021 Accepted
+[Fri Oct 30 14:12:35 2026] PHP Fatal error:  Uncaught DivisionByZeroError: Division by zero in /Users/maximusinfotechservices/Documents/META/telemetry-agent-jude/examples/proof-app-php/src/Cart.php:62
+Stack trace:
+#0 /Users/maximusinfotechservices/Documents/META/telemetry-agent-jude/examples/proof-app-php/src/Cart.php(62): intdiv(0, 0)
+#1 /Users/maximusinfotechservices/Documents/META/telemetry-agent-jude/examples/proof-app-php/src/Shop.php(28): ProofShop\Cart::summary(Array)
+#2 /Users/maximusinfotechservices/Documents/META/telemetry-agent-jude/examples/proof-app-php/public/index.php(29): ProofShop\Shop::handle('POST', '/checkout', '{"items": []}')
+#3 {main}
+  thrown in /Users/maximusinfotechservices/Documents/META/telemetry-agent-jude/examples/proof-app-php/src/Cart.php on line 62
+[Fri Oct 30 14:12:35 2026] 127.0.0.1:60021 Closing

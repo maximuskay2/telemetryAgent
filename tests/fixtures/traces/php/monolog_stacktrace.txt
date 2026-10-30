@@ -1,0 +1,6 @@
+[2026-10-30T13:14:24.351847+00:00] proof-shop.ERROR: checkout failed {"cart":[],"exception":"[object] (DivisionByZeroError(code: 0): Division by zero at /app/mono.php:11)
+[stacktrace]
+#0 /app/mono.php(11): intdiv(100, 0)
+#1 /app/mono.php(13): charge(100, 0)
+#2 {main}
+"} 

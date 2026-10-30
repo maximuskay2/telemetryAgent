@@ -1,0 +1,23 @@
+PHP Fatal error:  Uncaught InvalidArgumentException: currency code is empty in /private/tmp/php-traces/chained.php:4
+Stack trace:
+#0 /private/tmp/php-traces/chained.php(10): loadRate('')
+#1 /private/tmp/php-traces/chained.php(15): convert(100.0, '')
+#2 {main}
+
+Next RuntimeException: checkout totals unavailable in /private/tmp/php-traces/chained.php:12
+Stack trace:
+#0 /private/tmp/php-traces/chained.php(15): convert(100.0, '')
+#1 {main}
+  thrown in /private/tmp/php-traces/chained.php on line 12
+
+Fatal error: Uncaught InvalidArgumentException: currency code is empty in /private/tmp/php-traces/chained.php:4
+Stack trace:
+#0 /private/tmp/php-traces/chained.php(10): loadRate('')
+#1 /private/tmp/php-traces/chained.php(15): convert(100.0, '')
+#2 {main}
+
+Next RuntimeException: checkout totals unavailable in /private/tmp/php-traces/chained.php:12
+Stack trace:
+#0 /private/tmp/php-traces/chained.php(15): convert(100.0, '')
+#1 {main}
+  thrown in /private/tmp/php-traces/chained.php on line 12

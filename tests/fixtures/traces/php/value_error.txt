@@ -1,0 +1,11 @@
+PHP Fatal error:  Uncaught ValueError: random_int(): Argument #1 ($min) must be less than or equal to argument #2 ($max) in /private/tmp/php-traces/value_error.php:2
+Stack trace:
+#0 /private/tmp/php-traces/value_error.php(2): random_int(10, 2)
+#1 {main}
+  thrown in /private/tmp/php-traces/value_error.php on line 2
+
+Fatal error: Uncaught ValueError: random_int(): Argument #1 ($min) must be less than or equal to argument #2 ($max) in /private/tmp/php-traces/value_error.php:2
+Stack trace:
+#0 /private/tmp/php-traces/value_error.php(2): random_int(10, 2)
+#1 {main}
+  thrown in /private/tmp/php-traces/value_error.php on line 2

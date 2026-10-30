@@ -1,10 +1,10 @@
 # Jude status (languages)
 
-Current block: L-D3 (PHP adapter written + proven; committing next)
+Current block: L-D4 (harness; L-D1/L-D2/L-D3 on main)
 
-Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (this commit); L-D3 LEFT (code done, uncommitted); L-D4 LEFT; L-D5 LEFT; T-L1 LEFT (needs James's python-parser fix + everyone's last merge)
+Blocks: L-D1 DONE (f78fe7f); L-D2 DONE (3f0e7fc); L-D3 DONE (this commit); L-D4 LEFT; L-D5 LEFT; T-L1 LEFT (needs James's python-parser fix + everyone's last merge)
 
-Done: L-D1 (six proof apps, all suites green in sandbox images, all triggers print real traces), L-D2 (below)
+Done: L-D1 (six proof apps, all suites green in sandbox images, all triggers print real traces), L-D2 (Rust adapter), L-D3 (below)
 
 L-D1 verification (Oct 30, stock §1.1 base images): node 21/21 + V8 TypeError trace; java 20/20 (online then offline) + ArithmeticException; kotlin 20/20 + ArithmeticException at Cart.kt:48; go 21/21 + panic/goroutine trace; rust 21/21 + panicked-at/backtrace; php 20/20 + fatal/Stack trace. No suite covers the empty cart; every app answers 500 and keeps serving.
 
@@ -12,6 +12,11 @@ L-D2 Rust adapter (core/repo_fix/lang/rust.py, ADAPTER; tests/test_lang_rust.py,
 - Parses both panic formats incl. current-rustc ` (ThreadId)` (`thread 'w' (164) panicked at …`), 9 real traces (7 generated panics + proof-app trigger + an observed empty-backtrace run) + the documented pre-1.73 one-liner.
 - Frames are throw-site-first (panic location leads, then backtrace locations).
 - E2E in telemetry-agent-sandbox-rust against proof-app-rust: install cmds ok, baseline 21/21, repro at tests/ta_repro_….rs FAILS (exit 101, id parsed), guard fix → repro PASSES → suite 22 green, no new failures.
+
+L-D3 PHP adapter (core/repo_fix/lang/php.py, ADAPTER; tests/test_lang_php.py, 31 tests; 9 fixtures in tests/fixtures/traces/php/):
+- Parses CLI fatals (incl. `[date]` SAPI prefixes, `Next` chains, shutdown repeat), Parse errors, and real Laravel/Monolog `[stacktrace]` blocks (generated via LogManager + LineFormatter with Laravel's settings).
+- PHPUnit primary via --log-junit (nested-XML normalized), stdout fallback; Pest supported (runner, JUnit, stdout shapes all real-captured).
+- E2E in a local php-image variant (James's Dockerfile.php doesn't build yet — request 4): composer install ok, baseline 20/20, repro at tests/TaRepro…Test.php FAILS (error parsed), guard fix → repro PASSES → suite 21 green, no new failures.
 
 Decisions:
 - Locks committed (Cargo.lock, composer.lock): proof apps are deployable services. Zero-dep apps have no lockfile. Added proof-app-go/.gitignore (was missing).

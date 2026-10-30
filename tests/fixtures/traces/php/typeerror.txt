@@ -1,0 +1,11 @@
+PHP Fatal error:  Uncaught TypeError: total(): Argument #1 ($items) must be of type array, string given, called in /private/tmp/php-traces/typeerror.php on line 3 and defined in /private/tmp/php-traces/typeerror.php:2
+Stack trace:
+#0 /private/tmp/php-traces/typeerror.php(3): total('not-an-array')
+#1 {main}
+  thrown in /private/tmp/php-traces/typeerror.php on line 2
+
+Fatal error: Uncaught TypeError: total(): Argument #1 ($items) must be of type array, string given, called in /private/tmp/php-traces/typeerror.php on line 3 and defined in /private/tmp/php-traces/typeerror.php:2
+Stack trace:
+#0 /private/tmp/php-traces/typeerror.php(3): total('not-an-array')
+#1 {main}
+  thrown in /private/tmp/php-traces/typeerror.php on line 2
