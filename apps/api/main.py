@@ -195,6 +195,11 @@ def fridge_tick_s() -> float:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global action_ticker_task
+    if os.environ.get("DATABASE_URL", "").strip():
+        # Commercial backend (C-J1): no-op when the schema is already there.
+        from core.commerce import db as commerce_db
+
+        await asyncio.to_thread(commerce_db.ensure_schema)
     if os.environ.get("FRIDGE_STREAM") == "1":
         ensure_fridge_stream()
     action_ticker_task = asyncio.get_running_loop().create_task(_action_ticker())
