@@ -1,8 +1,8 @@
 # John status (languages)
-Current block: L-N1 wired + proven in Docker — branch pushed, merge BLOCKED on James test flip (see BLOCKED)
+Current block: L-N1 merging (James fix 3a65e68 unblocked; gate running) — L-N4 live-verify pending a gated run
 Done: L-N1 (pure b00fb4f; wiring + node e2e, this branch), L-N2 (5cc0785, merged), L-N3 (13f3f70, merged), L-N4 (941288d, merged), L-N5 (e807af6, merged)
 Blocks (acceptance check Oct 30):
-- L-N1 DONE (wired): single ADAPTER (see Decisions), manifest hook, results.py delegation, 61 tests green + 1 documented skip; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models). LEFT: merge (BLOCKED below).
+- L-N1 DONE (wired; merging): single ADAPTER, manifest hook, results.py delegation, 62 tests green; Docker e2e PASS on Jude's proof-app-node (real trigger.sh TypeError → located src/cart.js → baseline 21/21 → repro FAIL → guard patch → repro PASS → suite 22/22 clean, 3.1s, no models). James 3a65e68 fixed (a)+(b); routing skip guard removed.
 - L-N2 DONE: union rules all §1.1 formats, stdlib-only one file, 12 tests green, merged.
 - L-N3 DONE: merged + LIVE-VERIFIED — real `check_repo` on telemetryAgent-demo returns `language`/`autofix` keys matching the TS type; error path omits them (renders nothing). Both UI branches proven.
 - L-N4 DONE: merged. LEFT: live verify once a gated run carries language.
@@ -74,22 +74,11 @@ Decisions (L-N1 wiring):
   since `proof-app-node` is not merged yet; no models, no GitHub.
 Contract changes requested:
 - Q1/Q2 ANSWERED by L-J0 and adopted (above). Still open:
-- (a) Flip `test_typescript_detected_not_autofixable_yet` to
-  assertTrue (or gate on adapter presence): my landing makes TS
-  autofixable, so it fails now. BLOCKS my merge (James's file).
-- (b) Python parser claims every language: `parse_traceback`
-  returns info for V8 text (exc line, zero frames), and python is
-  first in `registry.parse` — so no V8/Java/Go/Rust/PHP trace
-  will ever route until it requires the header or ≥1 frame
-  (James's `python.py`/`traceback.py`). LIVE evidence 30 Oct:
-  `registry.parse` routes Jude's proof-app-node trigger trace to
-  `python`, so L-J2 `should_trigger` would fail the run early at
-  the `detect` check (python scores 0 on node paths) — the JS
-  pipeline cannot trigger at all until this is fixed. My routing
-  test skips until then.
+- (a) RESOLVED by James 3a65e68 (test now gates on adapter presence).
+- (b) RESOLVED by James 3a65e68 (python claims only python traces;
+  V8 routes to javascript; skip guard removed).
 - L-N3 full string wants manager+runner detail, e.g. repo-test
   response carrying `stack_detail: "npm, Vitest"`. Optional.
 Live runs (lang · result · seconds · model): —
 NEEDS FROM AKINGBADE: —
-BLOCKED: merge of L-N1 wiring to main waits on James (a): check.sh is
-red on exactly that one test; everything else green.
+BLOCKED: —

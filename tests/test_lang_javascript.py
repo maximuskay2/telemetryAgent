@@ -706,12 +706,6 @@ class RegistryWiringTest(unittest.TestCase):
         from core.repo_fix.lang import parse
 
         adapter, found = parse(trace("javascript", "node_typeerror.txt"))
-        if adapter.name == "python":
-            self.skipTest(
-                "framework: python parser claims V8 traces (needs "
-                "James L-J1/L-J2 tightening; see Contract changes "
-                "requested)"
-            )
         self.assertIs(adapter, js.ADAPTER)
         self.assertEqual(found.language, "javascript")
         self.assertTrue(found.frames)
