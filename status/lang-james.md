@@ -1,8 +1,8 @@
 # James status (languages)
-Current block: DONE — all blocks L-J0..L-J5 merged + follow-up (this commit)
+Current block: DONE — all blocks merged; live-draft probe noted (this commit)
 Done: L-J0 (8276c12, tagged lang-contracts-in), L-J1 (c2c2d8a),
   L-J2 (31ad582), checkpoint (3a65e68), L-J3 (3aed4f1), L-J4 (780e00a),
-  L-J5 (f1923fb), L-J5 follow-up (this commit)
+  L-J5 (f1923fb), L-J5 follow-up (e66b901), probe note (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -105,7 +105,7 @@ Decisions:
   (network OK). Git restored 30 Oct; merging now. `.venv-local/` is
   git-ignored and never committed.
 Contract changes requested: none (§3 implemented + John's two answers, both additive)
-Live runs (lang · result · seconds · model): none yet
+Live runs (lang · result · seconds · model): go SKIP 0s live (machine budget 3/3 spent, 30 Oct)
 NEEDS FROM AKINGBADE: none
 BLOCKED: none
 
@@ -149,6 +149,15 @@ BLOCKED: none
   `has_packaging` moved into `lang/python.py` (L-J1 letter: nothing
   Python-specific left in snapshot.py); frozen-test shims stay,
   behaviour byte-identical; 933 green, `check.sh` green.
+- Go/Rust live drafts (Jude OPEN PATTERN, 30 Oct): e66b901 PROVEN
+  innocent — Go model inputs (repro + patch prompts, source list,
+  cmds, rules) byte-identical 780e00a→e66b901 (`/tmp/diff_go_prompts.py`
+  vs worktrees at both ends, mocked). In-window commits: L-J5 snapshot
+  rules (can't affect prompts; mocked green), John's test-only matrix
+  edits, Jude's test-only legs. Round 4 coincides with a proven Meta
+  API 404 window (python FAIL). Conclusion: model variance, agreeing
+  with Jude. Live re-probe blocked today: machine budget 3/3 spent
+  (harness tracks `~/.cache/ta-lang-e2e` globally, not per-agent).
 - James COMPLETE: all six blocks + checkpoint + follow-up on main.
   Open threads for the record: Modal JVM/Go images unverified live
   (no creds here); Gradle E2E unproven (no Gradle proof app);
