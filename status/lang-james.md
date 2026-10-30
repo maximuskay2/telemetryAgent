@@ -1,7 +1,7 @@
 # James status (languages)
-Current block: L-J3 next (L-J0 + L-J1 + L-J2 done, merging L-J2)
+Current block: L-J3 (checkpoint fixes merged, JVM adapter next)
 Done: L-J0 (8276c12, on main, tagged lang-contracts-in), L-J1 (c2c2d8a),
-  L-J2 (this commit)
+  L-J2 (31ad582), checkpoint (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -60,6 +60,18 @@ Decisions:
   Known limits: Sentry-vs-log fingerprints for one bug may differ
   (rendered vs real columns/trailers); pre-adapter Sentry frame lines
   are skipped, the head line carries the candidate.
+- Checkpoint (30 Oct, Akingbade): (1) python claims a trace only with
+  the `Traceback` header or ≥1 Python frame — V8/Go/JVM/Rust/PHP heads
+  no longer route to python (John's (b)); `ClaimGateTest` locks all five
+  + header-only Python. (2) `test_typescript_autofix_follows_adapter`
+  gates on adapter presence (John's (a) option) — green before and after
+  his wiring lands. (3) `.gitignore` gains bare `venv` (`venv/` never
+  matched the `venv` → `.venv-local` symlink check.sh uses).
+- L-J3 adopts Jude's Maven install (`mvn -B -q -DskipTests test`, not
+  bare `dependency:go-offline` — surefire providers must prefetch).
+  Single `ADAPTER` (name "java") + `.kt`/kotlin sniffing for the language
+  preset; the `ADAPTERS` shape stays available but the JVM wire format
+  needs only one object (aliases + `refined_name` already cover kotlin).
 - Tag race (30 Oct): `lang-contracts-in` was pushed pointing at the
   pre-rebase L-J0 (9da95a5) when John's L-N3..N5 landed mid-merge and the
   first main push rejected. Deleted the remote tag, rebased L-J0 onto
@@ -84,15 +96,18 @@ BLOCKED: none
   adapter only (`PYTEST`/`parse_pytest` shims kept);
   `tests/test_lang_python.py` + `tests/fixtures/traces/python/`;
   `test_prod_repofix.py` untouched green; 722 green at merge.
-- L-J2 DONE (this commit): multi-language assembler (UNION start,
+- L-J2 DONE (31ad582, main): multi-language assembler (UNION start,
   python-legacy + generic completion, orphan handoff); registry parse in
   `assemble`; traceback-rule fallback + `language`/`autofix`/`autofix_note`
   in gate bodies; Sentry `platform` → native rendering + marker;
   `should_trigger` names the adapter, `_pipeline` enforces `detect`;
-  adapter + `test_relpath` threaded; 737 green, `check.sh` green.
-- L-J3 LEFT: not started — `lang/java.py` (JVM parser, package→path,
-  Maven+Gradle, surefire/Gradle XML). Jude's proof-app-java/kotlin are on
-  main (L-D1) — E2E unblocked.
+  adapter + `test_relpath` threaded; 737 green at merge.
+- Checkpoint DONE (this commit): python claim gate + `ClaimGateTest`
+  (node/go/java/rust/php), TS autofix test gated, `venv` ignored;
+  743 green, `check.sh` green. Unblocks John's L-N1 wiring merge.
+- L-J3 LEFT: in progress — `lang/java.py` (JVM parser, package→path,
+  Maven+Gradle, surefire/Gradle XML). proof-app-java trace captured real;
+  Kotlin trigger needs debug (server didn't start in our image).
 - L-J4 LEFT: not started — `lang/go.py` (panic parser, module-path strip,
   `go test -json`). proof-app-go on main — E2E unblocked.
 - L-J5 LEFT: not started — snapshot filter (`target/`, `build/`,

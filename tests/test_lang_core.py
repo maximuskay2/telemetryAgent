@@ -230,13 +230,16 @@ class ConnectFieldsTest(unittest.TestCase):
         self.assertEqual(result["language"], "python")
         self.assertTrue(result["autofix"])
 
-    def test_typescript_detected_not_autofixable_yet(self):
+    def test_typescript_autofix_follows_adapter(self):
         result = self._check(
             "TypeScript", ["package.json", "tsconfig.json", "src/a.ts"]
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["language"], "typescript")
-        self.assertFalse(result["autofix"])  # John's adapter not landed
+        # Gated: False until John's javascript ADAPTER wires, True after.
+        self.assertEqual(
+            result["autofix"], by_name("typescript") is not None
+        )
 
     def test_rollup_fallback_when_tree_empty(self):
         result = self._check("Go", [])

@@ -144,6 +144,64 @@ class AdapterContractTest(unittest.TestCase):
         )
 
 
+class ClaimGateTest(unittest.TestCase):
+    """Python claims only Python-shaped traces (header or ≥1 frame).
+
+    The bare `Exc: msg` pattern matches every language's head; without
+    this gate python (first in registry.parse) would swallow them all.
+    """
+
+    NODE_TRACE = "tests/fixtures/traces/javascript/node_typeerror.txt"
+
+    GO_PANIC = (
+        "panic: runtime error: integer divide by zero\n"
+        "\n"
+        "goroutine 1 [running]:\n"
+        "shop/cart.total(...)\n"
+        "\t/app/cart.go:70 +0x1d\n"
+    )
+
+    JAVA_TRACE = (
+        "java.lang.ArithmeticException: / by zero\n"
+        "\tat com.example.shop.Cart.summary(Cart.java:58)\n"
+    )
+
+    RUST_PANIC = (
+        "thread 'main' panicked at src/cart.rs:70:19:\n"
+        "integer divide by zero\n"
+    )
+
+    PHP_FATAL = (
+        "PHP Fatal error:  Uncaught DivisionByZeroError: Division by zero"
+        " in /app/src/Cart.php:62\n"
+        "Stack trace:\n"
+        "#0 /app/src/Cart.php(62): summary()\n"
+    )
+
+    def test_node_trace_not_claimed(self):
+        with open(self.NODE_TRACE) as handle:
+            self.assertIsNone(ADAPTER.parse_trace(handle.read()))
+
+    def test_go_panic_not_claimed(self):
+        self.assertIsNone(ADAPTER.parse_trace(self.GO_PANIC))
+
+    def test_java_trace_not_claimed(self):
+        self.assertIsNone(ADAPTER.parse_trace(self.JAVA_TRACE))
+
+    def test_rust_panic_not_claimed(self):
+        self.assertIsNone(ADAPTER.parse_trace(self.RUST_PANIC))
+
+    def test_php_fatal_not_claimed(self):
+        self.assertIsNone(ADAPTER.parse_trace(self.PHP_FATAL))
+
+    def test_header_only_python_still_claimed(self):
+        info = ADAPTER.parse_trace(
+            "Traceback (most recent call last):\nValueError: bad\n"
+        )
+        self.assertIsNotNone(info)
+        self.assertEqual(info.exc_type, "ValueError")
+
+
 class GenerateAdapterTest(unittest.TestCase):
     def test_repro_uses_adapter_rules(self) -> None:
         seen = {}

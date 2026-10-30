@@ -55,7 +55,17 @@ class _PythonAdapter:
         )
 
     def parse_trace(self, text: str) -> Optional[TracebackInfo]:
-        return parse_traceback(text)
+        # Claim only Python-shaped traces: the bare `Exc: msg` pattern
+        # also matches V8/Go/JVM/Rust/PHP heads, and python sorts first
+        # in registry.parse — without this gate no other language routes.
+        info = parse_traceback(text)
+        if info is None:
+            return None
+        if info.frames:
+            return info
+        if "Traceback (most recent call last):" in text:
+            return info
+        return None
 
     def map_frame(
         self, frame_file: str, func: str, paths: List[str]
