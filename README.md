@@ -208,6 +208,8 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
 
 ## Roadmap index
 
+- [`docs/USAGE.md`](./docs/USAGE.md) — use it locally, run it in production,
+  connect your production (the customer guide).
 - [`roadmap.md`](./roadmap.md) — master plan + submission quick-sheet.
 - [`about.md`](./about.md) — technical blueprint.
 - [`production-roadmap.md`](./production-roadmap.md) — real integrations
