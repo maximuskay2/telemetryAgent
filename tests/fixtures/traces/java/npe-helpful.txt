@@ -1,0 +1,3 @@
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "String.trim()" because "<local0>" is null
+	at Npe.name(Npe.java:4)
+	at Npe.main(Npe.java:7)

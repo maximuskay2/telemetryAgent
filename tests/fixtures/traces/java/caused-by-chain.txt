@@ -1,0 +1,10 @@
+Exception in thread "main" java.lang.IllegalStateException: top
+	at Chained.main(Chained.java:19)
+Caused by: java.lang.RuntimeException: wrap failed
+	at Chained.level2(Chained.java:9)
+	at Chained.level1(Chained.java:13)
+	at Chained.main(Chained.java:17)
+Caused by: java.lang.IllegalArgumentException: bad value 42
+	at Chained.level3(Chained.java:3)
+	at Chained.level2(Chained.java:7)
+	... 2 more

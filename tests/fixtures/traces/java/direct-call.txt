@@ -1,0 +1,3 @@
+Exception in thread "main" java.lang.ArithmeticException: / by zero
+	at com.example.shop.Cart.summary(Cart.java:58)
+	at DirectJava.main(DirectJava.java:5)

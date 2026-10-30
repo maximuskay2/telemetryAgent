@@ -56,6 +56,61 @@ _APPEND_CHUNK = (
 )
 
 
+def _modal_image(key: str):  # modal.Image; import is caller-side
+    """Modal sandbox image per language (§1.1 toolchains, L-J3).
+
+    Unknown keys fall back to python (never fail here — the pipeline
+    picks only registered adapter images, and Docker is the fallback).
+    """
+    import modal
+
+    if key == "node":
+        return modal.Image.from_registry("node:20-slim").run_commands(
+            "corepack enable"
+        )
+    if key == "jvm":
+        return modal.Image.from_registry(
+            "eclipse-temurin:21-jdk"
+        ).apt_install("maven")
+    if key == "go":
+        return modal.Image.from_registry("golang:1.23-bookworm")
+    if key == "rust":
+        return modal.Image.from_registry(
+            "rust:1-slim-bookworm"
+        ).apt_install("ca-certificates")
+    if key == "php":
+        return (
+            modal.Image.from_registry("php:8.3-cli-bookworm")
+            .apt_install(
+                "git", "unzip", "ca-certificates", "libicu-dev", "libzip-dev"
+            )
+            .run_commands(
+                "docker-php-ext-install mbstring xml intl zip pdo_sqlite",
+                "php -r \"copy('https://getcomposer.org/installer', "
+                "'composer-setup.php');\" && "
+                "php composer-setup.php --install-dir=/usr/bin "
+                "--filename=composer && rm composer-setup.php",
+            )
+        )
+    return modal.Image.debian_slim(python_version="3.11").pip_install("pytest")
+
+
+def _append_cmd(path: str, encoded: str, portable: bool) -> List[str]:
+    """Exec argv appending one base64 chunk to a guest file.
+
+    Python guests keep the legacy `python -c` path (byte-identical);
+    every other image uses sh + base64 (no guest Python assumed).
+    """
+    if not portable:
+        return ["python", "-c", _APPEND_CHUNK, path, encoded]
+    quoted_path = "'" + path.replace("'", "'\\''") + "'"
+    quoted_blob = "'" + encoded.replace("'", "'\\''") + "'"
+    return [
+        "sh", "-c",
+        f"printf %s {quoted_blob} | base64 -d >> {quoted_path}",
+    ]
+
+
 class SandboxUnavailable(RuntimeError):
     """Neither Modal nor Docker could run the snapshot."""
 
@@ -212,6 +267,10 @@ class DockerRepoSandbox(RepoSandbox):
                     "-e", "PYTHONPATH=/work/.deps",
                     "-e", "PIP_TARGET=/work/.deps",
                     "-e", "PIP_DISABLE_PIP_VERSION_CHECK=1",
+                    # Throwaway run per exec: only /work persists, so JVM
+                    # caches live there (go/rust add theirs in L-J4/L-D2).
+                    "-e", "MAVEN_OPTS=-Dmaven.repo.local=/work/.m2",
+                    "-e", "GRADLE_USER_HOME=/work/.gradle",
                     self._image,
                     *cmd,
                 ],
@@ -264,12 +323,16 @@ class DockerRepoSandbox(RepoSandbox):
             self._tmp = None
 
 
-def _open_modal(snapshot_tar: bytes, timeout_s: int) -> ModalRepoSandbox:
+def _open_modal(
+    snapshot_tar: bytes, timeout_s: int, image: str = "python"
+) -> ModalRepoSandbox:
     import modal
 
-    image = modal.Image.debian_slim(python_version="3.11").pip_install("pytest")
     app = modal.App.lookup("telemetry-agent-sandbox", create_if_missing=True)
-    sandbox = modal.Sandbox.create(app=app, image=image, timeout=timeout_s)
+    sandbox = modal.Sandbox.create(
+        app=app, image=_modal_image(image), timeout=timeout_s
+    )
+    portable = image != "python"
     try:
         box = ModalRepoSandbox(sandbox, timeout_s)
         box.exec(["mkdir", "-p", "/work", "/tmp/snap"], timeout=60)
@@ -277,8 +340,7 @@ def _open_modal(snapshot_tar: bytes, timeout_s: int) -> ModalRepoSandbox:
             chunk = snapshot_tar[offset : offset + UPLOAD_CHUNK]
             encoded = base64.b64encode(chunk).decode()
             process = sandbox.exec(
-                "python", "-c", _APPEND_CHUNK, "/tmp/snap/snapshot.tar.gz",
-                encoded,
+                *_append_cmd("/tmp/snap/snapshot.tar.gz", encoded, portable)
             )
             process.wait()
             if process.returncode != 0:
@@ -317,14 +379,13 @@ def open_repo_sandbox(
 ) -> RepoSandbox:
     """Upload the snapshot; Modal first, Docker on any Modal failure.
 
-    `image` selects the language image (SANDBOX_IMAGES keys); the Modal
-    path still uses its Python base at H0 and wires per-language images
-    when the adapters land.
+    `image` selects the language image (SANDBOX_IMAGES keys on Docker,
+    `_modal_image` on Modal); unknown keys fall back to python.
     """
     if os.environ.get("TA_VERIFY", "").lower() == "local":
         return _open_docker(snapshot_tar, image)
     try:
-        return _open_modal(snapshot_tar, timeout_s)
+        return _open_modal(snapshot_tar, timeout_s, image)
     except SandboxUnavailable:
         raise
     except Exception as exc:

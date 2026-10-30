@@ -196,6 +196,17 @@ class TracebackAssembler:
             if len(self._buf) >= MAX_TRACEBACK_LINES:
                 return self._take()
             return None
+        foreign = _starter_for(line)
+        if foreign is not None and (
+            getattr(foreign, "name", None)
+            != getattr(starter, "name", None)
+        ):
+            # A different language starts here: the open buffer was a
+            # false start or a finished trace. Emit it as-is (lines are
+            # preserved as one entry) and begin the new trace.
+            completed = self._take()
+            self.feed(line, now)
+            return completed
         try:
             parsed_with = starter.parse_trace("\n".join([*self._buf, line]))
         except Exception:

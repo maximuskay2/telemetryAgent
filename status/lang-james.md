@@ -1,7 +1,7 @@
 # James status (languages)
-Current block: L-J3 (checkpoint fixes merged, JVM adapter next)
+Current block: L-J4 next (L-J3 done, merging)
 Done: L-J0 (8276c12, on main, tagged lang-contracts-in), L-J1 (c2c2d8a),
-  L-J2 (31ad582), checkpoint (this commit)
+  L-J2 (31ad582), checkpoint (3a65e68), L-J3 (this commit)
 Decisions:
 - L-J0: `core/repo_fix/lang/` = protocol (`base.py`), registry
   (`__init__.py`), shared parsers (`results.py`). Sandbox `read_file`
@@ -67,11 +67,27 @@ Decisions:
   gates on adapter presence (John's (a) option) — green before and after
   his wiring lands. (3) `.gitignore` gains bare `venv` (`venv/` never
   matched the `venv` → `.venv-local` symlink check.sh uses).
-- L-J3 adopts Jude's Maven install (`mvn -B -q -DskipTests test`, not
-  bare `dependency:go-offline` — surefire providers must prefetch).
-  Single `ADAPTER` (name "java") + `.kt`/kotlin sniffing for the language
-  preset; the `ADAPTERS` shape stays available but the JVM wire format
-  needs only one object (aliases + `refined_name` already cover kotlin).
+- L-J3: single JVM `ADAPTER` (name "java"); `.kt` frames / `kotlin.*`
+  exceptions preset `kotlin` (aliases + `refined_name` cover the rest —
+  the `ADAPTERS` shape stays available but one object suffices).
+  `trace_start` needs a qualified head (bare words swallowed log lines);
+  parse takes the root cause, skips `... N more`, rejects tail junk.
+  Maven install is a full failure-tolerant online `test` (Jude's
+  `-DskipTests` variant did NOT prefetch surefire providers under this
+  image's Maven — verified live). Docker exec pins
+  `MAVEN_OPTS=-Dmaven.repo.local=/work/.m2` + `GRADLE_USER_HOME`
+  (throwaway runs share only /work; go/rust add theirs later). Assembler:
+  a foreign-language head flushes the open buffer (no swallowed traces).
+  Modal images per language + portable (sh) snapshot upload for
+  non-python guests (UNVERIFIED live — no Modal creds here); python
+  Modal path byte-identical.
+- L-J3 E2E (mocked GitHub + mocked models, real Docker `jvm` image):
+  proof-app-java PASS (~3 min, cold Maven), proof-app-kotlin PASS
+  (~4 min). No committed Docker E2E: Jude's L-D4 harness owns the
+  matrix (a 10-min gate tax for all three agents is his call); the
+  re-runnable scratch runs live at /tmp/e2e_java.py + /tmp/e2e_kotlin.py.
+  Gradle path implemented per §1.1 + unit-tested, E2E-unproven (no
+  Gradle proof app exists).
 - Tag race (30 Oct): `lang-contracts-in` was pushed pointing at the
   pre-rebase L-J0 (9da95a5) when John's L-N3..N5 landed mid-merge and the
   first main push rejected. Deleted the remote tag, rebased L-J0 onto
@@ -105,9 +121,11 @@ BLOCKED: none
 - Checkpoint DONE (this commit): python claim gate + `ClaimGateTest`
   (node/go/java/rust/php), TS autofix test gated, `venv` ignored;
   743 green, `check.sh` green. Unblocks John's L-N1 wiring merge.
-- L-J3 LEFT: in progress — `lang/java.py` (JVM parser, package→path,
-  Maven+Gradle, surefire/Gradle XML). proof-app-java trace captured real;
-  Kotlin trigger needs debug (server didn't start in our image).
+- L-J3 DONE (this commit): `lang/java.py` (JVM parser, package→path
+  incl. multi-module, Maven+Gradle, surefire XML + stdout fallbacks);
+  8 real fixtures (6 java + 2 kotlin); Modal images + image threading;
+  proof-app-java + proof-app-kotlin E2E PASS in Docker (mocked GitHub);
+  833 green, `check.sh` green.
 - L-J4 LEFT: not started — `lang/go.py` (panic parser, module-path strip,
   `go test -json`). proof-app-go on main — E2E unblocked.
 - L-J5 LEFT: not started — snapshot filter (`target/`, `build/`,

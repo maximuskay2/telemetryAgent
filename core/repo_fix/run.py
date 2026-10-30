@@ -575,7 +575,12 @@ async def _pipeline(
     filtered = await asyncio.to_thread(repo_snapshot.filter_snapshot, tarball)
     opener = sandbox_factory or repo_sandbox.open_repo_sandbox
     try:
-        sandbox = await asyncio.to_thread(opener, filtered)
+        if sandbox_factory is None:
+            sandbox = await asyncio.to_thread(
+                opener, filtered, image=adapter.image
+            )
+        else:
+            sandbox = await asyncio.to_thread(opener, filtered)
     except Exception as exc:
         return _fail(
             run_id, system_id, repo, fingerprint, gate,

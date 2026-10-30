@@ -372,6 +372,25 @@ class SandboxIOTest(unittest.TestCase):
             box.terminate()
 
 
+class ModalImageTest(unittest.TestCase):
+    def test_every_image_key_builds(self):
+        try:
+            import modal  # noqa: F401
+        except ImportError:
+            self.skipTest("modal not installed")
+        for key in ("python", "node", "jvm", "go", "rust", "php"):
+            with self.subTest(key=key):
+                self.assertIsNotNone(repo_sandbox._modal_image(key))
+        self.assertIsNotNone(repo_sandbox._modal_image("cobol"))
+
+    def test_append_cmd_shapes(self):
+        legacy = repo_sandbox._append_cmd("/tmp/x", "QUJD", False)
+        self.assertEqual(legacy[:3], ["python", "-c", repo_sandbox._APPEND_CHUNK])
+        portable = repo_sandbox._append_cmd("/tmp/x", "QUJD", True)
+        self.assertEqual(portable[:2], ["sh", "-c"])
+        self.assertIn("base64 -d >>", portable[2])
+
+
 class _StubAdapter:
     """Minimal non-Python adapter: head, `STUB> file:line`, `STUB-END`."""
 
@@ -473,6 +492,16 @@ class AssemblerLangsTest(unittest.TestCase):
         ):
             completed = _feed_all([*STUB_LINES, "STUB-END ok"])
         self.assertEqual(completed, ["\n".join([*STUB_LINES, "STUB-END ok"])])
+
+    def test_foreign_start_flushes_and_switches(self):
+        with mock.patch.object(
+            lang_registry, "all_adapters",
+            return_value=[PYTHON_ADAPTER, _StubAdapter()],
+        ):
+            completed = _feed_all(["STUB-HEAD", *PY_LINES])
+        # The stub head (unparseable alone) is preserved as one entry;
+        # the Python trace still assembles whole.
+        self.assertEqual(completed, ["STUB-HEAD", "\n".join(PY_LINES)])
 
     def test_assemble_entries_carry_languages(self):
         ingest_pipeline.reset_assemblers()
@@ -586,16 +615,32 @@ class SentryLangsTest(unittest.TestCase):
             ],
         )
 
-    def test_assemble_strips_marker_and_hints_first_line(self):
+    def test_assemble_collects_java_despite_marker(self):
+        # The java adapter is registered now: the trace assembles and
+        # parses (parsed language wins, no hint needed).
         ingest_pipeline.reset_assemblers()
         entries = ingest_pipeline.assemble(
             "ingest:t:sentry",
             ["ta-language: java", "com.acme.E: empty",
-             "\tat com.acme.C.m(C.java:1)"],
+             "\tat com.acme.C.m(C.java:1)", "done"],
             0.0,
         )
         self.assertEqual(len(entries), 2)
-        self.assertEqual(entries[0].hint, "java")
+        self.assertEqual(entries[0].traceback.language, "java")
+        self.assertIsNone(entries[0].hint)
+        self.assertNotIn("ta-language", entries[0].text)
+        self.assertEqual(entries[1].text, "done")
+        ingest_pipeline.reset_assemblers()
+
+    def test_assemble_hints_unparsed_language(self):
+        ingest_pipeline.reset_assemblers()
+        entries = ingest_pipeline.assemble(
+            "ingest:t:sentry",
+            ["ta-language: ruby", "boom happened", "more"],
+            0.0,
+        )
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].hint, "ruby")
         self.assertIsNone(entries[0].traceback)
         self.assertIsNone(entries[1].hint)
         self.assertNotIn("ta-language", entries[0].text)
@@ -656,6 +701,8 @@ class TriggerLangsTest(unittest.TestCase):
             )
 
     def test_gate_body_carries_language_and_note(self):
+        # Ruby has no adapter: the hint still names the language and the
+        # decision says auto-fix is unsupported.
         tmp = tempfile.mkdtemp(prefix="ta-lang-ingest-")
         system_id = "acme-lang"
         with mock.patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
@@ -672,18 +719,17 @@ class TriggerLangsTest(unittest.TestCase):
             result = asyncio.run(
                 ingest_pipeline.process_lines(
                     system_id, "sentry",
-                    ["ta-language: java", "com.acme.E: empty",
-                     "\tat com.acme.C.m(C.java:1)"],
+                    ["ta-language: ruby", "boom happened"],
                 )
             )
             ingest_pipeline.reset_assemblers()
         self.assertEqual(result["candidates"], 1)
         self.assertEqual(len(result["decisions"]), 1)
         body = result["decisions"][0]
-        self.assertEqual(body["language"], "java")
+        self.assertEqual(body["language"], "ruby")
         self.assertFalse(body["autofix"])
         self.assertEqual(
-            body["autofix_note"], "auto-fix not supported for java yet"
+            body["autofix_note"], "auto-fix not supported for ruby yet"
         )
 
     def test_gate_body_marks_python_supported(self):
