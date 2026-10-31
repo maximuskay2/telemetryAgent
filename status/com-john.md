@@ -1,5 +1,6 @@
 # John status (commercial)
-Current block: C-N8 C-J3 audit, merging
+Current block: C-N8 MERGED to origin/main (3188eda, check.sh GREEN).
+All John blocks done; waiting on nothing.
 Done: C-N3..C-N7 merged; C-N8 audited James C-J3 (c89c60e, rebased
 clean, zero shared files)
 Decisions (C-N8):
