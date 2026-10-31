@@ -542,6 +542,20 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/debug/headers")
+async def debug_headers(request: Request) -> dict:
+    """TEMPORARY sign-in probe: header NAMES only, never values."""
+    names = sorted({k.lower() for k, _ in request.headers.items()})
+    auth_count = sum(
+        1 for k, _ in request.headers.items() if k.lower() == "authorization"
+    )
+    return {
+        "headers": names,
+        "authorization_count": auth_count,
+        "path": request.url.path,
+    }
+
+
 @app.get("/api/infer/status")
 async def infer_status() -> dict:
     """What the process will send to Meta — never the key itself."""
