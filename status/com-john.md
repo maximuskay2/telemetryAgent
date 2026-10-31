@@ -1,7 +1,16 @@
 # John status (commercial)
-Current block: C-N7 MERGED to origin/main (1d24162, check.sh GREEN)
-Done: C-N3..C-N7 all merged — Phase 1 web + app, Usage, live proofs,
-real Clerk sign-in. Waiting on nothing.
+Current block: C-N8 C-J3 audit, merging
+Done: C-N3..C-N7 merged; C-N8 audited James C-J3 (c89c60e, rebased
+clean, zero shared files)
+Decisions (C-N8):
+- C-J3 changes nothing my edges consume: §8.4 routes untouched, app
+  is HTTP-only (WS token join doesn't affect it), device Bearer
+  still resolves org+role with owner passing role guards.
+- Proved the deferred org-run approve chain at HTTP level (own PG,
+  RLS-enforced ta_test role, seeded org run): device lists own
+  action, cross-org invisible, cross-org disapprove 403, anonymous
+  401, own-org disapprove 200 with decided_by, repeat 409. 6/6.
+  No app or web changes needed.
 Decisions (C-N7):
 - @clerk/nextjs 7.9.23; session splits into Mock/Clerk/Token
   providers (stable hooks each). Clerk mode hydrates orgs from
