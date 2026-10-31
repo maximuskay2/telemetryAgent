@@ -7,7 +7,6 @@ import { useEffect, useRef, useState } from "react";
 import Logo from "../components/Logo";
 import { apiUrl, responseDetail } from "../lib/api";
 import AccountNav from "../commerce/AccountNav";
-import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import { StatusDot } from "../ui";
 import { useMission } from "./state";
