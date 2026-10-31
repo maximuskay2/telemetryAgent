@@ -334,7 +334,7 @@ export default function GuidedSetupPage() {
           demoStartWatching(status?.[side]?.system_id ?? ""),
         ),
       );
-      router.push("/?tour=1");
+      router.push("/start/phone");
     });
   }
 
@@ -521,15 +521,15 @@ export default function GuidedSetupPage() {
           <Card title="Already running ✓">
             <p className="text-sm text-text-muted">
               Both systems were set up by an earlier visitor and are watching
-              now. Jump straight to the incident — or replay the setup to
-              watch each step again.
+              now. Continue through the phone step to the incident — or
+              replay the setup to watch each step again.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link
-                href="/?tour=1"
+                href="/start/phone"
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
-                Jump to the incident →
+                Continue →
               </Link>
               <Button tone="ghost" onClick={() => setReplay(true)}>
                 Replay setup
@@ -694,7 +694,7 @@ export default function GuidedSetupPage() {
                       status?.shop?.status === "armed" &&
                       status?.freezer?.status === "armed" ? (
                         <Link
-                          href="/?tour=1"
+                          href="/start/phone"
                           className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                         >
                           Back to the incident →
