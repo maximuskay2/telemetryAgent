@@ -181,6 +181,42 @@ class PairingTests(unittest.TestCase):
             response.json()["api_url"], r"^http://[\d.]+:8001$"
         )
 
+    def test_pairing_prefers_public_url_env(self) -> None:
+        with patch.dict(
+            os.environ, {"API_PUBLIC_URL": "https://api.example.com/"}
+        ):
+            with TestClient(app) as client:
+                response = client.get("/api/pairing")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["api_url"], "https://api.example.com"
+        )
+
+    def test_pairing_uses_public_host_header(self) -> None:
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/pairing",
+                headers={
+                    "host": "api-production-0c9a.up.railway.app",
+                    "x-forwarded-proto": "https",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["api_url"],
+            "https://api-production-0c9a.up.railway.app",
+        )
+
+    def test_pairing_keeps_lan_url_for_localhost(self) -> None:
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/pairing", headers={"host": "localhost:8001"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            response.json()["api_url"], r"^http://[\d.]+:\d+$"
+        )
+
 
 class RunFailureTests(unittest.TestCase):
     def test_run_without_keys_returns_503(self) -> None:

@@ -1126,15 +1126,45 @@ async def fridge_state() -> dict:
     return fridge.snapshot()
 
 
+def _is_public_dns(host: str) -> bool:
+    """True for routable DNS names (hosted API); False for local names/IPs."""
+    if not host or "." not in host or ":" in host:
+        return False
+    if host == "localhost" or host.endswith(
+        (".localhost", ".local", ".internal", ".invalid", ".test")
+    ):
+        return False
+    if all(part.isdigit() for part in host.split(".")):
+        return False
+    return True
+
+
 @app.get("/api/pairing")
 async def pairing(request: Request) -> dict:
-    """LAN URL for phone pairing (M1): best-effort local IP + API port.
+    """Phone pairing URL (M1): public when hosted, LAN for local dev.
 
-    The port comes from the request itself, so a stray PORT in the
+    Resolution order:
+    1. API_PUBLIC_URL env (verbatim) — set on hosted deployments.
+    2. Public DNS Host header — zero-config hosted (proxies end TLS).
+    3. Best-effort LAN IP + request port — same-Wi-Fi local dev.
+    4. 127.0.0.1 fallback — localhost/emulator testing.
+
+    The LAN port comes from the request itself, so a stray PORT in the
     environment can never point the phone at the wrong server.
     """
     import socket
 
+    explicit = os.environ.get("API_PUBLIC_URL", "").strip().rstrip("/")
+    if explicit:
+        return {"api_url": explicit}
+    raw_host = (request.headers.get("host") or "").strip().lower()
+    host = raw_host.split(":")[0]
+    if _is_public_dns(host):
+        proto = (
+            request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+        )
+        scheme = "http" if proto == "http" else "https"
+        return {"api_url": f"{scheme}://{host}"}
     ip = "127.0.0.1"
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

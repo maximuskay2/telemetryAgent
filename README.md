@@ -114,7 +114,7 @@ Flutter app in `apps/mobile/`. It is the thing that rings when the agent is abou
 cd apps/mobile && flutter pub get && flutter run
 ```
 
-The phone and the API have to be on the same Wi-Fi. Start the API with `--host 0.0.0.0`. In the app, scan the dashboard QR (Mission Control → Pair), then type `MOBILE_API_TOKEN` from `.env` (leave it blank if that variable is empty). On the Android emulator the API is `http://10.0.2.2:8001`. Settings → Test alarm plays a fake 20-second window without calling the server.
+The phone and the API have to be on the same Wi-Fi. Start the API with `--host 0.0.0.0`. In the app, scan the dashboard QR (Mission Control → Pair), then type `MOBILE_API_TOKEN` from `.env` (leave it blank if that variable is empty). On the Android emulator the API is `http://10.0.2.2:8001`. On a hosted API (Railway), set `API_PUBLIC_URL` to the public API domain so the QR carries a reachable URL. Settings → Test alarm plays a fake 20-second window without calling the server.
 
 ## Production route (how a real customer uses it)
 

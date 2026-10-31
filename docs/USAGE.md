@@ -235,6 +235,10 @@ the demo or to production:
 5. The phone shows the report. Approve, cancel, or do nothing. If no
    one answers, it acts — you already gave that permission.
 
+Hosted demo: the pairing QR carries the public API URL (set
+`API_PUBLIC_URL`, or it is read off the API's public domain) — no
+same-Wi-Fi needed then.
+
 **Production (signed in)**
 
 1. Install the same APK.
