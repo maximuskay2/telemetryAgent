@@ -285,6 +285,18 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
 - 📋 Specified, not in this tree yet: hosted accounts and billing
   ([commercial-roadmap.md](./commercial-roadmap.md)).
 
+## Contributors
+
+Built by **Akingbade Kayode** (Maximusinfotech Services) with Muse Code
+contributors:
+
+| Contributor | Area |
+| :--- | :--- |
+| James | Backend core — commerce store, auth, language contracts, Java/Kotlin/Go |
+| John | Web / app / look — Clerk session, members, devices, Meta-style UI |
+| Jude | Usage + free allowance, Rust/PHP adapters, pulse-to-check logo |
+| Janet | Tester — in-repo reports |
+
 ## License
 
 MIT; see [LICENSE](./LICENSE).
