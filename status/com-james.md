@@ -1,9 +1,10 @@
 # James status (commercial)
-Current block: C-J5 merge (gate waits on John's 8201 squat, see BLOCKED)
+Current block: done — all C-J blocks on main (C-J4, hooks, C-J5 merged
+  as e40c312; gate green on John's C-N9)
 Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (2baf475),
-  C-J2 (8d6b046), C-J3 (c89c60e, on main), C-J4 (5a23bcf, committed),
-  model_call hooks (9c364d1, committed, Jude's NEEDS closed),
-  C-J5 (5cbbaad, committed) — matrix 34 + hooks 5 + lifecycle 5 green
+  C-J2 (8d6b046), C-J3 (c89c60e), C-J4 (9404eba), model_call hooks
+  (8dcdcc6, Jude's NEEDS closed), C-J5 (6c65e3b) — all on main,
+  check.sh GREEN (python 1070 + smoke + web + flutter)
 Decisions:
 - Auth provider: Clerk (dev instance, test keys). Provider proves identity
   only (sub + email); our memberships table owns orgs + roles, so we stay
@@ -113,8 +114,8 @@ NEEDS FROM AKINGBADE:
   automated daily Postgres backups (staging + prod, ≥7 days).
 - Baseten/Modal remaining hackathon credit numbers (for Jude's alerts).
 - Confirm provider product-use terms (roadmap §0.1) when known.
-BLOCKED: merge gate needs 8201 free — John's live uvicorn (telemetry-agent-john,
-  since 02:32) holds it and test_devices_e2e binds that exact port (his file;
-  free-port hardening still open). Everything else green (full suite minus
-  e2e, matrix, hooks, lifecycle, test_api 44/44). Pushing once the gate goes
-  fully green.
+BLOCKED: none (8201 saga over — John's C-N9 made the devices e2e
+  free-port, so the gate can never block on a squat again; the one-off
+  check7 suite crash `can't open file '.../python -m unittest'` never
+  reproduced across 3 further full runs and no in-repo spawner exists —
+  treating as environmental one-off, watching).
