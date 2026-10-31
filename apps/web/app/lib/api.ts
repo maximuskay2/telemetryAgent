@@ -1,4 +1,18 @@
-export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const PRODUCTION_API = "https://api-production-0c9a.up.railway.app";
+
+function resolveApiUrl(): string {
+  const explicit = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  const leftoverLocal =
+    !explicit ||
+    explicit.includes("localhost") ||
+    explicit.includes("127.0.0.1");
+  if (leftoverLocal && process.env.NODE_ENV === "production") {
+    return PRODUCTION_API;
+  }
+  return explicit || "http://localhost:8000";
+}
+
+export const apiUrl = resolveApiUrl();
 
 export async function responseDetail(response: Response): Promise<string> {
   try {

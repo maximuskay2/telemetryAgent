@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { apiUrl } from "../lib/api";
 import { Card, ErrorState } from "../ui";
 import IncidentsPane from "./IncidentsPane";
 import LeftPane from "./LeftPane";
@@ -11,7 +12,7 @@ import TracePane from "./TracePane";
 import VetoRing from "./VetoRing";
 import WrapUp from "./WrapUp";
 
-const API_DOWN = "Can't reach the agent API at :8001 — start it with ./scripts/demo.sh";
+const API_DOWN = `Can't reach the agent API at ${apiUrl}. Refresh in a moment if it just restarted.`;
 
 function Pane({
   eyebrow,

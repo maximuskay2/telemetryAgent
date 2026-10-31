@@ -27,6 +27,32 @@ EventCallback = Callable[[dict], None]
 MAX_DETAIL_CHARS = 2000
 
 
+def _diagnose_with_fallback(
+    telemetry_json: str, reference: str = ""
+) -> tuple[str, Any]:
+    """Meta Muse first; Baseten Spark Open if the Model API id 404s."""
+    try:
+        if reference:
+            diagnosis = meta_client.diagnose(
+                telemetry_json, reference=reference
+            )
+        else:
+            diagnosis = meta_client.diagnose(telemetry_json)
+        return f"meta:{DIAGNOSIS_MODEL}", diagnosis
+    except RuntimeError as exc:
+        if "could not find the model (404)" not in str(exc):
+            raise
+        if not os.environ.get("BASETEN_API_KEY", "").strip():
+            raise
+        patch_model = os.getenv(
+            "BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026"
+        )
+        return (
+            f"baseten:{patch_model}",
+            baseten_client.diagnose(telemetry_json, reference=reference),
+        )
+
+
 def _emit(on_event: Optional[EventCallback], event: dict) -> None:
     if on_event is not None:
         on_event(event)
@@ -210,12 +236,11 @@ def run_software_loop(
                          "run_id": run_id, **event})
 
     def diagnose(_telemetry) -> Any:
-        state["model"] = f"meta:{DIAGNOSIS_MODEL}"
-        if reference:
-            return meta_client.diagnose(
-                telemetry.model_dump_json(), reference=reference
-            )
-        return meta_client.diagnose(telemetry.model_dump_json())
+        name, result = _diagnose_with_fallback(
+            telemetry.model_dump_json(), reference=reference
+        )
+        state["model"] = name
+        return result
 
     def early_stop(diagnosis: Any) -> Optional[ExecutionResult]:
         if not getattr(diagnosis, "is_expected", False):
@@ -247,10 +272,25 @@ def run_software_loop(
         raise RuntimeError(last_error)
 
     def escalate(diagnosis, feedback):
-        state["model"] = f"meta:{ESCALATION_MODEL}"
-        return meta_client.generate_patch(
-            diagnosis, feedback, model=ESCALATION_MODEL, contract=contract
-        )
+        try:
+            state["model"] = f"meta:{ESCALATION_MODEL}"
+            return meta_client.generate_patch(
+                diagnosis, feedback, model=ESCALATION_MODEL, contract=contract
+            )
+        except RuntimeError as exc:
+            if "could not find the model (404)" not in str(exc):
+                raise
+            if not os.environ.get("BASETEN_API_KEY", "").strip():
+                raise
+            state["model"] = (
+                "baseten:"
+                + os.getenv(
+                    "BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026"
+                )
+            )
+            return baseten_client.generate_patch(
+                diagnosis, feedback, contract=contract
+            )
 
     def verify(patch) -> VerificationResult:
         if harness:
@@ -362,12 +402,11 @@ def run_appliance_loop(
                          "run_id": run_id, **event})
 
     def diagnose(_telemetry) -> Any:
-        state["model"] = f"meta:{DIAGNOSIS_MODEL}"
-        if reference:
-            return meta_client.diagnose(
-                telemetry.model_dump_json(), reference=reference
-            )
-        return meta_client.diagnose(telemetry.model_dump_json())
+        name, result = _diagnose_with_fallback(
+            telemetry.model_dump_json(), reference=reference
+        )
+        state["model"] = name
+        return result
 
     def early_stop(diagnosis: Any) -> Optional[ApplianceResult]:
         if not getattr(diagnosis, "is_expected", False):
@@ -398,8 +437,23 @@ def run_appliance_loop(
         raise RuntimeError(last_error)
 
     def escalate(diagnosis, feedback):
-        state["model"] = f"meta:{ESCALATION_MODEL}"
-        return meta_client.generate_runbook(diagnosis, feedback, model=ESCALATION_MODEL)
+        try:
+            state["model"] = f"meta:{ESCALATION_MODEL}"
+            return meta_client.generate_runbook(
+                diagnosis, feedback, model=ESCALATION_MODEL
+            )
+        except RuntimeError as exc:
+            if "could not find the model (404)" not in str(exc):
+                raise
+            if not os.environ.get("BASETEN_API_KEY", "").strip():
+                raise
+            state["model"] = (
+                "baseten:"
+                + os.getenv(
+                    "BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026"
+                )
+            )
+            return baseten_client.generate_runbook(diagnosis, feedback)
 
     def verify(runbook) -> VerificationResult:
         violations = validate_runbook(
