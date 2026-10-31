@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ApkQr from "./ApkQr";
 
 const DEMO = [
   {
@@ -135,12 +136,24 @@ export default function HowTo() {
           phone may warn that the file is from outside the Play Store —
           that is expected.
         </p>
-        <a
-          href="/downloads/telemetry-agent.apk"
-          className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
-        >
-          Download APK
-        </a>
+        <div className="mt-4 flex flex-wrap items-center gap-5">
+          <a
+            href="/downloads/telemetry-agent.apk"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Download APK
+          </a>
+          <figure className="flex items-center gap-3">
+            <span className="rounded-md bg-white p-2">
+              <ApkQr />
+            </span>
+            <figcaption className="text-xs leading-relaxed text-text-muted">
+              Point your phone camera
+              <br />
+              to download the APK
+            </figcaption>
+          </figure>
+        </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
             <p className="text-sm font-semibold">Pair to the live demo</p>
