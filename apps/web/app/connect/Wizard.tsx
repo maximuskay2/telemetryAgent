@@ -14,6 +14,7 @@ import {
   type SetupProfile,
 } from "../lib/setupApi";
 import { Card } from "../ui";
+import ApkQr from "../welcome/ApkQr";
 import { createSystem, pairingUrl } from "./api";
 import { StepDevice, StepHosting, StepLogs, StepRepo } from "./ConnSteps";
 import {
@@ -423,6 +424,27 @@ function StepPair({
   return (
     <Card title={`Step ${num} · Pair your phone`}>
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <a
+            href="/downloads/telemetry-agent.apk"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Download APK
+          </a>
+          <figure className="flex items-center gap-3">
+            <span className="rounded-md bg-white p-2">
+              <ApkQr />
+            </span>
+            <figcaption className="text-xs leading-relaxed text-text-muted">
+              Point your phone camera
+              <br />
+              to download the APK
+            </figcaption>
+          </figure>
+        </div>
+        <p className="text-[13px] text-text-muted">
+          Install it first — then pair below.
+        </p>
         {url ? (
           <>
             <QRCodeSVG value={JSON.stringify({ api: url })} size={160} />
