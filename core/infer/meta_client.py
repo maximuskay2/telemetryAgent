@@ -35,9 +35,54 @@ _ESCALATION_FALLBACKS = ("muse-wonder-1.0", "muse-spark-1.3")
 _listed_cache: Optional[list[str]] = None
 
 
+def _candidate_keys() -> list[str]:
+    """Distinct keys from both env names — Railway may have a stale first one."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in ("MODEL_API_KEY", "META_MODEL_API_KEY"):
+        raw = (os.environ.get(name) or "").strip()
+        if raw and raw not in seen:
+            seen.add(raw)
+            out.append(raw)
+    return out
+
+
+def _raw_catalog(key: str) -> tuple[int, list[str], str]:
+    """GET /v1/models for one key. Returns (http_status, ids, error_class)."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{META_BASE_URL}/models",
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode())
+            ids = [
+                str(item.get("id") or item.get("name"))
+                for item in (body.get("data") or [])
+                if item.get("id") or item.get("name")
+            ]
+            return int(resp.status), ids, ""
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), [], type(exc).__name__
+    except Exception as exc:
+        return 0, [], type(exc).__name__
+
+
 def _api_key() -> str:
-    raw = os.environ.get("MODEL_API_KEY") or os.environ.get("META_MODEL_API_KEY", "")
-    return raw.strip()
+    keys = _candidate_keys()
+    if not keys:
+        return ""
+    if len(keys) == 1:
+        return keys[0]
+    for key in keys:
+        _status, ids, _err = _raw_catalog(key)
+        if any(i.startswith("muse-spark-") or i.startswith("muse-wonder-") for i in ids):
+            return key
+    return keys[0]
 
 
 def _client():
