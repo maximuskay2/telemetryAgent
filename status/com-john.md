@@ -1,5 +1,16 @@
 # John status (commercial)
-Current block: C-N9 drill complete, merging
+Current block: C-N9 done, pushed, merge BLOCKED on upstream red gate
+BLOCKED (not mine): check.sh RED on smoke_demo — pre-existing,
+identical on base. smoke_demo.sh sources .env (now has
+DATABASE_URL) → hosted() true → C-J4 gating 401s
+/api/systems/.../profile/sample ("sign-in required"; verified:
+same steps pass with DATABASE_URL unset). Fix belongs to
+James/Akingbade: unset DATABASE_URL in smoke_demo.sh (demo
+route is self-hosted) or send a test token. My areas all PASS
+(python/web/flutter). Pushed 18b2c3f to com/john; will
+fast-forward main once the gate is green. All drill servers
+stopped; lsof 8201 empty; PG container removed; drill Clerk
+users deleted.
 C-N9 DRILL RECORD (hosted, real Clerk, own PG, demo repo):
 - Sign-up/org/invite/pair/claim/system/arm: all 200 in ~6 s API
   time. Two Clerk users, 3 orgs, per-user phone pairing.
