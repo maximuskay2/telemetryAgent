@@ -1,6 +1,25 @@
 # John status (commercial)
-Current block: C-N8 MERGED to origin/main (3188eda, check.sh GREEN).
-All John blocks done; waiting on nothing.
+Current block: C-N9 rehearsal drill (in progress)
+8201 discipline (Akingbade note): my drill API held 8201 for 2h and
+blocked James's merge gate (test_devices_e2e binds 8201) — it was
+killed. Rule from now on: stop any server I start on 8201 before I
+finish a session. Complying: drill API runs only while drilling.
+Done: C-N9a Clerk sessions headless (ticket+sign-in flow, tokens to
+0600 files); C-N9b partial — org/invite/pair/claim/system/arm all
+200 with real Clerk JWTs, genuine demo crash ingested, real fix run
+de2cae84187d PASS with PR maximuskay2/telemetryAgent-demo#12.
+Decisions (C-N9 so far):
+- Clerk session JWTs live ~60s: drill re-mints per phase.
+- Product routes need X-Org-Id for session callers (documented);
+  my edges unaffected (commerce uses path org, app uses device).
+- BUG for James (C-N9-1): hosted POST /api/connections 500s —
+  Connection.last_seen None fails response validation AFTER the row
+  inserts (ingest key lost, shown-once). Same crash likely breaks
+  GET /api/connections. Workaround: in-process store create.
+- Repo-PR runs open no phone window without hosting (by design);
+  drill adds a webhook hosting connection for the approve step.
+- Live dart probe polled /api/actions 16+ min clean (parse OK),
+  then deleted per instruction (throwaway, never committed).
 Done: C-N3..C-N7 merged; C-N8 audited James C-J3 (c89c60e, rebased
 clean, zero shared files)
 Decisions (C-N8):
