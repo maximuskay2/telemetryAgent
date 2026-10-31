@@ -4,6 +4,7 @@ import { Bell, BellOff, KeyRound, Pause, Play, Presentation, QrCode, RotateCcw, 
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
+import Logo from "../components/Logo";
 import { apiUrl, responseDetail } from "../lib/api";
 import AccountNav from "../commerce/AccountNav";
 import Logo from "../components/Logo";

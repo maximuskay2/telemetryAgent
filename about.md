@@ -22,7 +22,7 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
 
 | Requirement (from the Participant Guide) | How TelemetryAgent satisfies it |
 | :--- | :--- |
-| Must incorporate Meta's models (Stage 1 pass/fail) | Meta Model API (`muse-spark-1.3`, `muse-wonder-1.0`) and open-weight `meta-models/muse-spark-open` on Baseten. No non-Meta models in the pipeline. |
+| Must incorporate Meta's models (Stage 1 pass/fail) | Meta Model API (`muse-spark-1.3`, `muse-wonder-1.0`) and open-weight `meta-models/muse-spark-open-1026` on Baseten. No non-Meta models in the pipeline. |
 | Fits a problem statement | Push the Frontier: autonomous, verified repair for software, extended to physical equipment. |
 | Public repository | Repo is public and MIT licensed. |
 | New work only; demo shows only hackathon-built work | Repository started fresh for the event; all code is built Oct 27 – Nov 4 and listed in the README. |
@@ -63,7 +63,7 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
         └──────────────────────────┬──────────────────────────┘
                                    ▼
         ┌─────────────────────────────────────────────────────┐
-        │ BASETEN — meta-models/muse-spark-open          │
+        │ BASETEN — meta-models/muse-spark-open-1026          │
         │ Software  → code patch + pytest test                │
         │ Appliance → diagnostic runbook                      │
         │ Backup: Fireworks (Muse Spark Open) → muse-spark-1.3│
@@ -87,7 +87,7 @@ The point of the appliance path is to prove the reasoning core generalizes beyon
 | Stage | Model | Provider |
 | :--- | :--- | :--- |
 | Diagnosis and classification (both domains) | `muse-spark-1.3` | Meta Model API |
-| Patch / runbook generation | `meta-models/muse-spark-open` | Baseten |
+| Patch / runbook generation | `meta-models/muse-spark-open-1026` | Baseten |
 | Generation backup | Muse Spark Open (`FIREWORKS_PATCH_MODEL`) | Fireworks, used only if Baseten fails or has no credits |
 | Final-attempt escalation | `muse-wonder-1.0` | Meta Model API |
 | Building the project | Muse Code | `muse` CLI |
@@ -204,7 +204,7 @@ def diagnose(telemetry_json: str) -> Diagnosis:
 
 ### 3. Generation on Muse Spark Open (`core/infer/baseten_client.py`)
 
-Use the hackathon model ID `meta-models/muse-spark-open`.
+Use the hackathon model ID `meta-models/muse-spark-open-1026`.
 
 ```python
 import os
@@ -213,7 +213,7 @@ from openai import OpenAI
 
 baseten = OpenAI(base_url="https://inference.baseten.co/v1", api_key=os.environ["BASETEN_API_KEY"])
 
-GENERATION_MODEL = os.getenv("BASETEN_PATCH_MODEL", "meta-models/muse-spark-open")
+GENERATION_MODEL = os.getenv("BASETEN_PATCH_MODEL", "meta-models/muse-spark-open-1026")
 
 
 def generate(system_prompt: str, user_content: str) -> str:
