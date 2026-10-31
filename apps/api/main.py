@@ -508,6 +508,34 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/infer/status")
+async def infer_status() -> dict:
+    """What the process will send to Meta — never the key itself."""
+    from core.infer import meta_client
+
+    key = meta_client._api_key()
+    catalog: list[str] = []
+    catalog_error = ""
+    if key:
+        try:
+            page = meta_client._client().models.list()
+            for item in getattr(page, "data", []) or []:
+                name = getattr(item, "id", None) or getattr(item, "name", None)
+                if name:
+                    catalog.append(str(name))
+        except Exception as exc:
+            catalog_error = type(exc).__name__
+    return {
+        "diagnosis_model": meta_client.diagnosis_model(),
+        "escalation_model": meta_client.escalation_model(),
+        "meta_key_present": bool(key),
+        "meta_key_len": len(key),
+        "meta_catalog": catalog,
+        "meta_catalog_error": catalog_error,
+        "baseten_key_present": bool(os.environ.get("BASETEN_API_KEY", "").strip()),
+    }
+
+
 @app.post("/api/logs", response_model=LogEvent)
 async def ingest_log(payload: LogInput) -> LogEvent:
     event = LogEvent(

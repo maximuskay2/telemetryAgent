@@ -9,8 +9,25 @@ from core.schemas.diagnosis import Diagnosis
 from core.schemas.remediation import GeneratedPatch, Runbook
 
 META_BASE_URL = "https://api.meta.ai/v1"
-DIAGNOSIS_MODEL = os.getenv("META_DIAGNOSIS_MODEL", "muse-spark-1.3")
-ESCALATION_MODEL = os.getenv("META_ESCALATION_MODEL", "muse-wonder-1.0")
+
+
+def _env_model(name: str, default: str) -> str:
+    """Empty or quoted Railway values must not win over the default id."""
+    raw = (os.getenv(name) or "").strip().strip('"').strip("'")
+    return raw or default
+
+
+def diagnosis_model() -> str:
+    return _env_model("META_DIAGNOSIS_MODEL", "muse-spark-1.3")
+
+
+def escalation_model() -> str:
+    return _env_model("META_ESCALATION_MODEL", "muse-wonder-1.0")
+
+
+# Kept for callers that imported the constant; re-read live in the helpers.
+DIAGNOSIS_MODEL = diagnosis_model()
+ESCALATION_MODEL = escalation_model()
 # Official Model API ids (dev.meta.ai/docs/models). Railway leftovers
 # that 404 still fall through to these.
 _DIAGNOSIS_FALLBACKS = ("muse-spark-1.3", "muse-spark-1.2")
@@ -19,7 +36,8 @@ _listed_cache: Optional[list[str]] = None
 
 
 def _api_key() -> str:
-    return os.environ.get("MODEL_API_KEY") or os.environ.get("META_MODEL_API_KEY", "")
+    raw = os.environ.get("MODEL_API_KEY") or os.environ.get("META_MODEL_API_KEY", "")
+    return raw.strip()
 
 
 def _client():
@@ -89,7 +107,7 @@ def diagnose(telemetry_json: str, reference: str = "") -> Diagnosis:
         messages.append({"role": "user", "content": reference})
     messages.append({"role": "user", "content": telemetry_json})
     last: Optional[Exception] = None
-    for model in _models(DIAGNOSIS_MODEL, _DIAGNOSIS_FALLBACKS):
+    for model in _models(diagnosis_model(), _DIAGNOSIS_FALLBACKS):
         try:
             response = _client().chat.completions.create(
                 model=model,
@@ -126,7 +144,7 @@ def describe_image(image_bytes: bytes, mime: str, prompt: str) -> str:
 
     data = base64.b64encode(image_bytes).decode("ascii")
     last: Optional[Exception] = None
-    for model in _models(DIAGNOSIS_MODEL, _DIAGNOSIS_FALLBACKS):
+    for model in _models(diagnosis_model(), _DIAGNOSIS_FALLBACKS):
         try:
             response = _client().chat.completions.create(
                 model=model,
@@ -173,7 +191,7 @@ def generate_patch(
     feedback = f"\nThe previous attempt failed with:\n{previous_stderr}" if previous_stderr else ""
     pinned = f"\n\nInterface contract (the patch MUST satisfy this):\n{contract}" if contract else ""
     last: Optional[Exception] = None
-    for name in _models(model or ESCALATION_MODEL, _ESCALATION_FALLBACKS):
+    for name in _models(model or escalation_model(), _ESCALATION_FALLBACKS):
         try:
             response = _client().chat.completions.create(
                 model=name,
@@ -220,7 +238,7 @@ def generate_runbook(
         else ""
     )
     last: Optional[Exception] = None
-    for name in _models(model or ESCALATION_MODEL, _ESCALATION_FALLBACKS):
+    for name in _models(model or escalation_model(), _ESCALATION_FALLBACKS):
         try:
             response = _client().chat.completions.create(
                 model=name,

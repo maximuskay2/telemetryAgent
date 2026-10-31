@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from core.infer import baseten_client, fireworks_client, meta_client
-from core.infer.meta_client import DIAGNOSIS_MODEL, ESCALATION_MODEL
+from core.infer.meta_client import diagnosis_model, escalation_model
 from core.schemas.remediation import (
     ApplianceResult,
     ExecutionResult,
@@ -38,7 +38,7 @@ def _diagnose_with_fallback(
             )
         else:
             diagnosis = meta_client.diagnose(telemetry_json)
-        return f"meta:{DIAGNOSIS_MODEL}", diagnosis
+        return f"meta:{diagnosis_model()}", diagnosis
     except RuntimeError as exc:
         if "could not find the model (404)" not in str(exc):
             raise
@@ -162,12 +162,13 @@ def _software_providers() -> list:
     if _has(os.environ.get("MODEL_API_KEY", "")) or _has(
         os.environ.get("META_MODEL_API_KEY", "")
     ):
+        model = diagnosis_model()
         providers.append(
             (
-                f"meta:{DIAGNOSIS_MODEL}",
-                lambda diagnosis, feedback, contract=None: (
+                f"meta:{model}",
+                lambda diagnosis, feedback, contract=None, model=model: (
                     meta_client.generate_patch(
-                        diagnosis, feedback, model=DIAGNOSIS_MODEL,
+                        diagnosis, feedback, model=model,
                         contract=contract,
                     )
                 ),
@@ -189,11 +190,12 @@ def _runbook_providers() -> list:
     if _has(os.environ.get("MODEL_API_KEY", "")) or _has(
         os.environ.get("META_MODEL_API_KEY", "")
     ):
+        model = diagnosis_model()
         providers.append(
             (
-                f"meta:{DIAGNOSIS_MODEL}",
-                lambda diagnosis, feedback: meta_client.generate_runbook(
-                    diagnosis, feedback, model=DIAGNOSIS_MODEL
+                f"meta:{model}",
+                lambda diagnosis, feedback, model=model: meta_client.generate_runbook(
+                    diagnosis, feedback, model=model
                 ),
             )
         )
@@ -273,9 +275,10 @@ def run_software_loop(
 
     def escalate(diagnosis, feedback):
         try:
-            state["model"] = f"meta:{ESCALATION_MODEL}"
+            model = escalation_model()
+            state["model"] = f"meta:{model}"
             return meta_client.generate_patch(
-                diagnosis, feedback, model=ESCALATION_MODEL, contract=contract
+                diagnosis, feedback, model=model, contract=contract
             )
         except RuntimeError as exc:
             if "could not find the model (404)" not in str(exc):
@@ -438,9 +441,10 @@ def run_appliance_loop(
 
     def escalate(diagnosis, feedback):
         try:
-            state["model"] = f"meta:{ESCALATION_MODEL}"
+            model = escalation_model()
+            state["model"] = f"meta:{model}"
             return meta_client.generate_runbook(
-                diagnosis, feedback, model=ESCALATION_MODEL
+                diagnosis, feedback, model=model
             )
         except RuntimeError as exc:
             if "could not find the model (404)" not in str(exc):
