@@ -13,9 +13,9 @@ import '../models/pending_action.dart';
 /// best-effort — a silent alarm must still show the screen.
 class AlarmHardware {
   AlarmHardware({AudioPlayer? player, this.enabled = true})
-      : _player = player ?? AudioPlayer();
+      : _player = player ?? (enabled ? AudioPlayer() : null);
 
-  final AudioPlayer _player;
+  final AudioPlayer? _player;
   final bool enabled;
   Timer? _buzzTimer;
   bool _ringing = false;
@@ -174,8 +174,8 @@ class AlarmHardware {
     if (_ringing || !enabled) return;
     _ringing = true;
     try {
-      await _player.setReleaseMode(ReleaseMode.loop);
-      await _player.play(AssetSource('alarm.wav'));
+      await _player?.setReleaseMode(ReleaseMode.loop);
+      await _player?.play(AssetSource('alarm.wav'));
     } catch (_) {
       // Keep vibrating + flashing without audio.
     }
@@ -209,8 +209,10 @@ class AlarmHardware {
     _urgent = false;
     _buzzTimer?.cancel();
     _buzzTimer = null;
+    if (!enabled) return;
     try {
-      await _player.stop();
+      // Bounded: the plugin's stop() has been seen to never complete.
+      await _player?.stop().timeout(const Duration(seconds: 2));
     } catch (_) {
       // Already silent.
     }

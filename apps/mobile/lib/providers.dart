@@ -273,6 +273,15 @@ class AlarmNotifier extends Notifier<PendingAction?> {
     unawaited(AlarmHardware.fire(action));
   }
 
+  /// Bring the alarm screen back (e.g. after Back); rings only if new.
+  void open(PendingAction action) {
+    if (state?.runId == action.runId) {
+      state = action;
+      return;
+    }
+    show(action);
+  }
+
   Future<void> silence() async {
     final action = state;
     state = null;
@@ -296,6 +305,9 @@ class AlarmNotifier extends Notifier<PendingAction?> {
   void _onEvent(SimEvent event) {
     if (event.kind == 'action_pending') {
       lastTick = null;
+      // The strip and cards read this list: refresh so they pick up the
+      // verified window's fresh deadline instead of the stale early one.
+      ref.invalidate(openActionsProvider);
       show(PendingAction.fromJson(event.payload));
     } else if (event.kind == 'gate_decision' &&
         event.payload['decision'] == 'observe') {

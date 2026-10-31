@@ -166,7 +166,9 @@ class _LiveMitigationState extends ConsumerState<_LiveMitigation> {
         ref.watch(openActionsProvider).asData?.value ?? const [];
     int? secondsLeft;
     for (final action in open) {
-      if (action.runId == widget.report.runId && action.isOpen) {
+      if (action.runId == widget.report.runId &&
+          action.isOpen &&
+          action.ready) {
         secondsLeft = action.secondsLeft();
       }
     }

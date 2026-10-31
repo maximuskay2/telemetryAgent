@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../widgets/action_cards.dart';
 import '../widgets/production_sections.dart';
 import '../widgets/widgets.dart';
+import 'alarm_screen.dart' show correctedSecondsLeft;
 import 'report_screen.dart';
 import 'settings_screen.dart';
 
@@ -367,17 +368,26 @@ class _CountdownTileState extends State<_CountdownTile> {
         if (action == null || !action.isOpen) {
           return const SizedBox.shrink();
         }
-        final left = action.secondsLeft();
-        final urgent = left <= 5;
-        return Container(
-          width: double.infinity,
-          color: urgent ? Accents.fail.withAlpha(40) : Accents.warn.withAlpha(30),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Text(
-            'VETO ${left}s · ${action.action}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: urgent ? Accents.fail : Accents.warn,
+        final current = action;
+        final tick = ref.read(alarmProvider.notifier).lastTick;
+        final left = correctedSecondsLeft(current, tick);
+        final urgent = current.ready && left <= 5;
+        return InkWell(
+          onTap: () => ref.read(alarmProvider.notifier).open(current),
+          child: Container(
+            width: double.infinity,
+            color: urgent
+                ? Accents.fail.withAlpha(40)
+                : Accents.warn.withAlpha(30),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Text(
+              current.ready
+                  ? 'VETO ${left}s · ${current.action}'
+                  : 'Verifying fix… · ${current.action}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: urgent ? Accents.fail : Accents.warn,
+              ),
             ),
           ),
         );
