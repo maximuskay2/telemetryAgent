@@ -42,6 +42,17 @@ def _row_to_dict(cur, row) -> Dict[str, Any]:
     return out
 
 
+def _connection_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a PG connection row to the file-backend shape.
+
+    `last_seen` is NULL until the first delivery; the Connection schema
+    (and the file store) use 0.0 for "never".
+    """
+    if row.get("last_seen") is None:
+        row["last_seen"] = 0.0
+    return row
+
+
 class CommerceStoreError(RuntimeError):
     """A store call failed (missing row, duplicate, unreachable backend)."""
 
@@ -762,7 +773,9 @@ class PostgresBackend(BaseStore):
                 (connection_id, org_id),
             )
             found = cur.fetchone()
-            return _row_to_dict(cur, found) if found else None
+            if not found:
+                return None
+            return _connection_row(_row_to_dict(cur, found))
 
     def list_connections(
         self, org_id: str, system_id: Optional[str] = None
@@ -783,7 +796,10 @@ class PostgresBackend(BaseStore):
                     "WHERE org_id = %s AND system_id = %s ORDER BY id",
                     (org_id, system_id),
                 )
-            return [_row_to_dict(cur, row) for row in cur.fetchall()]
+            return [
+                _connection_row(_row_to_dict(cur, row))
+                for row in cur.fetchall()
+            ]
 
     def delete_connection(self, org_id: str, connection_id: str) -> bool:
         with self._txn() as conn, conn.cursor() as cur:

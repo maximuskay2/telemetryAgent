@@ -357,9 +357,19 @@ async def device_commands(request: Request, device_id: str) -> CommandList:
     org_id, system_id = await _require_device_key(request, device_id)
     if _hosted():
         # A caller may only poll the device its own system key serves —
-        # otherwise one org could drain another org's queue (C-J3).
+        # otherwise one org could drain another org's queue (C-J3). On
+        # first contact (no link yet) the pending commands' orgs decide:
+        # anything owned by another org refuses without learning the
+        # link, so guessing a foreign device id yields nothing (C-J4).
         linked = device_queue.device_for_system(system_id)
         if linked is not None and linked != device_id:
+            raise HTTPException(status_code=404, detail="unknown device")
+        if linked is None and device_queue.pending_for(
+            device_id, time.time()
+        ):
+            # Execute refuses unlinked systems (409), so pending
+            # commands with no link are always another org's: a
+            # foreign key guessing this device id learns nothing (C-J4).
             raise HTTPException(status_code=404, detail="unknown device")
     device_queue.note_device_seen(system_id, device_id, time.time())
     if mitigate.is_paused(org_id):

@@ -361,17 +361,20 @@ async def revoke_device(
     ctx = _ctx(request)
     if not ctx.user_id:
         raise HTTPException(status_code=401, detail="sign-in required")
+    # Membership first: resolving the token before this check would let
+    # outsiders probe token ids (404 vs 403 oracle — C-J4).
+    role = await _role_in(request, org_id)
     store = _store().scoped(org_id, ctx.user_id)
     rows = await _call(store.list_device_tokens, org_id)
     target = next((r for r in rows if r.get("id") == device_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail="unknown device")
-    if target.get("user_id") != ctx.user_id:
-        role = await _role_in(request, org_id)
-        if role not in ("owner", "admin"):
-            raise HTTPException(
-                status_code=403, detail="only the owner or an admin revokes"
-            )
+    if target.get("user_id") != ctx.user_id and role not in (
+        "owner", "admin"
+    ):
+        raise HTTPException(
+            status_code=403, detail="only the owner or an admin revokes"
+        )
     await _call(store.revoke_device_token, device_id, org_id)
     return {"revoked": True}
 

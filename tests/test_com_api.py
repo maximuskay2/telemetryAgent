@@ -176,7 +176,8 @@ class ResolveUnitTests(unittest.TestCase):
             auth_module.authorize_action_run(
                 member, {"org_id": "org_other"}
             )
-        self.assertEqual(raised.exception.status, 403)
+        # C-J4: a foreign org's run looks unknown (no ID oracle).
+        self.assertEqual(raised.exception.status, 404)
 
     def test_require_roles_owner_passes(self) -> None:
         from core.commerce import auth as auth_module

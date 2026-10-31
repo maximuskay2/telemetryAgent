@@ -388,7 +388,8 @@ def authorize_action_run(ctx: AuthContext, entry: Dict[str, Any]) -> None:
 
     Entries without an org (sim/demo runs) stay public per the §8.3 demo
     channel. Entries tagged org_id (org runs; the pipeline tags them at
-    C-J3) need member+.
+    C-J3) need member+. A foreign org's run looks unknown (404, no ID
+    oracle — C-J4); only same-org role failures stay 403.
     """
     org_id = str(entry.get("org_id", "") or "")
     if not org_id or org_id == models.DEMO_ORG_ID:
@@ -396,5 +397,5 @@ def authorize_action_run(ctx: AuthContext, entry: Dict[str, Any]) -> None:
     if not ctx.user_id:
         raise AuthError(401, "sign-in required")
     if ctx.org_id != org_id:
-        raise AuthError(403, "this run belongs to another org")
+        raise AuthError(404, "unknown run_id")
     require_roles(ctx, "admin", "member")
