@@ -295,6 +295,47 @@ class EarlyAlarmTests(_ActionCase):
         self.assertIn("action_resolved", kinds)
 
 
+class OneIncidentOneRunTests(_ActionCase):
+    """Echo candidates of a handled incident must not start more runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        from apps.api.main import open_incidents
+
+        open_incidents.clear()
+        self.addCleanup(open_incidents.clear)
+
+    def test_in_flight_run_blocks_new_runs(self) -> None:
+        from apps.api.main import _incident_in_progress, open_incidents
+
+        open_incidents["shop"] = {"run_id": None, "finished": None}
+        self.assertEqual(_incident_in_progress("shop"), "in progress")
+
+    def test_open_window_then_cooldown_then_clear(self) -> None:
+        from apps.api.main import (
+            _finish_incident, _incident_in_progress, open_incidents,
+        )
+
+        software_runs["r-soft"] = _software_entry()
+        asyncio.run(_maybe_open_action("r-soft", "software"))
+        _finish_incident("shop", "r-soft")
+        open_incidents["shop"]["finished"] = time.time() - 1000
+        self.assertEqual(_incident_in_progress("shop"), "r-soft")
+        action = pending_actions["r-soft"]
+        action.state = "auto_applied"
+        action.resolved_at = time.time()
+        self.assertEqual(_incident_in_progress("shop"), "r-soft")
+        action.resolved_at = time.time() - 1000
+        self.assertIsNone(_incident_in_progress("shop"))
+        self.assertNotIn("shop", open_incidents)
+
+    def test_reset_run_store_releases_the_system(self) -> None:
+        from apps.api.main import _finish_incident, _incident_in_progress
+
+        _finish_incident("shop", "gone")
+        self.assertIsNone(_incident_in_progress("shop"))
+
+
 class DecideEndpointTests(_ActionCase):
     def test_disapprove_endpoint_cancels(self) -> None:
         software_runs["r-soft"] = _software_entry()

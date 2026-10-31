@@ -78,12 +78,17 @@ class AlarmHardware {
 
   /// Fire the full-screen alarm notification; tap opens the alarm screen.
   static Future<void> fire(PendingAction action) async {
+    final deadlineMs = (action.deadline * 1000).round();
+    final leftMs = deadlineMs - DateTime.now().millisecondsSinceEpoch;
+    final counting = action.ready && action.isOpen && leftMs > 0;
     try {
       await ensureChannel();
       await _notifications.show(
         id: action.runId.hashCode,
-        title: action.ready
-            ? 'VETO ${action.secondsLeft()}s — ${action.domain} fix'
+        title: counting
+            ? (action.autoApply
+                ? 'Auto-fix countdown — tap to veto'
+                : 'Approval needed — ${action.domain} fix')
             : 'FIX READY — verifying ${action.domain} fix',
         body: action.action,
         notificationDetails: NotificationDetails(
@@ -99,6 +104,12 @@ class AlarmHardware {
             audioAttributesUsage: AudioAttributesUsage.alarm,
             autoCancel: false,
             ongoing: true,
+            // Live countdown to the server deadline; gone when it passes.
+            when: counting ? deadlineMs : null,
+            showWhen: counting,
+            usesChronometer: counting,
+            chronometerCountDown: counting,
+            timeoutAfter: counting ? leftMs + 3000 : null,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
@@ -113,9 +124,11 @@ class AlarmHardware {
     }
   }
 
-  static Future<void> cancel(PendingAction action) async {
+  static Future<void> cancel(PendingAction action) => cancelRun(action.runId);
+
+  static Future<void> cancelRun(String runId) async {
     try {
-      await _notifications.cancel(id: action.runId.hashCode);
+      await _notifications.cancel(id: runId.hashCode);
     } catch (_) {
       // Already gone.
     }

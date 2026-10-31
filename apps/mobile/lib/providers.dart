@@ -86,8 +86,6 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
     final was = state.asData?.value;
     unawaited(Keepalive.stop());
     String? problem;
-    // Never awaited: the audio plugin's stop() can hang and block unpairing.
-    unawaited(ref.read(alarmProvider.notifier).silence().catchError((_) {}));
     try {
       await ref.read(storageProvider).clear();
     } catch (error) {
@@ -233,15 +231,27 @@ class AlarmNotifier extends Notifier<PendingAction?> {
   StreamSubscription? _subscription;
   ServerTick? lastTick;
 
+  PendingAction? _shown;
+
   @override
   PendingAction? build() {
     final socket = ref.watch(socketProvider);
     _subscription?.cancel();
     lastTick = null;
+    final stale = _shown;
+    if (stale != null) {
+      // Re-paired or unpaired mid-alarm: never awaited, the audio
+      // plugin's stop() can hang.
+      _shown = null;
+      unawaited(ref.read(alarmHardwareProvider).stop());
+      unawaited(AlarmHardware.cancel(stale));
+    }
     if (socket != null) {
       _subscription = socket.actions.listen(_onEvent);
     }
     ref.onDispose(() => _subscription?.cancel());
+    ref.listen<AsyncValue<List<PendingAction>>>(
+        openActionsProvider, (_, next) => next.whenData(reconcile));
     return null;
   }
 
@@ -250,11 +260,14 @@ class AlarmNotifier extends Notifier<PendingAction?> {
     if (current?.runId == action.runId) {
       if (current!.ready != action.ready) {
         state = action;
+        _shown = action;
         unawaited(AlarmHardware.fire(action));
       }
       return;
     }
+    if (current != null) unawaited(AlarmHardware.cancel(current));
     state = action;
+    _shown = action;
     final hardware = ref.read(alarmHardwareProvider);
     unawaited(hardware.ring());
     unawaited(AlarmHardware.fire(action));
@@ -263,9 +276,22 @@ class AlarmNotifier extends Notifier<PendingAction?> {
   Future<void> silence() async {
     final action = state;
     state = null;
-    await ref.read(alarmHardwareProvider).stop();
+    _shown = null;
+    // Notification first: the audio plugin's stop() can hang.
     if (action != null) await AlarmHardware.cancel(action);
+    await ref.read(alarmHardwareProvider).stop();
   }
+
+  /// Close an alarm the server no longer has open (missed resolve event).
+  void reconcile(List<PendingAction> open) {
+    final current = state;
+    if (current == null || current.runId == 'rehearsal') return;
+    if (!open.any((a) => a.runId == current.runId && a.isOpen)) {
+      unawaited(silence());
+    }
+  }
+
+  DateTime? _lastQuiet;
 
   void _onEvent(SimEvent event) {
     if (event.kind == 'action_pending') {
@@ -273,6 +299,14 @@ class AlarmNotifier extends Notifier<PendingAction?> {
       show(PendingAction.fromJson(event.payload));
     } else if (event.kind == 'gate_decision' &&
         event.payload['decision'] == 'observe') {
+      // Heads-up only: never while an alarm rings, at most every 2 min.
+      final now = DateTime.now();
+      final last = _lastQuiet;
+      if (state != null ||
+          (last != null && now.difference(last).inSeconds < 120)) {
+        return;
+      }
+      _lastQuiet = now;
       final reason = event.payload['reason'] as String? ?? 'watching';
       final rule = event.payload['rule'] as String? ?? '';
       unawaited(AlarmHardware.notifyQuiet(
@@ -288,7 +322,11 @@ class AlarmNotifier extends Notifier<PendingAction?> {
     } else if (event.kind == 'action_resolved') {
       final runId = event.payload['run_id'] as String?;
       ref.invalidate(runsProvider);
-      if (runId != null) ref.invalidate(runDetailProvider(runId));
+      ref.invalidate(openActionsProvider);
+      if (runId != null) {
+        ref.invalidate(runDetailProvider(runId));
+        unawaited(AlarmHardware.cancelRun(runId));
+      }
       if (runId != null && state?.runId == runId) {
         unawaited(silence());
       }

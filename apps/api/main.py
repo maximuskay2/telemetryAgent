@@ -101,6 +101,8 @@ def _remember(store: Dict[str, dict], run_id: str, entry: dict) -> None:
 # M0 + U2 reports: streamed steps and auto-action windows by run_id.
 run_steps: Dict[str, list] = {}
 pending_actions: Dict[str, PendingAction] = {}
+# One incident per system: {"run_id": str | None, "finished": epoch | None}.
+open_incidents: Dict[str, dict] = {}
 _MAX_STEPS_PER_RUN = 50
 
 # S1: gate decision log — the last 200 decisions so counts survive refresh.
@@ -509,7 +511,8 @@ class EventHub:
         else:
             org_id = str(org_or_event or "demo")
         stale: list[WebSocket] = []
-        for client in self._channel(org_id):
+        # Snapshot: sockets connect/disconnect while sends are awaited.
+        for client in list(self._channel(org_id)):
             try:
                 await client.send_json(event.model_dump(mode="json"))
             except (RuntimeError, WebSocketDisconnect):
@@ -3414,13 +3417,38 @@ async def _post_incident_candidate(
         "signature": payload.signature,
         "org_id": org_id,
     }
+    handling = (
+        _incident_in_progress(system_id) if decision.decision == "act" else None
+    )
+    if handling is not None:
+        body = {
+            **body,
+            "decision": "suppress",
+            "reason": f"Already handling this incident (run {handling})",
+        }
     _mark_learning_incident(system_id, body)
     _record_gate_decision(system_id, body)
     await emit_for(
         org_id, SimEvent(kind="gate_decision", payload=body)
     )
-    if decision.decision != "act":
+    if body["decision"] != "act":
         return {"decision": body, "run_id": None}
+    open_incidents[system_id] = {"run_id": None, "finished": None}
+    try:
+        return await _start_gate_run(
+            system_id, payload, profile, state, body, org_id
+        )
+    finally:
+        entry = open_incidents.get(system_id)
+        if entry is not None and entry["finished"] is None:
+            entry["finished"] = time.time()
+
+
+async def _start_gate_run(
+    system_id: str, payload, profile, state, body: dict, org_id: str
+) -> dict:
+    from core.setup.context import profile_summary
+
     reference = (
         profile_summary(profile, state.mode) if profile is not None else ""
     )
@@ -3443,6 +3471,7 @@ async def _post_incident_candidate(
             profile=profile, org_id=org_id,
         )
         run_id = _attach_gate_run(appliance_runs, result, body, org_id)
+        _finish_incident(system_id, run_id)
         return {"decision": body, "run_id": run_id, "status": result.status}
     request = RunRequest(
         log_text=payload.window or payload.signature or payload.rule,
@@ -3457,7 +3486,50 @@ async def _post_incident_candidate(
         # Untagged (sim/demo) gate runs keep the public entry point.
         result = await run_agent(request)
     run_id = _attach_gate_run(software_runs, result, body, org_id)
+    _finish_incident(system_id, run_id)
     return {"decision": body, "run_id": run_id, "status": result.status}
+
+
+def incident_cooldown_seconds() -> float:
+    """Quiet period after a fix lands; `INCIDENT_COOLDOWN_SECONDS=90` by default."""
+    try:
+        return max(0.0, float(os.environ.get("INCIDENT_COOLDOWN_SECONDS", "90")))
+    except ValueError:
+        return 90.0
+
+
+def _finish_incident(system_id: str, run_id: str) -> None:
+    open_incidents[system_id] = {"run_id": run_id, "finished": time.time()}
+
+
+def _incident_in_progress(system_id: str) -> Optional[str]:
+    """Run id already handling this system's incident, else None.
+
+    One incident, one run: while a run is in flight, its veto window is
+    open, or its fix landed within the cooldown, further `act` candidates
+    are the same incident's echo and must not start (and ring) new runs.
+    """
+    entry = open_incidents.get(system_id)
+    if entry is None:
+        return None
+    run_id = entry["run_id"]
+    if entry["finished"] is None:
+        return run_id or "in progress"
+    if _run_entry(run_id or "")[1] is None:
+        open_incidents.pop(system_id, None)
+        return None
+    action = pending_actions.get(run_id or "")
+    if action is not None and action.state in ("pending", "approved") and (
+        action.state == "pending" or not action.ready
+    ):
+        return run_id
+    ended = entry["finished"]
+    if action is not None and action.resolved_at:
+        ended = max(ended, action.resolved_at)
+    if time.time() - ended < incident_cooldown_seconds():
+        return run_id
+    open_incidents.pop(system_id, None)
+    return None
 
 
 class SampleIn(BaseModel):
@@ -3570,6 +3642,13 @@ async def _rebreak_shop() -> str:
 async def shop_load(payload: ShopLoadIn) -> dict:
     """Start a shop load burst in the background (scenario + dashboard)."""
     shop_state = await _rebreak_shop()
+    # A deliberate new break is a new incident, even inside the cooldown.
+    for system_id, entry in list(open_incidents.items()):
+        if entry["finished"] is None:
+            continue
+        action = pending_actions.get(entry.get("run_id") or "")
+        if action is None or action.state != "pending":
+            open_incidents.pop(system_id, None)
     pid = spawn_shop_load(payload.shoppers, payload.rate, payload.duration)
     return {"pid": pid, "shoppers": payload.shoppers, "rate": payload.rate,
             "duration": payload.duration, "shop": shop_state}
@@ -3687,6 +3766,7 @@ async def sim_reset() -> dict:
     appliance_runs.clear()
     run_steps.clear()
     pending_actions.clear()
+    open_incidents.clear()
     gate_decisions.clear()
     summary["fridge"] = "reset"
     summary["gate_log"] = "cleared"
