@@ -3,6 +3,8 @@
 import importlib.util
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -259,6 +261,74 @@ class ShopTests(unittest.TestCase):
                 os.environ.pop("INVENTORY_PATH", None)
             else:
                 os.environ["INVENTORY_PATH"] = previous
+
+
+class ShopOverloadTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.app = _load_app()
+        cls.app.shop.log.close()
+
+    def test_acquire_seats_shed_past_cap(self) -> None:
+        module = object()
+        cap = self.app._MAX_ACQUIRE_THREADS
+        for _ in range(cap):
+            self.assertTrue(self.app._acquire_seat(module))
+        self.assertFalse(self.app._acquire_seat(module))
+        self.app._release_seat(module)
+        self.assertTrue(self.app._acquire_seat(module))
+        for _ in range(cap):
+            self.app._release_seat(module)
+
+    def test_acquire_counter_resets_on_module_swap(self) -> None:
+        first, second = object(), object()
+        cap = self.app._MAX_ACQUIRE_THREADS
+        for _ in range(cap):
+            self.assertTrue(self.app._acquire_seat(first))
+        self.assertFalse(self.app._acquire_seat(first))
+        # Hot-swapped (patched) module starts with a clean count even
+        # though the old module's deadlocked workers never come back.
+        self.assertTrue(self.app._acquire_seat(second))
+        self.app._release_seat(second)
+        for _ in range(cap):
+            self.app._release_seat(first)
+
+    def test_place_order_never_raises(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="shop") as tmp:
+            shop = self.app.Shop(
+                inventory_path=str(BUGGY),
+                log_path=os.path.join(tmp, "shop.log"),
+                api_base="http://127.0.0.1:9",
+            )
+            try:
+                with patch.object(
+                    shop,
+                    "acquire_timed",
+                    side_effect=RuntimeError("can't start new thread"),
+                ), patch("time.sleep", return_value=None):
+                    result = shop.place_order(["axle", "brake-pad"])
+            finally:
+                shop.log.close()
+        self.assertEqual(result["status"], "failed")
+
+    def test_metrics_loop_posts_until_stopped(self) -> None:
+        with patch.object(self.app, "publish_event") as posted:
+            stop = self.app.start_metrics_loop()
+            try:
+                for _ in range(50):
+                    if posted.called:
+                        break
+                    time.sleep(0.1)
+                self.assertTrue(posted.called)
+            finally:
+                stop.set()
+
+    def test_metrics_loop_stopped_early_posts_nothing(self) -> None:
+        with patch.object(self.app, "publish_event") as posted:
+            stop = self.app.start_metrics_loop()
+            stop.set()
+            time.sleep(1.3)
+            self.assertFalse(posted.called)
 
 
 if __name__ == "__main__":

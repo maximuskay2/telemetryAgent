@@ -345,13 +345,20 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(commerce_db.ensure_schema)
     if os.environ.get("FRIDGE_STREAM") == "1":
         ensure_fridge_stream()
+    shop_metrics_stop = None
     if _embed_shop():
         if not os.environ.get("AGENT_API"):
             os.environ["AGENT_API"] = _self_base_url()
         _start_embedded_shop_watcher()
+        from demo.shop.app import start_metrics_loop
+
+        shop_metrics_stop = start_metrics_loop()
     action_ticker_task = asyncio.get_running_loop().create_task(_action_ticker())
     yield
     global fridge_task
+    if shop_metrics_stop is not None:
+        shop_metrics_stop.set()
+        shop_metrics_stop = None
     if fridge_task is not None:
         fridge_task.cancel()
         fridge_task = None

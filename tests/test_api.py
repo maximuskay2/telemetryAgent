@@ -1,6 +1,8 @@
 import os
+import sys
+import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -1092,6 +1094,28 @@ class DemoCandidateTests(unittest.TestCase):
                         )
                     finally:
                         software_runs.pop("alias-test", None)
+
+
+class EmbeddedShopTests(unittest.TestCase):
+    def test_lifespan_starts_and_stops_metrics_loop(self) -> None:
+        shop_module = MagicMock(name="demo_shop_app")
+        stop = threading.Event()
+        shop_module.start_metrics_loop.return_value = stop
+        with patch.dict(
+            os.environ,
+            {
+                "TA_EMBED_SHOP": "1",
+                "AGENT_API": "http://127.0.0.1:9",
+                "DATABASE_URL": "",
+                "FRIDGE_STREAM": "0",
+            },
+        ), patch.dict(sys.modules, {"demo.shop.app": shop_module}), patch(
+            "apps.api.main._start_embedded_shop_watcher"
+        ):
+            with TestClient(app):
+                pass
+        shop_module.start_metrics_loop.assert_called_once_with()
+        self.assertTrue(stop.is_set())
 
 
 if __name__ == "__main__":

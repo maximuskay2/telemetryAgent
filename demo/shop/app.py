@@ -33,6 +33,36 @@ ACQUIRE_TIMEOUT_S = 0.1
 HOLD_S = 0.008
 MAX_ATTEMPTS = 3
 
+# Deadlocked acquire workers never return (the seeded inventory bug), so
+# rush traffic would leak threads until the process can't start new ones.
+# The seat cap sheds overload through the normal timeout path instead.
+# The count resets on hot-swap: the patched module starts clean while the
+# old module's stuck workers stay orphaned.
+_MAX_ACQUIRE_THREADS = 128
+_ACQUIRE_STATE: dict = {"module": None, "inflight": 0}
+_ACQUIRE_LOCK = threading.Lock()
+
+
+def _acquire_seat(module) -> bool:
+    """Take an acquire slot for this inventory module. False = shed load."""
+    with _ACQUIRE_LOCK:
+        if _ACQUIRE_STATE["module"] is not module:
+            _ACQUIRE_STATE["module"] = module
+            _ACQUIRE_STATE["inflight"] = 0
+        if _ACQUIRE_STATE["inflight"] >= _MAX_ACQUIRE_THREADS:
+            return False
+        _ACQUIRE_STATE["inflight"] += 1
+        return True
+
+
+def _release_seat(module) -> None:
+    """Release an acquire slot. Late finishers from a swapped-out module
+    don't touch the new module's count."""
+    with _ACQUIRE_LOCK:
+        if _ACQUIRE_STATE["module"] is not module:
+            return
+        _ACQUIRE_STATE["inflight"] = max(0, _ACQUIRE_STATE["inflight"] - 1)
+
 CATALOG = [
     {"sku": "axle", "name": "Axle assembly", "price": 129.99},
     {"sku": "brake-pad", "name": "Brake pad set", "price": 49.99},
@@ -150,28 +180,39 @@ class Shop:
         logged and reported as a timeout so the order fails through the
         normal retry path instead of 500ing.
         """
+        if not _acquire_seat(self.inventory):
+            return None, True
         box: dict = {}
         finished = threading.Event()
         guard = threading.Lock()
 
         def _run() -> None:
             try:
-                held = self.inventory.acquire_all(items)
-            except Exception as exc:  # noqa: BLE001 - reported via box
-                box["error"] = exc
-                return
-            with guard:
-                if finished.is_set():
-                    # We already timed out: release at once, never leak.
-                    try:
-                        self.inventory.release_all(held)
-                    except Exception:  # noqa: BLE001 - best effort
-                        pass
-                else:
-                    box["held"] = held
+                try:
+                    held = self.inventory.acquire_all(items)
+                except Exception as exc:  # noqa: BLE001 - reported via box
+                    box["error"] = exc
+                    return
+                with guard:
+                    if finished.is_set():
+                        # We already timed out: release at once, never leak.
+                        try:
+                            self.inventory.release_all(held)
+                        except Exception:  # noqa: BLE001 - best effort
+                            pass
+                    else:
+                        box["held"] = held
+            finally:
+                _release_seat(self.inventory)
 
         thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
+        try:
+            thread.start()
+        except RuntimeError:
+            # OS thread limit (rush overload): shed through the normal
+            # timeout path instead of 500ing.
+            _release_seat(self.inventory)
+            return None, True
         thread.join(timeout=timeout_s)
         with guard:
             if "held" in box:
@@ -197,7 +238,14 @@ class Shop:
             return {"order_id": order_id, "status": "failed",
                     "reason": "need 2-3 known SKUs", "latency_ms": 0.0}
         for attempt in range(1, MAX_ATTEMPTS + 1):
-            held, timed_out = self.acquire_timed(skus)
+            try:
+                held, timed_out = self.acquire_timed(skus)
+            except Exception as exc:  # noqa: BLE001 - never fail an order here
+                self.log.log(
+                    f"ERROR acquire failed {type(exc).__name__}: "
+                    f"{exc} order={order_id}"
+                )
+                continue
             if timed_out:
                 backoff_ms = min(100, 10 * (2 ** attempt))
                 self.log.log(
@@ -314,8 +362,7 @@ shop = Shop(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    stop = threading.Event()
-    threading.Thread(target=_metrics_loop, args=(stop,), daemon=True).start()
+    stop = start_metrics_loop()
     yield
     stop.set()
     shop.log.close()
@@ -411,6 +458,18 @@ def restart() -> dict:
 def _metrics_loop(stop: threading.Event) -> None:
     while not stop.wait(1.0):
         publish_event(shop.api_base, "shop_metrics", shop.metrics.snapshot())
+
+
+def start_metrics_loop() -> threading.Event:
+    """Publish shop_metrics 1/s until the returned event is set.
+
+    Used by the standalone lifespan and by the API when the shop is
+    embedded (mounted sub-app lifespans never run, so embedded mode
+    must start this explicitly).
+    """
+    stop = threading.Event()
+    threading.Thread(target=_metrics_loop, args=(stop,), daemon=True).start()
+    return stop
 
 
 if __name__ == "__main__":
