@@ -1,8 +1,9 @@
 # James status (commercial)
-Current block: C-J4 (isolation suite: two-org endpoint matrix)
+Current block: C-J5 merge (gate waits on John's 8201 squat, see BLOCKED)
 Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (2baf475),
-  C-J2 (8d6b046), C-J3 (org threading + RLS + EventHub + migration +
-  live Clerk wiring) — full suite 1048 green, check.sh green
+  C-J2 (8d6b046), C-J3 (c89c60e, on main), C-J4 (5a23bcf, committed),
+  model_call hooks (9c364d1, committed, Jude's NEEDS closed),
+  C-J5 (5cbbaad, committed) — matrix 34 + hooks 5 + lifecycle 5 green
 Decisions:
 - Auth provider: Clerk (dev instance, test keys). Provider proves identity
   only (sub + email); our memberships table owns orgs + roles, so we stay
@@ -73,6 +74,33 @@ Decisions:
   (org, fingerprint) key (same assertion); gate-candidate tests mock
   run_agent, so untagged gate runs keep calling it (scoped impl only
   for org-tagged runs) — no test rewrites.
+- C-J4 DONE (5a23bcf): 10-test two-org matrix (org/system/connection/
+  run/action/option/decision/device/ingest/pause/admin — B reaches
+  nothing of A's by ID or guessing; A's-key ingest lands in A only).
+  Hardening the matrix found: cross-org run access is 404 (was a 403
+  oracle); revoke checks membership before resolving the token;
+  first device poll with pending commands refuses (execute needs a
+  link, so pending-without-link is always foreign); PG connection
+  rows normalize last_seen NULL→0.0 (was a 500 on create/list).
+  Note for later: baseline_learners/signal_watches/_RUN_FIRST_SEEN
+  are keyed by bare system_id — same-slug systems across orgs would
+  share in-memory learner state (not in C-J4's brief; sessions carry
+  org tags and observe/progress enforce them).
+- Hooks DONE (9c364d1, Jude's NEEDS closed): model_call in/out via
+  Kind + record_usage in generate_json/repro/patch/choose_files,
+  threaded from run.py (org/system/run/language); chars/4 estimate
+  (thin clients report no usage; real OpenAI usage left for later);
+  skipped when untagged/demo; cost table already covers both models.
+  Jude: engine-file rule is org-gated, NOT hosted-gated (unlike my
+  run.py _usage) so file-store C-D4 proofs record too.
+- C-J5 DONE (5cbbaad): GET export (owner; hashes + sealed secrets
+  travel, token hashes excluded), POST restore (pinned id, members
+  re-attach by external id, keys keep working), POST purge after
+  30-day delete grace (all org rows gone, user rows survive by
+  design — RLS has no users-DELETE policy), sweep fns + script with
+  floors (7d audit, 5 versions), 5 tests incl. full round-trip.
+  Restore drill PASS (local pg_dump/restore + API boot + RLS read),
+  logged in docs/ops-backups.md; staging drill NEEDS Akingbade.
 Contract changes requested: none (§8 frozen; John's 8201 freed — the
   free-port hardening suggestion for test_devices_e2e.py stands as a
   nice-to-have in his court)
@@ -85,4 +113,8 @@ NEEDS FROM AKINGBADE:
   automated daily Postgres backups (staging + prod, ≥7 days).
 - Baseten/Modal remaining hackathon credit numbers (for Jude's alerts).
 - Confirm provider product-use terms (roadmap §0.1) when known.
-BLOCKED: none
+BLOCKED: merge gate needs 8201 free — John's live uvicorn (telemetry-agent-john,
+  since 02:32) holds it and test_devices_e2e binds that exact port (his file;
+  free-port hardening still open). Everything else green (full suite minus
+  e2e, matrix, hooks, lifecycle, test_api 44/44). Pushing once the gate goes
+  fully green.
