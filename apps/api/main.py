@@ -227,9 +227,34 @@ async def _profile_delete(system_id: str, org_id: str = "") -> bool:
     return await asyncio.to_thread(store.delete_system, org_id, system_id)
 
 
+def _self_base_url() -> str:
+    """Loopback URL of this API process (Railway sets PORT)."""
+    port = os.environ.get("PORT")
+    if port:
+        return f"http://127.0.0.1:{port}"
+    return os.environ.get("AGENT_API", "http://localhost:8001")
+
+
+def _embed_shop() -> bool:
+    """Host the AutoParts shop on this process (production / TA_EMBED_SHOP)."""
+    return bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("TA_EMBED_SHOP") == "1"
+    )
+
+
 def shop_base_url() -> str:
-    port = os.environ.get("SHOP_PORT", "8002")
-    return os.environ.get("SHOP_URL", f"http://localhost:{port}")
+    explicit = os.environ.get("SHOP_URL", "").strip().rstrip("/")
+    on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+    local_leftover = explicit and (
+        "localhost" in explicit or "127.0.0.1" in explicit
+    ) and "/shop-api" not in explicit
+    if explicit and not (on_railway and local_leftover):
+        return explicit
+    port = os.environ.get("PORT")
+    if port:
+        return f"http://127.0.0.1:{port}/shop-api"
+    return f"http://localhost:{os.environ.get('SHOP_PORT', '8002')}"
 
 
 def shop_runtime_path() -> Path:
@@ -296,6 +321,10 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(commerce_db.ensure_schema)
     if os.environ.get("FRIDGE_STREAM") == "1":
         ensure_fridge_stream()
+    if _embed_shop():
+        if not os.environ.get("AGENT_API"):
+            os.environ["AGENT_API"] = _self_base_url()
+        _start_embedded_shop_watcher()
     action_ticker_task = asyncio.get_running_loop().create_task(_action_ticker())
     yield
     global fridge_task
@@ -319,6 +348,39 @@ def cors_origin_regex() -> str:
 
 
 app = FastAPI(title="Telemetry Agent API", version="0.1.0", lifespan=lifespan)
+
+
+def _start_embedded_shop_watcher() -> None:
+    """Tail the in-process shop log and post candidates to this API."""
+    import threading
+
+    from demo.shop.app import LOG_PATH
+
+    path = Path(LOG_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+
+    def _run() -> None:
+        from core.watch.log_watcher import run
+
+        run(str(path), _self_base_url(), system_id="shop")
+
+    threading.Thread(
+        target=_run, name="shop-log-watcher", daemon=True
+    ).start()
+
+
+def _mount_embedded_shop() -> None:
+    if not _embed_shop():
+        return
+    if not os.environ.get("AGENT_API"):
+        os.environ["AGENT_API"] = _self_base_url()
+    from demo.shop.app import app as shop_app
+
+    app.mount("/shop-api", shop_app)
+
+
+_mount_embedded_shop()
 
 
 class CommerceAuthMiddleware(BaseHTTPMiddleware):
@@ -2950,7 +3012,11 @@ async def post_incident_candidate(
     Checks the system's profile in order; on `act` a run starts with the
     full gate decision attached (`run["gate"]`). Never 404s on an unknown
     system: watchers keep posting and the gate asks for setup instead.
+    The in-process shop watcher posts from loopback without a session.
     """
+    peer = request.client.host if request.client else ""
+    if peer in {"127.0.0.1", "::1"}:
+        return await _post_incident_candidate(payload, "")
     ctx = _need(request, "member")
     return await _post_incident_candidate(payload, ctx.org_id)
 

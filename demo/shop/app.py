@@ -303,7 +303,12 @@ class OrderIn(BaseModel):
 
 shop = Shop(
     inventory_path=os.environ.get("INVENTORY_PATH", DEFAULT_INVENTORY),
-    api_base=os.environ.get("AGENT_API", "http://localhost:8001"),
+    api_base=os.environ.get(
+        "AGENT_API",
+        f"http://127.0.0.1:{os.environ['PORT']}"
+        if os.environ.get("PORT")
+        else "http://localhost:8001",
+    ),
 )
 
 
@@ -320,7 +325,8 @@ app = FastAPI(title="AutoParts Lagos (demo shop)", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=os.environ.get(
-        "CORS_ORIGIN_REGEX", r"http://(localhost|127\.0\.0\.1):3000"
+        "CORS_ORIGIN_REGEX",
+        r"https://.*\.up\.railway\.app|http://(localhost|127\.0\.0\.1):\d+",
     ),
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -410,5 +416,6 @@ def _metrics_loop(stop: threading.Event) -> None:
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("SHOP_PORT", "8002"))
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    port = int(os.environ.get("PORT") or os.environ.get("SHOP_PORT", "8002"))
+    host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+    uvicorn.run(app, host=host, port=port)

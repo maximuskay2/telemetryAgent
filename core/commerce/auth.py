@@ -27,6 +27,8 @@ from core.commerce import models
 #: Paths that never need session auth (§8.3, exact; C-J3 secures /api/ws).
 PUBLIC_PATHS = (
     "/api/health",
+    "/shop-api",
+    "/shop-api/*",
     "/forwarder.py",
     "/api/sim/*",
     "/api/demo/*",

@@ -8,7 +8,22 @@ type Product = { sku: string; name: string; price: number; stock: number };
 type Toast = { id: number; text: string; ok: boolean };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const shopUrl = process.env.NEXT_PUBLIC_SHOP_URL ?? "http://localhost:8002";
+
+function resolveShopUrl(): string {
+  const explicit = (process.env.NEXT_PUBLIC_SHOP_URL ?? "").replace(/\/$/, "");
+  const hostedApi = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  const leftoverLocal =
+    !explicit ||
+    explicit.includes("localhost") ||
+    explicit.includes("127.0.0.1");
+  if (leftoverLocal && hostedApi && !hostedApi.includes("localhost")) {
+    return `${hostedApi}/shop-api`;
+  }
+  if (explicit) return explicit;
+  return "http://localhost:8002";
+}
+
+const shopUrl = resolveShopUrl();
 
 export default function ShopPage() {
   const [products, setProducts] = useState<Product[]>([]);
