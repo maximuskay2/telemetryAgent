@@ -1,6 +1,7 @@
 # John status (commercial)
-Current block: C-N7 Clerk wiring, merging
-Done: C-N6 merged (ece8e10); C-N7 real Clerk sign-in (this branch)
+Current block: C-N7 MERGED to origin/main (1d24162, check.sh GREEN)
+Done: C-N3..C-N7 all merged — Phase 1 web + app, Usage, live proofs,
+real Clerk sign-in. Waiting on nothing.
 Decisions (C-N7):
 - @clerk/nextjs 7.9.23; session splits into Mock/Clerk/Token
   providers (stable hooks each). Clerk mode hydrates orgs from
