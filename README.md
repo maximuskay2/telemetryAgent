@@ -1,3 +1,5 @@
+<img src="docs/brand/telemetry-agent-logo.png" width="120" alt="TelemetryAgent logo">
+
 # TelemetryAgent
 
 <img src="docs/brand/telemetry-agent-logo.png" width="120" alt="TelemetryAgent logo">
