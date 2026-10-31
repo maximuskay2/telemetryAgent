@@ -3446,12 +3446,60 @@ class ShopLoadIn(BaseModel):
     duration: int = Field(default=30, ge=1, le=300)
 
 
+def _buggy_inventory_path() -> str:
+    return str(
+        Path(__file__).resolve().parent.parent.parent
+        / "demo" / "target-service" / "inventory.py"
+    )
+
+
+async def _rebreak_shop() -> str:
+    """Undo a deployed fix so the next rush hour deadlocks again.
+
+    A verified patch stays hot-swapped in the shop; without this every
+    later "Break the shop" runs on fixed code, the error rate never moves
+    and the gate rightly never acts.
+    """
+    import httpx
+
+    runtime_path = shop_runtime_path()
+    if runtime_path.exists():
+        runtime_path.unlink()
+    buggy = _buggy_inventory_path()
+    if _embed_shop():
+        from demo.shop.app import shop as embedded_shop
+
+        if ".runtime" not in embedded_shop.inventory_path:
+            return "already-buggy"
+        embedded_shop.reload_inventory(buggy)
+        return "rebroken"
+    base = shop_base_url().rstrip("/")
+    try:
+        health = await asyncio.to_thread(httpx.get, f"{base}/health", timeout=3.0)
+        active = str(health.json().get("inventory", ""))
+    except (httpx.HTTPError, ValueError):
+        return "unreachable"
+    if ".runtime" not in active:
+        return "already-buggy"
+    try:
+        response = await asyncio.to_thread(
+            httpx.post,
+            f"{base}/reload",
+            json={"inventory_path": buggy},
+            timeout=5.0,
+        )
+    except httpx.HTTPError:
+        return "unreachable"
+    return "rebroken" if response.status_code < 400 else "reload-failed"
+
+
 @app.post("/api/sim/shop/load")
 async def shop_load(payload: ShopLoadIn) -> dict:
     """Start a shop load burst in the background (scenario + dashboard)."""
+    shop_state = await _rebreak_shop()
     pid = spawn_shop_load(payload.shoppers, payload.rate, payload.duration)
     return {"pid": pid, "shoppers": payload.shoppers, "rate": payload.rate,
-            "duration": payload.duration}
+            "duration": payload.duration, "shop": shop_state}
 
 
 async def _play_and_track(steps: list) -> None:

@@ -34,6 +34,43 @@ class ScenarioApiTest(unittest.TestCase):
             )
             self.assertEqual(bad.status_code, 422)
 
+    def test_shop_load_rebreaks_a_deployed_fix(self) -> None:
+        runtime = shop_runtime_path()
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_text("patched", encoding="utf-8")
+        calls = []
+        active = {"inventory": str(runtime)}
+
+        def _record(url, json=None, timeout=None):
+            calls.append((url, json))
+            active["inventory"] = json["inventory_path"]
+            return _ok_reload(url, json=json, timeout=timeout)
+
+        def _health(url, timeout=None):
+            return httpx.Response(200, json=dict(active))
+
+        with patch.dict("os.environ", {"TA_EMBED_SHOP": "0"}), \
+                patch("apps.api.main.spawn_shop_load", return_value=1):
+            with TestClient(app) as client:
+                with patch("httpx.post", side_effect=_record), \
+                        patch("httpx.get", side_effect=_health):
+                    body = client.post(
+                        "/api/sim/shop/load",
+                        json={"shoppers": 1, "rate": 1, "duration": 1},
+                    ).json()
+                    again = client.post(
+                        "/api/sim/shop/load",
+                        json={"shoppers": 1, "rate": 1, "duration": 1},
+                    ).json()
+        self.assertEqual(body["shop"], "rebroken")
+        self.assertEqual(again["shop"], "already-buggy")
+        self.assertFalse(runtime.exists())
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0][0].endswith("/reload"))
+        self.assertTrue(
+            calls[0][1]["inventory_path"].endswith("target-service/inventory.py")
+        )
+
     def test_play_status_and_double_play_rejected(self) -> None:
         with TestClient(app) as client:
             play = client.post("/api/sim/scenario/play")
