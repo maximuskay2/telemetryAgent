@@ -1,6 +1,6 @@
 # Janet status (tester)
 
-Current block: T-E5 (T-E1–T-E4 done)
+Current block: T-E6 (T-E1–T-E5 done)
 Environment: local API 127.0.0.1:8401 + shop 8402 + web localhost:3401 (2026-10-31; evidence below on origin/main 02d066b, branch rebased to 23bc080 at commit); Railway https://web-production-926b3.up.railway.app
 
 Done:
@@ -9,6 +9,7 @@ Done:
 - T-E3 PASS (local, all 5 checks; 2 live runs used, see below)
 - T-E4 PARTIAL (#1, #2, #4 PASS local + Railway spot-check; #3 BLOCKED — Clerk sign-in unavailable, see NEEDS)
 - T-E1/T-E2 re-verified PASS on origin/main 9c487cf (welcome redesign + Get the app link)
+- T-E5 BLOCKED (all 6 checks need a Clerk session; no test user — see NEEDS. Code observations recorded, nothing walked.)
 
 Decisions:
 - Stack runs with DATABASE_URL unset (worktree file store), GITHUB_TOKEN unset (no real PRs from test runs), FRIDGE_STREAM=1, SHOP_PORT=8402, CORS_ORIGIN_REGEX=http://(localhost|127\.0\.0\.1):3401. No .env written; ../telemetry-agent/.env sourced into process env only.
@@ -22,6 +23,7 @@ NEEDS FROM AKINGBADE:
 
 BLOCKED:
 - T-E4#3 (lands on next page after sign-in) — needs a signed-in Clerk session.
+- T-E5#1–#6 (all production-walkthrough checks) — needs a signed-in Clerk session.
 
 Live runs (what · result · seconds · model):
 - tour break-shop #1 (TA_VERIFY default/Modal) · FAILED at verify: Modal sandbox shut down mid-run, run crashed, veto never opened · spark diagnose + spark-open patch (run a85e71bb)
@@ -107,3 +109,18 @@ Method: fresh-profile headless Chrome per walk (new user, signed out) on localho
 | 2 | Direct production pages | /connect, /members, /devices, /usage | none (land each fresh) | Each redirects to /signin?next=<that page> | /connect → /signin?next=%2Fconnect; /members → …%2Fmembers; /devices → …%2Fdevices; /usage → …%2Fusage. Railway: /connect → /signin?next=%2Fconnect, /members → /signin?next=%2Fmembers | PASS |
 | 3 | After sign-in | /members → sign-in | "Sign up" → fill email+password → Continue | Land on the next page, not demo Mission Control | BLOCKED: signup runs on Clerk hosted page (accounts.dev); submit stalls at "Verifying your request" bot protection headless. No verified test user available; local API accepts only real Clerk JWTs. Nothing invented or committed. | BLOCKED |
 | 4 | Demo still public | /welcome | click "Try the live demo" while signed out | Demo reachable without sign-in | Landed on /start card 1 ("Your software and your equipment") | PASS |
+
+## T-E5 · Production walkthrough — BLOCKED (all checks)
+
+Per roadmap: cannot sign in → stop, NEEDS filed (see top). No Clerk dev/test session obtainable: headless signup stalls at Clerk bot protection, no verified test user exists, Google OAuth not usable headless, and the local API only accepts real Clerk JWTs (RS256 via JWKS). No credentials invented; no mock/dev-mode bypass used (NEXT_PUBLIC_COMMERCE_MOCK unset — the mock would not test the real Clerk path anyway). Base 041808e.
+
+| # | Check | Verdict | Note |
+|---|---|---|---|
+| 1 | Sign-in creates / opens an org | BLOCKED | Needs sign-in. |
+| 2 | /connect wizard steps | BLOCKED | Needs sign-in. Code (unwalked): SOFTWARE_TITLES = System → Logs → Repo → Hosting → Teach → Promise → Pair → Start; APPLIANCE_TITLES = System → Device → Teach → Promise → Pair → Start — matches the roadmap. |
+| 3 | Teach hard limits + Advanced setup | BLOCKED | Needs sign-in. Code (unwalked): Teach step sets hard limits and links "Advanced setup" → /setup?system=… — matches. |
+| 4 | Account chrome | BLOCKED | Needs sign-in. Code (unwalked): Connect/Members/Devices/Usage nav + How to + Get the app + Support + Live demo + org switcher + Sign out — matches (+ Get the app). |
+| 5 | Signed-in Home | BLOCKED | Needs sign-in. Code (unwalked): DemoCta renders "Your production" → /connect when signed in; demo door unchanged. |
+| 6 | Mission Control from production | BLOCKED | Needs sign-in. Code (unwalked): Wizard completion calls markOnboarded, which opens /. |
+
+To unblock: one verified Clerk dev user (email + password) usable on localhost:3401, or an Akingbade-supervised live signup. Then re-walk T-E4#3 + T-E5#1–#6.
