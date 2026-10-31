@@ -24,7 +24,7 @@ export function ApiErrorView({ error }: { error: unknown }) {
       <Card title="Sign in required">
         <p className="text-sm text-text-muted">
           This page needs an account.{" "}
-          <a href="/signin" className="text-brand-cyan">
+          <a href="/signin?next=/connect" className="text-brand-cyan">
             Sign in
           </a>
         </p>

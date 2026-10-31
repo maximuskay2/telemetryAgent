@@ -2,20 +2,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import ThemeToggle from "../components/ThemeToggle";
-import { CommerceError, Device, PairCode } from "../lib/commerce";
+import { Device, PairCode } from "../lib/commerce";
 import { useSession } from "../lib/session";
 import { Card } from "../ui";
+import AccountChrome from "../commerce/AccountChrome";
+import RequireAuth from "../commerce/RequireAuth";
 import {
   ApiErrorView,
   DeviceList,
   Loading,
-  OrgSwitcher,
   PairCodeView,
 } from "../commerce/components";
 
 export default function DevicesPage() {
-  const { status, orgs, activeOrg, role, api, switchOrg } = useSession();
+  return (
+    <RequireAuth>
+      <AccountChrome>
+        <DevicesInner />
+      </AccountChrome>
+    </RequireAuth>
+  );
+}
+
+function DevicesInner() {
+  const { activeOrg, role, api } = useSession();
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
@@ -39,17 +49,10 @@ export default function DevicesPage() {
     void reload();
   }, [reload]);
 
-  if (status === "loading") {
+  if (!activeOrg) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
-        <Loading />
-      </main>
-    );
-  }
-  if (status === "signed-out" || !activeOrg) {
-    return (
-      <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-        <ApiErrorView error={new CommerceError(401, "Signed out")} />
+        <p className="text-sm text-text-muted">Creating your organization…</p>
       </main>
     );
   }
@@ -58,16 +61,12 @@ export default function DevicesPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold text-text">Your devices</h1>
-          <p className="text-sm text-text-muted">
-            Phones paired for {activeOrg.name}. Revoking stops approvals now.
-          </p>
-        </div>
-        <ThemeToggle />
+      <div>
+        <h1 className="mb-1 text-xl font-semibold text-text">Your devices</h1>
+        <p className="text-sm text-text-muted">
+          Phones paired for {activeOrg.name}. Revoking stops approvals now.
+        </p>
       </div>
-      <OrgSwitcher orgs={orgs} activeId={activeOrg.id} onSwitch={switchOrg} />
       {notice && <p className="text-sm text-ok">{notice}</p>}
       {error ? (
         <ApiErrorView error={error} />

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ThemeToggle from "../components/ThemeToggle";
+import { signInHref } from "../lib/nextPath";
+import { useSession } from "../lib/session";
 import { Button, Card } from "../ui";
 
 function WatchArt() {
@@ -92,9 +94,11 @@ const CARDS = [
 ];
 
 export default function StartPage() {
+  const { status } = useSession();
   const [index, setIndex] = useState(0);
-  const [ownSystem, setOwnSystem] = useState(false);
   const touchX = useRef<number | null>(null);
+  const productionHref =
+    status === "signed-in" ? "/connect" : signInHref("/connect");
   const last = CARDS.length - 1;
   const card = CARDS[index];
 
@@ -118,7 +122,21 @@ export default function StartPage() {
             ◆
           </span>
           <span className="text-sm font-semibold">TelemetryAgent</span>
-          <ThemeToggle className="ms-auto" />
+          <div className="ms-auto flex items-center gap-2">
+            <Link
+              href="/guide"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              How to
+            </Link>
+            <Link
+              href="/support"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Support
+            </Link>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
@@ -155,22 +173,12 @@ export default function StartPage() {
                   Use the demo business
                   <span aria-hidden>→</span>
                 </Link>
-                <Button tone="ghost" onClick={() => setOwnSystem(!ownSystem)}>
+                <Link
+                  href={productionHref}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2.5 text-sm font-medium text-text outline-none transition-colors hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand"
+                >
                   Connect my own system
-                </Button>
-                {ownSystem && (
-                  <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs leading-relaxed text-text-muted">
-                    After the hackathon — join the waitlist. For now you can
-                    explore the{" "}
-                    <Link
-                      href="/setup"
-                      className="rounded text-brand-cyan underline outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                    >
-                      Advanced setup
-                    </Link>
-                    .
-                  </p>
-                )}
+                </Link>
               </div>
             )}
           </Card>

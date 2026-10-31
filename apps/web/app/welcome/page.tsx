@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import Attribution from "../components/Attribution";
-import ThemeToggle from "../components/ThemeToggle";
 import DemoCta from "./DemoCta";
+import WelcomeHeader from "./WelcomeHeader";
 
 /** Set to the video URL once recorded; the button stays hidden until then. */
 const VIDEO_URL = "";
@@ -103,24 +102,7 @@ function FreezerArt() {
 export default function WelcomePage() {
   return (
     <div className="min-h-screen bg-bg font-sans text-text">
-      <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-          <span className="text-sm text-brand-cyan" aria-hidden>
-            ◆
-          </span>
-          <span className="text-sm font-semibold">TelemetryAgent</span>
-          <span className="ms-auto text-xs text-text-muted">
-            Live demo — others may be watching the same shop
-          </span>
-          <Link
-            href="/?skip=1"
-            className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
-          >
-            Mission Control →
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
+      <WelcomeHeader />
 
       <main className="mx-auto w-full max-w-5xl px-4 pb-16">
         <div className="mx-auto max-w-3xl pt-12 text-center">
@@ -201,23 +183,6 @@ export default function WelcomePage() {
           · Verified in a Modal sandbox
         </p>
         <Attribution className="mt-2 text-center" />
-        <p className="mt-4 text-center text-xs">
-          <Link
-            href="/setup"
-            className="rounded text-text-muted underline outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
-          >
-            Advanced setup
-          </Link>
-          <span aria-hidden className="mx-2 text-text-faint">
-            ·
-          </span>
-          <Link
-            href="/?skip=1"
-            className="rounded text-text-muted underline outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
-          >
-            Skip to Mission Control
-          </Link>
-        </p>
       </main>
     </div>
   );

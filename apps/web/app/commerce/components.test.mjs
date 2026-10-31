@@ -103,7 +103,7 @@ describe("ApiErrorView", () => {
       }),
     );
     assert.match(html, /Sign in required/);
-    assert.match(html, /href="\/signin"/);
+    assert.match(html, /href="\/signin\?next=\/connect"/);
   });
 
   it("403 explains roles", () => {

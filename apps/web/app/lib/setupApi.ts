@@ -2,8 +2,16 @@
 
 import { apiUrl, responseDetail } from "./api";
 
-/** localStorage flag set once a visitor finishes (or skips) the journey. */
+/** localStorage flag set once a visitor finishes the demo or production walkthrough. */
 export const ONBOARDED_KEY = "ta_onboarded";
+
+export function markOnboarded(): void {
+  try {
+    window.localStorage.setItem(ONBOARDED_KEY, "1");
+  } catch {
+    // Private mode: FirstVisitGate will send them through welcome again.
+  }
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, init);

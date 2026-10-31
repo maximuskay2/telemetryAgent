@@ -679,6 +679,17 @@ export default function GuidedSetupPage() {
                           : "Read the manuals"}
                       </Button>
                     </div>
+                    <p className="text-xs text-text-muted">
+                      The demo reads our copies. To upload your own manuals
+                      or review every extracted field, use{" "}
+                      <Link
+                        href="/setup"
+                        className="rounded text-brand-cyan underline outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      >
+                        Advanced setup
+                      </Link>{" "}
+                      — same teach-it-normal path.
+                    </p>
                   </div>
                 )}
                 {n === 3 && (

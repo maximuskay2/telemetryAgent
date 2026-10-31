@@ -31,7 +31,10 @@ export default function InvitePage() {
       <main className="mx-auto w-full max-w-md space-y-4 px-4 py-8">
         <p className="text-sm text-text-muted">
           Sign in to accept this invite.{" "}
-          <Link href="/signin" className="text-brand-cyan">
+          <Link
+            href={`/signin?next=${encodeURIComponent(`/invite/${token}`)}`}
+            className="text-brand-cyan"
+          >
             Sign in
           </Link>
         </p>
@@ -55,7 +58,7 @@ export default function InvitePage() {
             Joined as {done.role}.{" "}
             <button
               type="button"
-              onClick={() => router.push("/")}
+              onClick={() => router.push("/connect")}
               className="cursor-pointer text-brand-cyan outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
               Open Mission Control

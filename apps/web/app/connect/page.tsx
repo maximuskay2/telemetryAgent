@@ -3,8 +3,10 @@
 
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
+import AccountChrome from "../commerce/AccountChrome";
+import RequireAuth from "../commerce/RequireAuth";
+import { useSession } from "../lib/session";
 import { Card } from "../ui";
-import ThemeToggle from "../components/ThemeToggle";
 import { checkAccessCode, getAccessCode, getConnectDoor } from "./api";
 import ConnectionsPanel from "./ConnectionsPanel";
 import { ErrorLine, Field, StepNav, inputCls } from "./ui";
@@ -65,6 +67,7 @@ function AccessCodeForm({ onOpen }: { onOpen: () => void }) {
 }
 
 function ConnectDoor({ children }: { children: ReactNode }) {
+  const { status } = useSession();
   const [door, setDoor] = useState<Door>("loading");
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +77,8 @@ function ConnectDoor({ children }: { children: ReactNode }) {
       try {
         const state = await getConnectDoor();
         if (!state.enabled) return "off" as Door;
-        if (!state.codeRequired) return "open" as Door;
+        // Signed-in accounts skip the extra access-code door.
+        if (status === "signed-in" || !state.codeRequired) return "open" as Door;
         const stored = getAccessCode();
         if (stored && (await checkAccessCode(stored))) return "open" as Door;
         return "code" as Door;
@@ -90,7 +94,7 @@ function ConnectDoor({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [status]);
 
   if (door === "off") {
     return (
@@ -117,12 +121,9 @@ function ConnectInner() {
   const systemId = useSearchParams().get("system");
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-8">
-      <div className="flex items-start justify-between gap-3">
-        <h1 className="mb-1 text-xl font-semibold text-text">
-          {systemId ? "Connections" : "Connect your production"}
-        </h1>
-        <ThemeToggle />
-      </div>
+      <h1 className="mb-1 text-xl font-semibold text-text">
+        {systemId ? "Connections" : "Connect your production"}
+      </h1>
       <p className="mb-5 text-sm text-text-muted">
         {systemId
           ? "Keys stay server-side; secrets are never shown again."
@@ -137,14 +138,18 @@ function ConnectInner() {
 
 export default function ConnectPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="mx-auto w-full max-w-2xl px-4 py-8">
-          <p className="text-sm text-text-muted">Loading…</p>
-        </main>
-      }
-    >
-      <ConnectInner />
-    </Suspense>
+    <RequireAuth>
+      <AccountChrome>
+        <Suspense
+          fallback={
+            <main className="mx-auto w-full max-w-2xl px-4 py-8">
+              <p className="text-sm text-text-muted">Loading…</p>
+            </main>
+          }
+        >
+          <ConnectInner />
+        </Suspense>
+      </AccountChrome>
+    </RequireAuth>
   );
 }

@@ -1,26 +1,30 @@
 // Sign-in (C-N3, C-N6, C-N7). Dev mock signs in locally; with a
 // Clerk key the Clerk component owns sign-in; otherwise a pasted
 // test JWT signs in local dev.
+// Catch-all so Clerk path routing can own /signin/* (factor-one, sso-callback).
 "use client";
 
 import { SignIn } from "@clerk/nextjs";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import ThemeToggle from "../components/ThemeToggle";
-import { useSession } from "../lib/session";
-import { Card } from "../ui";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import ThemeToggle from "../../components/ThemeToggle";
+import { safeNext } from "../../lib/nextPath";
+import { useSession } from "../../lib/session";
+import { Card } from "../../ui";
 
-export default function SignInPage() {
+function SignInInner() {
   const { status, devMode, clerkMode, signInDev, signInToken } = useSession();
   const router = useRouter();
+  const search = useSearchParams();
+  const next = safeNext(search.get("next"));
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (status === "signed-in") router.push("/");
-  }, [status, router]);
+    if (status === "signed-in") router.replace(next);
+  }, [status, router, next]);
 
   if (status === "loading") {
     return (
@@ -35,7 +39,7 @@ export default function SignInPage() {
     setError("");
     try {
       await signInDev(email);
-      router.push("/");
+      router.replace(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
     }
@@ -46,7 +50,7 @@ export default function SignInPage() {
     setError("");
     try {
       await signInToken(token);
-      router.push("/");
+      router.replace(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
     }
@@ -65,7 +69,7 @@ export default function SignInPage() {
           <SignIn
             routing="path"
             path="/signin"
-            forceRedirectUrl="/"
+            forceRedirectUrl={next}
             appearance={{
               variables: {
                 colorPrimary: "#0866FF",
@@ -139,8 +143,23 @@ export default function SignInPage() {
         </details>
       )}
       <p className="mt-4 text-center text-xs text-text-faint">
-        New here? Signing in creates your organization.
+        New here? Signing in creates your organization. The live demo stays
+        open from the home page — no account needed.
       </p>
     </main>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto w-full max-w-md px-4 py-16">
+          <p className="text-sm text-text-muted">Loading…</p>
+        </main>
+      }
+    >
+      <SignInInner />
+    </Suspense>
   );
 }

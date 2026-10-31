@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getConnectEnabled } from "../connect/api";
+import { signInHref } from "../lib/nextPath";
+import { useSession } from "../lib/session";
 import { apiHealth } from "../lib/setupApi";
 
-/** Landing CTA: links straight in when the API answers, waits otherwise. */
+/** Landing CTA: demo is public; production starts at sign-in. */
 export default function DemoCta() {
+  const { status } = useSession();
   const [awake, setAwake] = useState<boolean | null>(null);
-  const [connectOn, setConnectOn] = useState(false);
+  const productionHref =
+    status === "signed-in" ? "/connect" : signInHref("/connect");
 
   useEffect(() => {
     let cancelled = false;
@@ -25,21 +28,6 @@ export default function DemoCta() {
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getConnectEnabled().then(
-      (enabled) => {
-        if (!cancelled) setConnectOn(enabled);
-      },
-      () => {
-        // API unreachable: demo door keeps its own waking state.
-      },
-    );
-    return () => {
-      cancelled = true;
     };
   }, []);
 
@@ -66,14 +54,12 @@ export default function DemoCta() {
           <span aria-hidden>→</span>
         </Link>
       )}
-      {connectOn && (
-        <Link
-          href="/connect"
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text transition-colors outline-none hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-        >
-          Connect your production
-        </Link>
-      )}
+      <Link
+        href={productionHref}
+        className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text transition-colors outline-none hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      >
+        {status === "signed-in" ? "Your production" : "Connect your production"}
+      </Link>
     </>
   );
 }

@@ -5,8 +5,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ONBOARDED_KEY } from "../lib/setupApi";
 
 /**
- * D6: first visit to / lands on /welcome — unless the journey flag is set
- * or the URL carries ?tour / ?skip. ?skip=1 sets the flag (video shortcut).
+ * First visit to / lands on /welcome. Mission Control opens only after
+ * the demo walkthrough (`/?tour=1`) or a finished production connect.
  */
 export default function FirstVisitGate({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -14,15 +14,6 @@ export default function FirstVisitGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("skip") === "1") {
-      try {
-        window.localStorage.setItem(ONBOARDED_KEY, "1");
-      } catch {
-        // Private mode: the gate just runs again next visit.
-      }
-      setReady(true);
-      return;
-    }
     let onboarded = false;
     try {
       onboarded = window.localStorage.getItem(ONBOARDED_KEY) === "1";

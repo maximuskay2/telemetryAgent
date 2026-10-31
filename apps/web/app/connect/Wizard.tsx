@@ -9,6 +9,7 @@ import {
   armSystem,
   confirmProfile,
   getProfile,
+  markOnboarded,
   putProfile,
   type SetupProfile,
 } from "../lib/setupApi";
@@ -233,6 +234,15 @@ function StepTeach({
       <div className="space-y-3">
         <p className="text-[13px] text-text-muted">
           Status: <span className="font-medium text-text">{status || "…"}</span>
+          . Set hard limits here, or upload manuals and review what the
+          agent extracted in{" "}
+          <Link
+            href={`/setup?system=${encodeURIComponent(systemId)}`}
+            className="rounded text-brand-cyan underline outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Advanced setup
+          </Link>
+          .
         </p>
         <Field label="Owner contact">
           <input
@@ -444,7 +454,8 @@ function StepDone({ data }: { data: WizardData }) {
         </p>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/mission"
+            href="/"
+            onClick={markOnboarded}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand hover:bg-brand/90"
           >
             Open Mission Control →

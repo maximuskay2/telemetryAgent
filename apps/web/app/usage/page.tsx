@@ -2,19 +2,25 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import ThemeToggle from "../components/ThemeToggle";
-import { CommerceError, Usage } from "../lib/commerce";
+import { Usage } from "../lib/commerce";
 import { useSession } from "../lib/session";
 import { Card } from "../ui";
-import {
-  ApiErrorView,
-  Loading,
-  OrgSwitcher,
-  UsageView,
-} from "../commerce/components";
+import AccountChrome from "../commerce/AccountChrome";
+import RequireAuth from "../commerce/RequireAuth";
+import { ApiErrorView, Loading, UsageView } from "../commerce/components";
 
 export default function UsagePage() {
-  const { status, orgs, activeOrg, api, switchOrg } = useSession();
+  return (
+    <RequireAuth>
+      <AccountChrome>
+        <UsageInner />
+      </AccountChrome>
+    </RequireAuth>
+  );
+}
+
+function UsageInner() {
+  const { activeOrg, api } = useSession();
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState<unknown>(null);
 
@@ -33,33 +39,22 @@ export default function UsagePage() {
     void reload();
   }, [reload]);
 
-  if (status === "loading") {
+  if (!activeOrg) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
-        <Loading />
-      </main>
-    );
-  }
-  if (status === "signed-out" || !activeOrg) {
-    return (
-      <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-        <ApiErrorView error={new CommerceError(401, "Signed out")} />
+        <p className="text-sm text-text-muted">Creating your organization…</p>
       </main>
     );
   }
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold text-text">Usage</h1>
-          <p className="text-sm text-text-muted">
-            What {activeOrg.name} used against the free allowance.
-          </p>
-        </div>
-        <ThemeToggle />
+      <div>
+        <h1 className="mb-1 text-xl font-semibold text-text">Usage</h1>
+        <p className="text-sm text-text-muted">
+          What {activeOrg.name} used against the free allowance.
+        </p>
       </div>
-      <OrgSwitcher orgs={orgs} activeId={activeOrg.id} onSwitch={switchOrg} />
       {error ? (
         <ApiErrorView error={error} />
       ) : usage === null ? (

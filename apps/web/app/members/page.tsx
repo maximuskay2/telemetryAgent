@@ -2,20 +2,30 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import ThemeToggle from "../components/ThemeToggle";
-import { CommerceError, Member } from "../lib/commerce";
+import { Member } from "../lib/commerce";
 import { useSession } from "../lib/session";
 import { Card } from "../ui";
+import AccountChrome from "../commerce/AccountChrome";
+import RequireAuth from "../commerce/RequireAuth";
 import {
   ApiErrorView,
   InviteForm,
   Loading,
   MemberList,
-  OrgSwitcher,
 } from "../commerce/components";
 
 export default function MembersPage() {
-  const { status, user, orgs, activeOrg, role, api, switchOrg } = useSession();
+  return (
+    <RequireAuth>
+      <AccountChrome>
+        <MembersInner />
+      </AccountChrome>
+    </RequireAuth>
+  );
+}
+
+function MembersInner() {
+  const { user, activeOrg, role, api } = useSession();
   const [members, setMembers] = useState<Member[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
@@ -36,17 +46,10 @@ export default function MembersPage() {
     void reload();
   }, [reload]);
 
-  if (status === "loading") {
+  if (!activeOrg) {
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8">
-        <Loading />
-      </main>
-    );
-  }
-  if (status === "signed-out" || !activeOrg) {
-    return (
-      <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-        <ApiErrorView error={new CommerceError(401, "Signed out")} />
+        <p className="text-sm text-text-muted">Creating your organization…</p>
       </main>
     );
   }
@@ -56,16 +59,12 @@ export default function MembersPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-8">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="mb-1 text-xl font-semibold text-text">Members</h1>
-          <p className="text-sm text-text-muted">
-            Who can see and approve for {activeOrg.name}.
-          </p>
-        </div>
-        <ThemeToggle />
+      <div>
+        <h1 className="mb-1 text-xl font-semibold text-text">Members</h1>
+        <p className="text-sm text-text-muted">
+          Who can see and approve for {activeOrg.name}.
+        </p>
       </div>
-      <OrgSwitcher orgs={orgs} activeId={activeOrg.id} onSwitch={switchOrg} />
       {notice && <p className="text-sm text-ok">{notice}</p>}
       {error ? (
         <ApiErrorView error={error} />
