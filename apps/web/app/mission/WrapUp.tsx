@@ -112,6 +112,12 @@ export default function WrapUp({
               {Math.max(1, summary.attempts)}
             </dd>
           </div>
+          <div className="rounded-md border border-border bg-surface-2 px-2 py-2">
+            <dt className="text-[11px] text-text-faint">Demo</dt>
+            <dd className="text-sm font-semibold tabular-nums">
+              {summary.track === "freezer" ? "Freezer" : "Shop"}
+            </dd>
+          </div>
         </dl>
 
         <div className="mt-4 flex flex-col gap-2">

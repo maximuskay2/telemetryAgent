@@ -165,7 +165,7 @@ export default function FridgeTile({ systemId }: { systemId: string | null }) {
   const vib = fridge?.vibration_g;
 
   return (
-    <section aria-label="Cold chain freezer" className="rounded-lg border border-border bg-surface p-4">
+    <section id="tour-freezer" aria-label="Cold chain freezer" className="rounded-lg border border-border bg-surface p-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-text">Cold chain freezer</h2>
         <TileStatus domain="appliance" systemId={systemId} />
