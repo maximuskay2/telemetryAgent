@@ -1,6 +1,6 @@
 # Janet status (tester)
 
-Current block: T-E6 (T-E1–T-E5 done)
+Current block: done (all six blocks reported)
 Environment: local API 127.0.0.1:8401 + shop 8402 + web localhost:3401 (2026-10-31; evidence below on origin/main 02d066b, branch rebased to 23bc080 at commit); Railway https://web-production-926b3.up.railway.app
 
 Done:
@@ -10,6 +10,7 @@ Done:
 - T-E4 PARTIAL (#1, #2, #4 PASS local + Railway spot-check; #3 BLOCKED — Clerk sign-in unavailable, see NEEDS)
 - T-E1/T-E2 re-verified PASS on origin/main 9c487cf (welcome redesign + Get the app link)
 - T-E5 BLOCKED (all 6 checks need a Clerk session; no test user — see NEEDS. Code observations recorded, nothing walked.)
+- T-E6 PASS (gate GREEN, status file secret-free, demo/prod split verified)
 
 Decisions:
 - Stack runs with DATABASE_URL unset (worktree file store), GITHUB_TOKEN unset (no real PRs from test runs), FRIDGE_STREAM=1, SHOP_PORT=8402, CORS_ORIGIN_REGEX=http://(localhost|127\.0\.0\.1):3401. No .env written; ../telemetry-agent/.env sourced into process env only.
@@ -27,7 +28,8 @@ BLOCKED:
 
 Live runs (what · result · seconds · model):
 - tour break-shop #1 (TA_VERIFY default/Modal) · FAILED at verify: Modal sandbox shut down mid-run, run crashed, veto never opened · spark diagnose + spark-open patch (run a85e71bb)
-- tour break-shop #2 (TA_VERIFY=local) · veto opened, cancelled by tester · 105 s break→veto · spark diagnose (meta:muse-spark-1.3) + spark-open patch (baseten:meta-models/muse-spark-open-1026), run 93c24dce PASS (2/3 used)
+- tour break-shop #2 (TA_VERIFY=local) · veto opened, cancelled by tester · 105 s break→veto · spark diagnose (meta:muse-spark-1.3) + spark-open patch (baseten:meta-models/muse-spark-open-1026), run 93c24dce PASS (2/3 walkthrough runs used)
+- gate smoke (T-E6#1, required by roadmap, not walkthrough) · 2 agent runs (candidate→act, /api/run), both GREEN · TA_VERIFY=local, temp data dir, no DATABASE_URL
 
 ## T-E1 · Home doors — PASS
 
@@ -124,3 +126,15 @@ Per roadmap: cannot sign in → stop, NEEDS filed (see top). No Clerk dev/test s
 | 6 | Mission Control from production | BLOCKED | Needs sign-in. Code (unwalked): Wizard completion calls markOnboarded, which opens /. |
 
 To unblock: one verified Clerk dev user (email + password) usable on localhost:3401, or an Akingbade-supervised live signup. Then re-walk T-E4#3 + T-E5#1–#6.
+
+## T-E6 · Safety / isolation — PASS
+
+| # | Check | Expected | Got | Verdict |
+|---|---|---|---|---|
+| 1 | ./scripts/check.sh exit 0 | GREEN from branch state, sim leg without DATABASE_URL | check.sh: GREEN (all legs passed, none skipped: python tests, simulation smoke incl. 5 web-page GETs against my :3401, web build, flutter analyze+test). Ran on an isolated worktree of test/janet @ c74ba2b (same code as this branch; removed after): no .env file visible, keys via process env only, DATABASE_URL + GITHUB_TOKEN unset, TA_VERIFY=local, temp TA_DATA_DIR, random API port. Zero shared-state contact (no Postgres, no PRs, no foreign ports). | PASS |
+| 2 | Secrets | status/test-janet.md holds no key, token, password, or JWT | Pattern scan (sk-/pk-/ghp_/eyJ/Bearer/password=/token=/AKIA/xox-/PRIVATE/secret assignments + 40+ char tokens): only hit is prose "Clerk dev sign-in with next=/connect". No credential VALUES were ever pasted (only variable names + set/empty booleans). | PASS |
+| 3 | Demo vs production | A production system is never the AutoParts/freezer demo pair | Demo pair created only via open /api/demo/bootstrap (fixed names → autoparts-lagos-XXXX / cold-chain-freezer-XXXX; live pair autoparts-lagos-fd88 + cold-chain-freezer-322b, no org). Production uses authed /api/systems + org-scoped /api/connections/* with con_* IDs (different store). Demo pages (setup/Tour/WrapUp) never call /api/connections*; the /connect Wizard never calls /api/demo/*. Zero production systems exist in this env; production endpoints 401 without a Clerk JWT. | PASS |
+
+Isolation notes: stack ran API :8401 + shop :8402 + web :3401 only (never 8001/8002/3000/8101/8201/8301); worktree file store (DATABASE_URL unset); GITHUB_TOKEN unset for every run; no .env written; no Railway writes (page reads only); no processes other agents' touched; branch test/janet only (main untouched).
+
+Base drift note: origin/main moved 4 commits after the gate run (8eabf2d → ccedd29: Baseten/keys diagnose robustness, prod apiUrl/shopUrl resolution, +1 public path /api/infer/status). Gate GREEN above is pinned to test/janet @ c74ba2b. Assessed the diff: dev-mode apiUrl identical, gates/doors/wizard/steps untouched — no T-E1–T-E6 asserted behavior changed, so no re-run; this report commits onto ccedd29 per the rebase ritual.
