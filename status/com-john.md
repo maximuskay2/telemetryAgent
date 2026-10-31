@@ -4,6 +4,13 @@ Current block: C-N9 rehearsal drill (in progress)
 blocked James's merge gate (test_devices_e2e binds 8201) — it was
 killed. Rule from now on: stop any server I start on 8201 before I
 finish a session. Complying: drill API runs only while drilling.
+PERMANENT FIX (Akingbade order): tests/test_devices_e2e.py no
+longer binds fixed 8201 — runtime free-port probe + 5-attempt bind
+retry. Proven: passes standalone AND with 8201 squatted.
+Session-end rule adopted: `lsof -nP -iTCP:8201 -sTCP:LISTEN` must
+show nothing of mine before I stop.
+Drill moved to 8221 (free, nobody's) so the gate and the drill
+never share a port again.
 Done: C-N9a Clerk sessions headless (ticket+sign-in flow, tokens to
 0600 files); C-N9b partial — org/invite/pair/claim/system/arm all
 200 with real Clerk JWTs, genuine demo crash ingested, real fix run
