@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
-import { signInHref } from "../lib/nextPath";
-import { useSession } from "../lib/session";
 import { Button, Card } from "../ui";
 
 function WatchArt() {
@@ -63,12 +61,11 @@ function PathArt() {
       viewBox="0 0 200 72"
       className="h-20 w-full"
       role="img"
-      aria-label="Two paths: demo business or your own system"
+      aria-label="Demo business setup path"
     >
       <circle cx="24" cy="36" r="8" className="fill-brand" />
-      <path d="M32 36 H80 M80 36 L120 18 M80 36 L120 54" className="stroke-border" strokeWidth="3" fill="none" />
-      <rect x="120" y="8" width="72" height="20" rx="6" className="fill-brand/20 stroke-brand" />
-      <rect x="120" y="44" width="72" height="20" rx="6" className="fill-surface-2 stroke-border" />
+      <path d="M32 36 H120" className="stroke-border" strokeWidth="3" fill="none" />
+      <rect x="120" y="26" width="72" height="20" rx="6" className="fill-brand/20 stroke-brand" />
     </svg>
   );
 }
@@ -87,7 +84,7 @@ const CARDS = [
     art: <SafeArt />,
   },
   {
-    eyebrow: "3 of 3 · Choose your path",
+    eyebrow: "3 of 3 · Start the demo",
     title: "Start with the demo business",
     body: "A live parts shop and a cold-chain freezer are already running. Set them up in about 3 minutes, then break the shop and watch the agent fix it.",
     art: <PathArt />,
@@ -95,11 +92,8 @@ const CARDS = [
 ];
 
 export default function StartPage() {
-  const { status } = useSession();
   const [index, setIndex] = useState(0);
   const touchX = useRef<number | null>(null);
-  const productionHref =
-    status === "signed-in" ? "/connect" : signInHref("/connect");
   const last = CARDS.length - 1;
   const card = CARDS[index];
 
@@ -171,12 +165,6 @@ export default function StartPage() {
                 >
                   Use the demo business
                   <span aria-hidden>→</span>
-                </Link>
-                <Link
-                  href={productionHref}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2.5 text-sm font-medium text-text outline-none transition-colors hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand"
-                >
-                  Connect my own system
                 </Link>
               </div>
             )}

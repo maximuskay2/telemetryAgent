@@ -116,6 +116,11 @@ function pickActiveOrg(orgs: Org[]): string | null {
   return orgs[0]?.id ?? null;
 }
 
+function orgNameFor(email: string): string {
+  const handle = email.split("@")[0];
+  return handle ? `${handle}'s organization` : "My organization";
+}
+
 function useOrgState(api: CommerceApi) {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
@@ -241,7 +246,11 @@ function TokenSessionProvider({ children }: { children: ReactNode }) {
       const who = tokenUser(jwt);
       if (!who) throw new Error("That doesn't look like a session token.");
       const client = new CommerceClient({ getToken: () => jwt });
-      const { orgs: mine } = await client.listOrgs();
+      let mine = (await client.listOrgs()).orgs;
+      if (mine.length === 0) {
+        const created = await client.createOrg(orgNameFor(who.email));
+        mine = [created.org];
+      }
       writeStored(TOKEN_KEY, jwt);
       setUser(who);
       orgState.adoptOrgs(mine);
@@ -326,7 +335,11 @@ function ClerkSessionProvider({ children }: { children: ReactNode }) {
   const hydrate = useCallback(
     async (jwt: string, who: SessionUser) => {
       const client = new CommerceClient({ getToken: () => jwt });
-      const { orgs: mine } = await client.listOrgs();
+      let mine = (await client.listOrgs()).orgs;
+      if (mine.length === 0) {
+        const created = await client.createOrg(orgNameFor(who.email));
+        mine = [created.org];
+      }
       setUser(who);
       orgState.adoptOrgs(mine);
       setStatus("signed-in");
