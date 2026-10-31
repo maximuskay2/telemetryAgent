@@ -390,7 +390,7 @@ export default function SetupPage() {
       await api(`/api/systems/${systemId}/baseline/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duration_s: 120 }),
+        body: JSON.stringify({ duration_s: 60 }),
       });
       // Only show the bar once learning actually started;
       // a rejected start must show the error, not a stuck 0%.

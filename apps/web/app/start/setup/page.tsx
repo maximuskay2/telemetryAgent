@@ -648,7 +648,7 @@ export default function GuidedSetupPage() {
                 {n === 3 && (
                   <div className="flex flex-col gap-3">
                     <p className="text-sm text-text-muted">
-                      Two quiet minutes. It&apos;s learning that a defrost
+                      Thirty quiet seconds. It&apos;s learning that a defrost
                       cycle and a cold cache look scary but are normal.
                     </p>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -666,7 +666,7 @@ export default function GuidedSetupPage() {
                           : status?.shop?.status === "learning" ||
                               status?.freezer?.status === "learning"
                             ? "Watching…"
-                            : "Watch normal for 2 min"}
+                            : "Watch normal for 30 sec"}
                       </Button>
                       <button
                         type="button"

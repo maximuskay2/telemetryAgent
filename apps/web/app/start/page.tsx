@@ -83,7 +83,7 @@ const CARDS = [
   {
     eyebrow: "2 of 3 · How it stays safe",
     title: "It learns normal before it judges",
-    body: "First it reads your manuals and watches two quiet minutes, so a defrost cycle or a cold cache never counts as a failure. Then nothing acts without a 20-second cancel window — and hard limits can only be set by a human.",
+    body: "First it reads your manuals and watches thirty quiet seconds, so a defrost cycle or a cold cache never counts as a failure. Then nothing acts without a 20-second cancel window — and hard limits can only be set by a human.",
     art: <SafeArt />,
   },
   {

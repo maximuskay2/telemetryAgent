@@ -7,7 +7,7 @@ const DEMO = [
   },
   {
     title: "Set up the shop and the freezer",
-    text: "Four steps, about three minutes: meet the business, let it read the manuals, watch two quiet minutes of normal traffic, then start watching.",
+    text: "Four steps, about two minutes: meet the business, let it read the manuals, watch thirty seconds of normal traffic, then start watching.",
   },
   {
     title: "Break something and watch it work",

@@ -120,7 +120,7 @@ export async function demoDocuments(
   });
 }
 
-/** J3: 120 s learning window with gentle traffic, server-side. */
+/** J3: 30 s learning window with gentle traffic, server-side (API default). */
 export async function demoLearn(systemId: string): Promise<{
   system_id: string;
   status: string;
