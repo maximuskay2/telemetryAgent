@@ -662,7 +662,9 @@ async def _pipeline(
         picked = await asyncio.to_thread(
             repo_locate.pick_files_no_frames, paths, keywords,
             lambda ranked: repo_generate.choose_files(
-                ranked, parsed.signature
+                ranked, parsed.signature, org_id=org_id,
+                system_id=system_id, run_id=run_id,
+                language=adapter.name,
             ),
         )
         for path in picked:
@@ -954,6 +956,10 @@ async def _verify_and_fix(
                 REPRO_ATTEMPTS,
                 test_relpath,
                 adapter=adapter,
+                org_id=org_id,
+                system_id=system_id,
+                run_id=run_id,
+                language=adapter.name,
             )
         except Exception as exc:
             repro_fail_output = f"generation failed: {exc}"
@@ -1003,6 +1009,10 @@ async def _verify_and_fix(
                 repro_fail_output,
                 attempt,
                 PATCH_ATTEMPTS,
+                org_id=org_id,
+                system_id=system_id,
+                run_id=run_id,
+                language=adapter.name,
             )
         except Exception as exc:
             repro_fail_output = f"patch generation failed: {exc}"

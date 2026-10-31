@@ -24,6 +24,46 @@ assert _PYTHON is not None  # lang/python.py must register
 
 MAX_PATCH_FILES = 3
 
+#: chars/token estimate (providers don't report usage through these
+#: thin clients; Jude's cost table prices the quantities either way).
+_CHARS_PER_TOKEN = 4
+
+
+def _record_model_call(
+    provider: str,
+    model: str,
+    prompt_chars: int,
+    completion_chars: int,
+    org_id: str = "",
+    system_id: str = "",
+    run_id: str = "",
+    language: str = "",
+) -> None:
+    """Log one LLM call as tokens_in/out usage (never raises).
+
+    Untagged sim/demo runs record nothing; org runs attribute spend to
+    the org. Vocabulary comes from Jude's Kind (status coordination).
+    """
+    if not org_id or org_id == "demo":
+        return
+    try:
+        from core.commerce.usage import Kind, record_usage
+
+        tokens_in = max(1, int(prompt_chars / _CHARS_PER_TOKEN))
+        tokens_out = max(1, int(completion_chars / _CHARS_PER_TOKEN))
+        record_usage(
+            org_id, Kind.MODEL_CALL, quantity=tokens_in,
+            unit="tokens_in", system_id=system_id, run_id=run_id,
+            provider=provider, model=model, language=language,
+        )
+        record_usage(
+            org_id, Kind.MODEL_CALL, quantity=tokens_out,
+            unit="tokens_out", system_id=system_id, run_id=run_id,
+            provider=provider, model=model, language=language,
+        )
+    except Exception:
+        pass
+
 #: Generic repro prompt; the adapter's repro_rules() is appended (§3).
 REPRO_BASE = (
     "You write ONE test file that reproduces a production crash. "
@@ -68,12 +108,25 @@ def generate_json(
     user_content: str,
     attempt: int,
     max_attempts: int,
+    org_id: str = "",
+    system_id: str = "",
+    run_id: str = "",
+    language: str = "",
 ) -> Tuple[Dict[str, Any], str]:
     """JSON from Baseten, or Wonder on the final attempt."""
+    prompt_chars = len(system_prompt) + len(user_content)
     if attempt >= max_attempts:
         content = _wonder_generate(system_prompt, user_content)
+        _record_model_call(
+            "meta", ESCALATION_MODEL, prompt_chars, len(content),
+            org_id, system_id, run_id, language,
+        )
         return json.loads(content), f"meta:{ESCALATION_MODEL}"
     content = baseten_client.generate(system_prompt, user_content)
+    _record_model_call(
+        "baseten", baseten_client.GENERATION_MODEL, prompt_chars,
+        len(content), org_id, system_id, run_id, language,
+    )
     return json.loads(content), f"baseten:{baseten_client.GENERATION_MODEL}"
 
 
@@ -87,6 +140,10 @@ def generate_repro_test(
     max_attempts: int,
     test_path: str,
     adapter: Any = None,
+    org_id: str = "",
+    system_id: str = "",
+    run_id: str = "",
+    language: str = "",
 ) -> Tuple[str, str]:
     """Repro test source + model label; raises when unusable."""
     checker = adapter if adapter is not None else _PYTHON
@@ -113,6 +170,10 @@ def generate_repro_test(
         user_content,
         attempt,
         max_attempts,
+        org_id=org_id,
+        system_id=system_id,
+        run_id=run_id,
+        language=language or getattr(checker, "name", ""),
     )
     test_code = str(parsed.get("test_code", "") or "")
     if not checker.looks_like_test(test_code):
@@ -139,6 +200,10 @@ def generate_patch(
     repro_output: str,
     attempt: int,
     max_attempts: int,
+    org_id: str = "",
+    system_id: str = "",
+    run_id: str = "",
+    language: str = "",
 ) -> Tuple[List[Dict[str, str]], str, str]:
     """Patch files + model label + note. Raises when unusable."""
     shown_contexts = "\n\n".join(
@@ -152,7 +217,9 @@ def generate_patch(
         f"Suspect code:\n{shown_contexts}"
     )
     parsed, model_used = generate_json(
-        PATCH_SYSTEM, user_content, attempt, max_attempts
+        PATCH_SYSTEM, user_content, attempt, max_attempts,
+        org_id=org_id, system_id=system_id, run_id=run_id,
+        language=language,
     )
     raw = parsed.get("files", []) or []
     files: List[Dict[str, str]] = []
@@ -186,13 +253,22 @@ def choose_files(
     ranked: List[str],
     exc_signature: str,
     generate: Optional[Callable[[str, str], str]] = None,
+    org_id: str = "",
+    system_id: str = "",
+    run_id: str = "",
+    language: str = "",
 ) -> List[str]:
     """Model file picks for frameless errors (fallback: rank order)."""
     call = generate or baseten_client.generate
-    content = call(
-        PICK_SYSTEM,
+    user_content = (
         f"Exception: {exc_signature}\n\nCandidates:\n"
-        + "\n".join(ranked),
+        + "\n".join(ranked)
+    )
+    content = call(PICK_SYSTEM, user_content)
+    _record_model_call(
+        "baseten", baseten_client.GENERATION_MODEL,
+        len(PICK_SYSTEM) + len(user_content), len(content or ""),
+        org_id, system_id, run_id, language,
     )
     try:
         picked = json.loads(content).get("files", []) or []

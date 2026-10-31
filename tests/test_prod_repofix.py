@@ -818,3 +818,138 @@ class SandboxBackendTests(unittest.TestCase):
                 self.assertIn("1 passed", result["stdout"])
             finally:
                 box.terminate()
+
+
+class ModelCallHookTests(unittest.TestCase):
+    """model_call usage hooks in the generate path (Jude coordination).
+
+    All provider calls mocked; usage lands in a memory store. Proves
+    the C-D4 input: tokens_in/out events with provider+model+language,
+    priced into usage_summary, skipped for untagged/demo runs.
+    """
+
+    def setUp(self) -> None:
+        from core.commerce.usage import (
+            MemoryUsageStore,
+            configure_usage_store,
+            reset_usage_store,
+        )
+
+        self.store = MemoryUsageStore()
+        configure_usage_store(self.store)
+        self.addCleanup(reset_usage_store)
+
+    def _events(self, org_id: str):
+        return self.store.query(org_id=org_id)
+
+    def test_repro_records_baseten_tokens(self) -> None:
+        from core.commerce.usage import Kind
+
+        def fake_baseten(system_prompt, user_content):
+            return '{"test_code": "def test_x(): assert False"}'
+
+        with patch.object(
+            repo_generate.baseten_client, "generate", fake_baseten
+        ):
+            repo_generate.generate_repro_test(
+                TRACEBACK_TEXT, "ZeroDivisionError", [], ["a.py"],
+                None, 1, 3, "tests/test_x.py", org_id="org-hook",
+                system_id="sys-hook", run_id="run-hook",
+            )
+        events = self._events("org-hook")
+        self.assertEqual(len(events), 2)
+        by_unit = {event.unit: event for event in events}
+        self.assertEqual(
+            (by_unit["tokens_in"].kind, by_unit["tokens_out"].kind),
+            (Kind.MODEL_CALL, Kind.MODEL_CALL),
+        )
+        self.assertEqual(by_unit["tokens_in"].provider, "baseten")
+        self.assertEqual(
+            by_unit["tokens_in"].model,
+            repo_generate.baseten_client.GENERATION_MODEL,
+        )
+        self.assertGreater(by_unit["tokens_in"].quantity, 0)
+        self.assertGreater(by_unit["tokens_out"].quantity, 0)
+        self.assertEqual(by_unit["tokens_in"].language, "python")
+        self.assertEqual(by_unit["tokens_in"].system_id, "sys-hook")
+        self.assertEqual(by_unit["tokens_in"].run_id, "run-hook")
+
+    def test_wonder_path_records_meta(self) -> None:
+        def fake_wonder(system_prompt, user_content):
+            return '{"test_code": "def test_x(): assert False"}'
+
+        with patch.object(
+            repo_generate, "_wonder_generate", fake_wonder
+        ):
+            _code, model = repo_generate.generate_repro_test(
+                TRACEBACK_TEXT, "ZeroDivisionError", [], ["a.py"],
+                "output", 3, 3, "tests/test_x.py", org_id="org-hook",
+            )
+            self.assertIn("wonder", model)
+        events = self._events("org-hook")
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].provider, "meta")
+        self.assertIn("wonder", events[0].model)
+
+    def test_patch_and_choose_files_record(self) -> None:
+        def fake_baseten(system_prompt, user_content):
+            if "Pick the repo files" in system_prompt:
+                return '{"files": ["a.py"]}'
+            return (
+                '{"files": [{"path": "a.py", "content": "x = 1"}]}'
+            )
+
+        with patch.object(
+            repo_generate.baseten_client, "generate", fake_baseten
+        ):
+            repo_generate.generate_patch(
+                TRACEBACK_TEXT, "ZeroDivisionError", "diag", [],
+                ["a.py"], "fail", 1, 2, org_id="org-hook",
+                language="go",
+            )
+            repo_generate.choose_files(
+                ["a.py", "b.py"], "ZeroDivisionError",
+                org_id="org-hook", language="go",
+            )
+        events = self._events("org-hook")
+        self.assertEqual(len(events), 4)
+        self.assertTrue(
+            all(event.language == "go" for event in events)
+        )
+        self.assertTrue(
+            all(event.provider == "baseten" for event in events)
+        )
+
+    def test_skipped_without_org_and_demo(self) -> None:
+        def fake_baseten(system_prompt, user_content):
+            return '{"test_code": "def test_x(): assert False"}'
+
+        with patch.object(
+            repo_generate.baseten_client, "generate", fake_baseten
+        ):
+            repo_generate.generate_repro_test(
+                TRACEBACK_TEXT, "ZeroDivisionError", [], ["a.py"],
+                None, 1, 3, "tests/test_x.py",
+            )
+            repo_generate.generate_repro_test(
+                TRACEBACK_TEXT, "ZeroDivisionError", [], ["a.py"],
+                None, 1, 3, "tests/test_x.py", org_id="demo",
+            )
+        self.assertEqual(self._events(""), [])
+        self.assertEqual(self._events("demo"), [])
+
+    def test_summary_prices_model_spend(self) -> None:
+        from core.commerce.usage import usage_summary
+
+        def fake_baseten(system_prompt, user_content):
+            return '{"test_code": "def test_x(): assert False"}'
+
+        with patch.object(
+            repo_generate.baseten_client, "generate", fake_baseten
+        ):
+            repo_generate.generate_repro_test(
+                TRACEBACK_TEXT, "ZeroDivisionError", [], ["a.py"],
+                None, 1, 3, "tests/test_x.py", org_id="org-hook",
+            )
+        summary = usage_summary("org-hook")
+        self.assertGreater(summary["cost_used_usd"], 0.0)
