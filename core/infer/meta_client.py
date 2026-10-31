@@ -15,6 +15,7 @@ ESCALATION_MODEL = os.getenv("META_ESCALATION_MODEL", "muse-wonder-1.0")
 # that 404 still fall through to these.
 _DIAGNOSIS_FALLBACKS = ("muse-spark-1.3", "muse-spark-1.2")
 _ESCALATION_FALLBACKS = ("muse-wonder-1.0", "muse-spark-1.3")
+_listed_cache: Optional[list[str]] = None
 
 
 def _api_key() -> str:
@@ -30,8 +31,43 @@ def _client():
     return OpenAI(base_url=META_BASE_URL, api_key=key)
 
 
+def _listed_models() -> list[str]:
+    """Ids the current key can actually see (empty on auth/network failure)."""
+    global _listed_cache
+    if _listed_cache is not None:
+        return _listed_cache
+    try:
+        page = _client().models.list()
+    except Exception:
+        _listed_cache = []
+        return _listed_cache
+    ids: list[str] = []
+    for item in getattr(page, "data", []) or []:
+        name = getattr(item, "id", None) or getattr(item, "name", None)
+        if name:
+            ids.append(str(name))
+    _listed_cache = ids
+    return ids
+
+
 def _models(preferred: str, fallbacks: tuple[str, ...]) -> list[str]:
     ordered = [preferred, *fallbacks]
+    try:
+        live = _listed_models()
+    except Exception:
+        live = []
+    muse = [
+        m
+        for m in live
+        if m.startswith("muse-spark-") or m.startswith("muse-wonder-")
+    ]
+    if not muse:
+        muse = [
+            m
+            for m in live
+            if "llama" in m.lower() or "instruct" in m.lower()
+        ]
+    ordered.extend(muse)
     seen: set[str] = set()
     out: list[str] = []
     for model in ordered:
