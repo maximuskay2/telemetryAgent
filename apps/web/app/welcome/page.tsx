@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Attribution from "../components/Attribution";
+import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import DemoCta from "./DemoCta";
 
@@ -105,9 +106,7 @@ export default function WelcomePage() {
     <div className="min-h-screen bg-bg font-sans text-text">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-          <span className="text-sm text-brand-cyan" aria-hidden>
-            ◆
-          </span>
+          <Logo size={18} />
           <span className="text-sm font-semibold">TelemetryAgent</span>
           <span className="ms-auto text-xs text-text-muted">
             Live demo — others may be watching the same shop
@@ -124,7 +123,10 @@ export default function WelcomePage() {
 
       <main className="mx-auto w-full max-w-5xl px-4 pb-16">
         <div className="mx-auto max-w-3xl pt-12 text-center">
-          <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+          <div className="flex justify-center">
+            <Logo size={44} />
+          </div>
+          <p className="mt-4 text-xs font-medium tracking-wide text-brand-cyan uppercase">
             AI on-call engineer
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-balance sm:text-4xl">
