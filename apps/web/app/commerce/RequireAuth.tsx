@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { signInHref } from "../lib/nextPath";
 import { useSession } from "../lib/session";
@@ -9,14 +9,12 @@ import { useSession } from "../lib/session";
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useSession();
   const router = useRouter();
-  const pathname = usePathname();
-  const search = useSearchParams();
 
   useEffect(() => {
     if (status !== "signed-out") return;
-    const here = pathname + (search.toString() ? `?${search.toString()}` : "");
+    const here = window.location.pathname + window.location.search;
     router.replace(signInHref(here));
-  }, [status, pathname, search, router]);
+  }, [status, router]);
 
   if (status === "loading" || status === "signed-out") {
     return (

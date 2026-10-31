@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { signInHref } from "../lib/nextPath";
 import { useSession } from "../lib/session";
@@ -12,9 +13,22 @@ function menuClass(active: boolean): string {
     : "rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand";
 }
 
+function MenuLinks() {
+  const pathname = usePathname();
+  return (
+    <>
+      <Link href="/guide" className={menuClass(pathname === "/guide")}>
+        How to
+      </Link>
+      <Link href="/support" className={menuClass(pathname === "/support")}>
+        Support
+      </Link>
+    </>
+  );
+}
+
 export default function WelcomeHeader() {
   const { status } = useSession();
-  const pathname = usePathname();
   const signedIn = status === "signed-in";
 
   return (
@@ -33,12 +47,20 @@ export default function WelcomeHeader() {
           Try the demo free — no account
         </span>
         <div className="ms-auto flex flex-wrap items-center gap-2">
-          <Link href="/guide" className={menuClass(pathname === "/guide")}>
-            How to
-          </Link>
-          <Link href="/support" className={menuClass(pathname === "/support")}>
-            Support
-          </Link>
+          <Suspense
+            fallback={
+              <>
+                <Link href="/guide" className={menuClass(false)}>
+                  How to
+                </Link>
+                <Link href="/support" className={menuClass(false)}>
+                  Support
+                </Link>
+              </>
+            }
+          >
+            <MenuLinks />
+          </Suspense>
           <Link
             href="/start"
             className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"

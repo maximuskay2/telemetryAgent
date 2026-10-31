@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { useSession } from "../lib/session";
 import { OrgSwitcher } from "./components";
@@ -20,9 +20,25 @@ function navClass(active: boolean): string {
     : "rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand";
 }
 
+function AccountNav() {
+  const pathname = usePathname();
+  return (
+    <nav aria-label="Your account" className="flex flex-wrap items-center gap-0.5">
+      {NAV.map((item) => (
+        <Link
+          key={item.href}
+          href={item.href}
+          className={navClass(pathname === item.href || pathname.startsWith(`${item.href}/`))}
+        >
+          {item.label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 /** Shared header for signed-in production pages. Demo stays on /welcome and /start. */
 export default function AccountChrome({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
   const { user, orgs, activeOrg, switchOrg, signOut } = useSession();
 
   return (
@@ -38,17 +54,19 @@ export default function AccountChrome({ children }: { children: ReactNode }) {
             </span>
             <span className="text-sm font-semibold">TelemetryAgent</span>
           </Link>
-          <nav aria-label="Your account" className="flex flex-wrap items-center gap-0.5">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={navClass(pathname === item.href || pathname.startsWith(`${item.href}/`))}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          <Suspense
+            fallback={
+              <nav aria-label="Your account" className="flex flex-wrap items-center gap-0.5">
+                {NAV.map((item) => (
+                  <Link key={item.href} href={item.href} className={navClass(false)}>
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+            }
+          >
+            <AccountNav />
+          </Suspense>
           <div className="ms-auto flex flex-wrap items-center gap-2">
             <Link
               href="/guide"

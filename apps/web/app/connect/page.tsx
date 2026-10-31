@@ -138,18 +138,18 @@ function ConnectInner() {
 
 export default function ConnectPage() {
   return (
-    <RequireAuth>
-      <AccountChrome>
-        <Suspense
-          fallback={
-            <main className="mx-auto w-full max-w-2xl px-4 py-8">
-              <p className="text-sm text-text-muted">Loading…</p>
-            </main>
-          }
-        >
+    <Suspense
+      fallback={
+        <main className="mx-auto w-full max-w-2xl px-4 py-8">
+          <p className="text-sm text-text-muted">Loading…</p>
+        </main>
+      }
+    >
+      <RequireAuth>
+        <AccountChrome>
           <ConnectInner />
-        </Suspense>
-      </AccountChrome>
-    </RequireAuth>
+        </AccountChrome>
+      </RequireAuth>
+    </Suspense>
   );
 }
