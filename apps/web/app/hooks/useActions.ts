@@ -48,6 +48,10 @@ export function useActions() {
           typeof payload.detail === "string"
             ? payload.detail
             : (prev?.detail ?? ""),
+        ready:
+          typeof payload.ready === "boolean"
+            ? payload.ready
+            : (prev?.ready ?? true),
       };
       return { ...current, [runId]: merged };
     });

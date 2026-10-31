@@ -79,6 +79,21 @@ export default function VetoRing() {
     );
   }
 
+  if (!open.ready) {
+    return (
+      <section id="tour-veto" aria-label="Cancel window" className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="text-sm font-semibold text-text">Cancel window</h2>
+        <p className="mt-2 animate-pulse text-sm text-text" aria-live="polite">
+          Verifying fix…
+        </p>
+        <p className="mt-0.5 text-xs text-text-muted">{open.summary || `${open.domain} fix`}</p>
+        <p className="mt-1 text-[11px] text-text-faint">
+          The 20 s countdown starts once the fix passes verification.
+        </p>
+      </section>
+    );
+  }
+
   const deadlineLeft =
     open.deadlineMs > 0 ? Math.max(0, Math.ceil((open.deadlineMs - now) / 1000)) : open.secondsLeft;
   // Server ticks correct the deadline-derived countdown when they disagree.

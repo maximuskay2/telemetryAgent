@@ -225,6 +225,76 @@ class DecideTests(_ActionCase):
         self.assertEqual(ctx.exception.status, 404)
 
 
+class EarlyAlarmTests(_ActionCase):
+    """The phone rings when a fix is generated, before verification ends."""
+
+    def _running(self) -> None:
+        software_runs["r-soft"] = {"target": "inventory", "result": None}
+
+    def test_rings_before_verification_without_counting_down(self) -> None:
+        from apps.api.main import _open_early_action
+
+        self._running()
+        action = asyncio.run(_open_early_action("r-soft"))
+        assert action is not None
+        self.assertFalse(action.ready)
+        pending = [m for m in self.socket.sent
+                   if m.get("kind") == "action_pending"]
+        self.assertEqual(len(pending), 1)
+        self.assertFalse(pending[0]["payload"]["ready"])
+        action.deadline = time.time() - 1
+        with patch("apps.api.main._deploy_patch_for_run",
+                   new=AsyncMock()) as apply:
+            settled = asyncio.run(_settle_window("r-soft"))
+        apply.assert_not_called()
+        assert settled is not None
+        self.assertEqual(settled.state, "pending")
+
+    def test_verified_fix_starts_the_countdown(self) -> None:
+        from apps.api.main import _open_early_action
+
+        self._running()
+        early = asyncio.run(_open_early_action("r-soft"))
+        software_runs["r-soft"] = _software_entry()
+        action = asyncio.run(_maybe_open_action("r-soft", "software"))
+        self.assertIs(action, early)
+        assert action is not None
+        self.assertTrue(action.ready)
+        self.assertEqual(action.state, "pending")
+        self.assertIn("verified", action.action)
+        pending = [m for m in self.socket.sent
+                   if m.get("kind") == "action_pending"]
+        self.assertEqual(len(pending), 2)
+        self.assertTrue(pending[1]["payload"]["ready"])
+
+    def test_early_approve_deploys_after_verification(self) -> None:
+        from apps.api.main import _open_early_action
+
+        self._running()
+        asyncio.run(_open_early_action("r-soft"))
+        with patch("apps.api.main._deploy_patch_for_run",
+                   new=AsyncMock(return_value={})) as apply:
+            decided = asyncio.run(_decide_action("r-soft", True, "pixel-8"))
+            apply.assert_not_called()
+            self.assertEqual(decided.state, "approved")
+            software_runs["r-soft"] = _software_entry()
+            asyncio.run(_maybe_open_action("r-soft", "software"))
+        apply.assert_called_once_with("r-soft")
+        self.assertIn("applied by pixel-8", pending_actions["r-soft"].detail)
+
+    def test_failed_verification_resolves_the_alarm(self) -> None:
+        from apps.api.main import _open_early_action
+
+        self._running()
+        asyncio.run(_open_early_action("r-soft"))
+        software_runs["r-soft"] = _software_entry(status="FAIL")
+        action = asyncio.run(_maybe_open_action("r-soft", "software"))
+        assert action is not None
+        self.assertEqual(action.state, "failed")
+        kinds = [m.get("kind") for m in self.socket.sent]
+        self.assertIn("action_resolved", kinds)
+
+
 class DecideEndpointTests(_ActionCase):
     def test_disapprove_endpoint_cancels(self) -> None:
         software_runs["r-soft"] = _software_entry()

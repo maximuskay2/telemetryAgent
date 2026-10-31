@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../main.dart';
 import '../models/agent_step.dart';
 import '../models/pending_action.dart';
 import '../models/run_report.dart';
@@ -11,6 +12,7 @@ import '../providers.dart';
 import '../services/api.dart';
 import '../theme.dart';
 import '../widgets/widgets.dart';
+import 'home_screen.dart';
 
 /// Seconds left from the server deadline, corrected by the latest tick:
 /// a fresh tick (≤2 s old) wins over the local clock.
@@ -52,24 +54,28 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       _error = null;
       _unauthorized = false;
     });
+    final navigator = Navigator.of(context);
+    final alarm = ref.read(alarmProvider.notifier);
     try {
       final decided = await api.decide(widget.action.runId, approve,
           markNormal: markNormal);
-      await ref.read(alarmProvider.notifier).silence();
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => OutcomeScreen(action: decided),
-        ),
-      );
+      // Swap this route for the outcome before silencing: silencing pops
+      // the alarm, and a later pushReplacement would replace the feed.
+      if (mounted) {
+        navigator.pushReplacement(
+          MaterialPageRoute(builder: (_) => OutcomeScreen(action: decided)),
+        );
+      }
+      await alarm.silence();
     } on ApiError catch (error) {
       if (!mounted) return;
       if (error.message.startsWith('Too late')) {
-        Navigator.of(context).pushReplacement(
+        navigator.pushReplacement(
           MaterialPageRoute(
             builder: (_) => OutcomeScreen.tooLate(action: widget.action),
           ),
         );
+        await alarm.silence();
         return;
       }
       setState(() {
@@ -83,16 +89,16 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
   @override
   Widget build(BuildContext context) {
     ref.watch(clockProvider);
+    final live = ref.watch(alarmProvider);
+    final action =
+        live != null && live.runId == widget.action.runId ? live : widget.action;
     final tick = ref.read(alarmProvider.notifier).lastTick;
-    final left = correctedSecondsLeft(widget.action, tick);
-    final total = math.max(
-        1,
-        (widget.action.deadline - widget.action.openedAt).round());
-    ref.read(alarmHardwareProvider).setUrgent(left <= 5);
-    final report =
-        ref.watch(runDetailProvider(widget.action.runId)).asData?.value;
+    final left = correctedSecondsLeft(action, tick);
+    final total = math.max(1, (action.deadline - action.openedAt).round());
+    ref.read(alarmHardwareProvider).setUrgent(action.ready && left <= 5);
+    final report = ref.watch(runDetailProvider(action.runId)).asData?.value;
     return AlarmScreen(
-      action: widget.action,
+      action: action,
       secondsLeft: left,
       total: total,
       busy: _busy,
@@ -103,10 +109,7 @@ class _AlarmRouteState extends ConsumerState<AlarmRoute> {
       onRepair: () async {
         await ref.read(connectionProvider.notifier).disconnect();
       },
-      onSilence: () async {
-        await ref.read(alarmProvider.notifier).silence();
-        if (context.mounted) Navigator.of(context).pop();
-      },
+      onSilence: () => ref.read(alarmProvider.notifier).silence(),
     );
   }
 }
@@ -156,9 +159,11 @@ class AlarmScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final urgent = secondsLeft <= 5;
+    final verifying = !action.ready;
+    final urgent = !verifying && secondsLeft <= 5;
     final approvalOnly = !action.autoApply;
-    final bannerColor = approvalOnly ? Accents.warn : Accents.fail;
+    final bannerColor =
+        approvalOnly || verifying ? Accents.warn : Accents.fail;
     final steps = report?.steps ?? const <AgentStep>[];
     AgentStep? diagnose;
     for (final step in steps) {
@@ -198,9 +203,11 @@ class AlarmScreen extends StatelessWidget {
                   color: bannerColor,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   child: Text(
-                    approvalOnly
-                        ? 'APPROVAL REQUIRED'
-                        : 'VETO WINDOW OPEN',
+                    verifying
+                        ? 'FIX READY — VERIFYING'
+                        : approvalOnly
+                            ? 'APPROVAL REQUIRED'
+                            : 'VETO WINDOW OPEN',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.black,
@@ -214,18 +221,33 @@ class AlarmScreen extends StatelessWidget {
                   child: ListView(
                     padding: const EdgeInsets.all(24),
                     children: [
-                      Center(
-                        child: CountdownRing(
-                          secondsLeft: secondsLeft,
-                          total: total,
-                          urgent: urgent,
+                      if (verifying)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 48),
+                          child: Center(
+                            child: SizedBox(
+                              width: 96,
+                              height: 96,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 8),
+                            ),
+                          ),
+                        )
+                      else
+                        Center(
+                          child: CountdownRing(
+                            secondsLeft: secondsLeft,
+                            total: total,
+                            urgent: urgent,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 8),
                       Text(
-                        approvalOnly
-                            ? 'nothing applies without you'
-                            : 'until auto-apply',
+                        verifying
+                            ? 'nothing deploys until the fix passes verification'
+                            : approvalOnly
+                                ? 'nothing applies without you'
+                                : 'until auto-apply',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Accents.muted),
                       ),
@@ -322,7 +344,9 @@ class AlarmScreen extends StatelessWidget {
                       textStyle: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w700),
                     ),
-                    child: const Text('Approve now'),
+                    child: Text(verifying
+                        ? 'Approve (deploys once verified)'
+                        : 'Approve now'),
                   ),
                 ),
                 Padding(
@@ -511,8 +535,17 @@ class OutcomeScreen extends StatelessWidget {
               ],
               const SizedBox(height: 32),
               ElevatedButton(
-                onPressed: () => Navigator.of(context)
-                    .popUntil((route) => route.isFirst),
+                onPressed: () {
+                  final navigator = Navigator.of(context);
+                  if (navigator.canPop()) {
+                    navigator.popUntil((route) => route.isFirst);
+                  } else {
+                    navigator.pushReplacement(MaterialPageRoute(
+                      builder: (_) =>
+                          const AlarmNavigator(child: HomeScreen()),
+                    ));
+                  }
+                },
                 child: const Text('Back to feed'),
               ),
             ],

@@ -11,6 +11,7 @@ class PendingAction {
     this.resolvedAt,
     this.detail = '',
     this.autoApply = true,
+    this.ready = true,
   });
 
   final String runId;
@@ -23,6 +24,9 @@ class PendingAction {
   final double? resolvedAt;
   final String detail;
   final bool autoApply;
+
+  /// False while the fix is still verifying: no countdown yet.
+  final bool ready;
 
   bool get isOpen => state == 'pending';
 
@@ -44,6 +48,7 @@ class PendingAction {
       resolvedAt: (json['resolved_at'] as num?)?.toDouble(),
       detail: json['detail'] as String? ?? '',
       autoApply: json['auto_apply'] as bool? ?? true,
+      ready: json['ready'] as bool? ?? true,
     );
   }
 }

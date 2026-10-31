@@ -33,7 +33,7 @@ function vetoLabel(veto: VetoAction | undefined): string | null {
   if (!veto) return null;
   switch (veto.state) {
     case "pending":
-      return `Cancel ${veto.secondsLeft}s`;
+      return veto.ready ? `Cancel ${veto.secondsLeft}s` : "Verifying fix…";
     case "approved":
       return "Did it now ✓";
     case "auto_applied":

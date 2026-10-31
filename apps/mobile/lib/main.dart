@@ -50,7 +50,7 @@ class AlarmNavigator extends ConsumerStatefulWidget {
 
 class _AlarmNavigatorState extends ConsumerState<AlarmNavigator> {
   static final _notifications = FlutterLocalNotificationsPlugin();
-  bool _alarmOpen = false;
+  Route<void>? _alarmRoute;
   bool _notificationsReady = false;
 
   @override
@@ -92,19 +92,21 @@ class _AlarmNavigatorState extends ConsumerState<AlarmNavigator> {
   }
 
   void _onAlarm(PendingAction? next) {
-    if (next != null && next.isOpen && !_alarmOpen) {
-      _alarmOpen = true;
-      Navigator.of(context)
-          .push(
-            MaterialPageRoute(
-              builder: (_) => AlarmRoute(action: next),
-              fullscreenDialog: true,
-            ),
-          )
-          .then((_) => _alarmOpen = false);
-    } else if ((next == null || !next.isOpen) && _alarmOpen) {
-      _alarmOpen = false;
-      Navigator.of(context).popUntil((route) => route.isFirst);
+    final open = _alarmRoute;
+    if (next != null && next.isOpen && open == null) {
+      final route = MaterialPageRoute<void>(
+        builder: (_) => AlarmRoute(action: next),
+        fullscreenDialog: true,
+      );
+      _alarmRoute = route;
+      Navigator.of(context).push(route).then((_) {
+        if (_alarmRoute == route) _alarmRoute = null;
+      });
+    } else if ((next == null || !next.isOpen) && open != null) {
+      // Only close the alarm itself: a decision may already have replaced
+      // it with the outcome screen, which must stay until "Back to feed".
+      _alarmRoute = null;
+      if (open.isCurrent) Navigator.of(context).removeRoute(open);
     }
   }
 

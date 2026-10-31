@@ -33,6 +33,8 @@ export type VetoAction = {
   state: string;
   decidedBy: string;
   detail: string;
+  /** False while the fix is still verifying: no countdown yet. */
+  ready: boolean;
 };
 
 export type IncidentState = {

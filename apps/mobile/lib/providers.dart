@@ -215,7 +215,14 @@ class AlarmNotifier extends Notifier<PendingAction?> {
   }
 
   void show(PendingAction action) {
-    if (state?.runId == action.runId) return;
+    final current = state;
+    if (current?.runId == action.runId) {
+      if (current!.ready != action.ready) {
+        state = action;
+        unawaited(AlarmHardware.fire(action));
+      }
+      return;
+    }
     state = action;
     final hardware = ref.read(alarmHardwareProvider);
     unawaited(hardware.ring());

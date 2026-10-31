@@ -647,9 +647,13 @@ async def _run_agent_impl(
     from core.agent.loop import run_diagnostic_loop
 
     run_id = uuid4().hex[:8]
-    on_event = _step_bridge(
-        asyncio.get_running_loop(), payload.source, org_id
-    )
+    loop = asyncio.get_running_loop()
+    bridge = _step_bridge(loop, payload.source, org_id)
+
+    def on_event(event: dict) -> None:
+        bridge(event)
+        if event.get("step") == "generate" and payload.target == "inventory":
+            asyncio.run_coroutine_threadsafe(_open_early_action(run_id), loop)
 
     original_code = payload.original_code
     code_path = "solution.py"
@@ -712,6 +716,7 @@ async def _run_agent_impl(
             payload.target or "",
         )
     except RuntimeError as exc:
+        await _fail_early_action(run_id, org_id, f"Run stopped: {exc}")
         software_runs.pop(run_id, None)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     done = AgentStep(
@@ -1602,6 +1607,8 @@ async def _maybe_open_action(run_id: str, domain: str) -> Optional[PendingAction
         return None
     existing = pending_actions.get(run_id)
     if existing is not None:
+        if not existing.ready:
+            return await _finish_early_action(existing, domain, entry)
         return existing
     summary = action_summary_for(domain, entry)
     if summary is None:
@@ -1629,10 +1636,96 @@ async def _maybe_open_action(run_id: str, domain: str) -> Optional[PendingAction
     return action
 
 
+async def _emit_action(org_id: str, kind: str, action: PendingAction) -> None:
+    payload = action.model_dump(mode="json")
+    if kind == "action_pending":
+        payload["seconds"] = window_seconds()
+    await emit_for(org_id, SimEvent(kind=kind, payload=payload))
+
+
+async def _open_early_action(run_id: str) -> Optional[PendingAction]:
+    """Ring the phone as soon as a fix exists; deploy waits for verification."""
+    entry = software_runs.get(run_id)
+    if entry is None or entry.get("result") is not None:
+        return None
+    if run_id in pending_actions:
+        return pending_actions[run_id]
+    now = time.time()
+    action = PendingAction(
+        run_id=run_id,
+        domain="software",
+        action="Fix generated — deploys to the shop once verification passes",
+        opened_at=now,
+        deadline=now + window_seconds(),
+        ready=False,
+    )
+    pending_actions[run_id] = action
+    await _emit_action(str(entry.get("org_id") or ""), "action_pending", action)
+    return action
+
+
+async def _fail_early_action(run_id: str, org_id: str, detail: str) -> None:
+    action = pending_actions.get(run_id)
+    if action is None or action.ready:
+        return
+    action.ready = True
+    if action.state not in ("pending", "approved"):
+        return
+    action.state = "failed"
+    action.detail = detail
+    action.resolved_at = time.time()
+    await _emit_action(org_id, "action_resolved", action)
+
+
+async def _finish_early_action(
+    action: PendingAction, domain: str, entry: dict
+) -> PendingAction:
+    """Verification finished: start the countdown, apply an early approval, or fail."""
+    org_id = str(entry.get("org_id") or "")
+    summary = action_summary_for(domain, entry)
+    if summary is None:
+        await _fail_early_action(
+            action.run_id, org_id,
+            "Verification did not pass — nothing was deployed",
+        )
+        return action
+    action.ready = True
+    action.action = summary
+    if action.state == "pending":
+        now = time.time()
+        action.opened_at = now
+        action.deadline = now + window_seconds()
+        action.auto_apply = auto_apply_for(entry, _policy_allows(entry))
+        await _emit_action(org_id, "action_pending", action)
+    elif action.state == "approved":
+        await _apply_decided(action, action.decided_by or "phone")
+    return action
+
+
+async def _apply_decided(action: PendingAction, device: str) -> None:
+    apply = (
+        _deploy_patch_for_run
+        if action.domain == "software"
+        else _apply_runbook_for_run
+    )
+    try:
+        await apply(action.run_id)
+    except _ApplyError as exc:
+        action.state = "failed"
+        action.detail = exc.detail
+    except Exception as exc:  # noqa: BLE001 - report, don't crash
+        action.state = "failed"
+        action.detail = f"{type(exc).__name__}: {exc}"
+    else:
+        action.detail = f"applied by {device}"
+    action.resolved_at = time.time()
+    await _emit_action(_org_for_run(action.run_id), "action_resolved", action)
+
+
 async def _settle_window(run_id: str) -> Optional[PendingAction]:
     """Apply or expire a due window. Check-and-set is atomic (no await inside)."""
     action = pending_actions.get(run_id)
-    if action is None or action.state != "pending":
+    if action is None or action.state != "pending" or not action.ready:
         return action
     if time.time() < action.deadline:
         return action
@@ -1679,40 +1772,20 @@ async def _decide_action(
         raise _ApplyError(404, "unknown run_id")
     if action.state != "pending":
         raise _ApplyError(409, f"window already {action.state}")
-    if time.time() >= action.deadline:
+    if action.ready and time.time() >= action.deadline:
         raise _ApplyError(409, "too late: deadline passed")
     action.state = "approved" if approve else "disapproved"
     action.decided_by = device
     if not approve:
         action.detail = f"cancelled by {device}"
         action.resolved_at = time.time()
-        await emit_for(
-            _org_for_run(run_id),
-            SimEvent(kind="action_resolved",
-                     payload=action.model_dump(mode="json")),
-        )
+        await _emit_action(_org_for_run(run_id), "action_resolved", action)
         return action
-    apply = (
-        _deploy_patch_for_run
-        if action.domain == "software"
-        else _apply_runbook_for_run
-    )
-    try:
-        await apply(run_id)
-    except _ApplyError as exc:
-        action.state = "failed"
-        action.detail = exc.detail
-    except Exception as exc:  # noqa: BLE001 - report, don't crash
-        action.state = "failed"
-        action.detail = f"{type(exc).__name__}: {exc}"
-    else:
-        action.detail = f"applied by {device}"
-    action.resolved_at = time.time()
-    await emit_for(
-        _org_for_run(run_id),
-        SimEvent(kind="action_resolved",
-                 payload=action.model_dump(mode="json")),
-    )
+    if not action.ready:
+        action.detail = f"approved by {device}; deploys once verification passes"
+        await _emit_action(_org_for_run(run_id), "action_resolved", action)
+        return action
+    await _apply_decided(action, device)
     return action
 
 
@@ -1720,7 +1793,7 @@ async def _action_ticker() -> None:
     while True:
         await asyncio.sleep(1.0)
         for run_id, action in list(pending_actions.items()):
-            if action.state != "pending":
+            if action.state != "pending" or not action.ready:
                 continue
             seconds_left = max(0, int(action.deadline - time.time()))
             await emit_for(

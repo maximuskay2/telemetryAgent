@@ -77,6 +77,40 @@ void main() {
     });
   });
 
+  group('AlarmScreen verifying', () {
+    testWidgets('rings before verification with no countdown',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      bool? decided;
+      final action = PendingAction(
+        runId: 'r-3',
+        domain: 'software',
+        action: 'Fix generated — deploys to the shop once verification passes',
+        openedAt: 1000,
+        deadline: DateTime.now().millisecondsSinceEpoch / 1000 + 20,
+        ready: false,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlarmScreen(
+            action: action,
+            secondsLeft: 20,
+            onDecide: (approve, _) async => decided = approve,
+            onSilence: () async {},
+          ),
+        ),
+      );
+      expect(find.text('FIX READY — VERIFYING'), findsOneWidget);
+      expect(find.text('20s'), findsNothing);
+      expect(find.text('nothing deploys until the fix passes verification'),
+          findsOneWidget);
+      await tester.tap(find.text('Approve (deploys once verified)'));
+      expect(decided, isTrue);
+    });
+  });
+
   group('AlarmScreen context', () {
     testWidgets('approval-only variant shows diagnosis and evidence',
         (tester) async {
@@ -180,6 +214,35 @@ void main() {
             home: OutcomeScreen.tooLate(action: actionWith('pending'))),
       );
       expect(find.text('Too late — already applied'), findsOneWidget);
+    });
+
+    testWidgets('Back to feed returns to the first screen', (tester) async {
+      final key = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: key,
+        home: const Scaffold(body: Text('feed')),
+      ));
+      key.currentState!.push(MaterialPageRoute(
+        builder: (_) => const Scaffold(body: Text('alarm')),
+      ));
+      await tester.pumpAndSettle();
+      key.currentState!.pushReplacement(MaterialPageRoute(
+        builder: (_) => OutcomeScreen(
+          action: PendingAction(
+            runId: 'r',
+            domain: 'software',
+            action: 'Deploy the patch',
+            openedAt: 1000,
+            deadline: 1020,
+            state: 'approved',
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Back to feed'));
+      await tester.pumpAndSettle();
+      expect(find.text('feed'), findsOneWidget);
+      expect(find.text('Back to feed'), findsNothing);
     });
   });
 

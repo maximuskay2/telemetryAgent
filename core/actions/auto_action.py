@@ -34,6 +34,10 @@ class PendingAction(BaseModel):
         default=True,
         description="False means the window expires unless explicitly approved",
     )
+    ready: bool = Field(
+        default=True,
+        description="False while the fix is still verifying: nothing applies and the countdown has not started",
+    )
 
 
 def window_seconds() -> float:

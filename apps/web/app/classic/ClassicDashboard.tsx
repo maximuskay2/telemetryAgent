@@ -34,6 +34,9 @@ function vetoCopy(
 ): { text: string; tone: string } {
   switch (veto.state) {
     case "pending":
+      if (!veto.ready) {
+        return { text: `⏳ ${veto.summary} (veto from phone)`, tone: "running" };
+      }
       return {
         text: `⏳ ${veto.summary} — auto-apply in ${left}s (veto from phone)`,
         tone: "running",

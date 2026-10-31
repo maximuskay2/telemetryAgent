@@ -82,7 +82,9 @@ class AlarmHardware {
       await ensureChannel();
       await _notifications.show(
         id: action.runId.hashCode,
-        title: 'VETO ${action.secondsLeft()}s — ${action.domain} fix',
+        title: action.ready
+            ? 'VETO ${action.secondsLeft()}s — ${action.domain} fix'
+            : 'FIX READY — verifying ${action.domain} fix',
         body: action.action,
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
