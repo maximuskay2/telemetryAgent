@@ -529,7 +529,10 @@ async def ingest_log(payload: LogInput) -> LogEvent:
 
 @app.post("/api/diagnose", response_model=Diagnosis)
 async def diagnose_logs(payload: DiagnosisRequest) -> Diagnosis:
-    return await diagnose(payload.log_text)
+    try:
+        return await diagnose(payload.log_text)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _step_bridge(
