@@ -1,5 +1,5 @@
 # John status (commercial)
-Current block: C-N9 done, rebased on 6cb3bf7, merge still BLOCKED (upstream smoke red)
+Current block: C-N9 MERGED to main (gate green on c0e4d5f)
 BLOCKED (not mine): check.sh RED on smoke_demo — pre-existing,
 identical on base. smoke_demo.sh sources .env (now has
 DATABASE_URL) → hosted() true → C-J4 gating 401s
@@ -7,14 +7,11 @@ DATABASE_URL) → hosted() true → C-J4 gating 401s
 same steps pass with DATABASE_URL unset). Fix belongs to
 James/Akingbade: unset DATABASE_URL in smoke_demo.sh (demo
 route is self-hosted) or send a test token. My areas all PASS
-(python/web/flutter). Rebased clean onto d51aad5, 9c487cf, 4a3373d, then 6cb3bf7
-(APK, welcome copy, Baseten/Meta fixes, infer-status; no
-conflicts, my hunks intact). Full gate on 4a3373d: same single
-RED (smoke_demo dies at the sample step — upstream
-.env/DATABASE_URL 401; the new deltas only whitelist more
-public paths, scripts/ untouched), so still not merging. Web
-build green on 6cb3bf7. My areas PASS. All drill servers
-stopped;
+(python/web/flutter). Akingbade fixed the smoke blocker in c0e4d5f (demo systems
+stay public with a customer DATABASE_URL). Rebased clean,
+full gate GREEN (python + smoke_demo + web + flutter), pushed
+com/john, fast-forwarded main. C-N9 fully merged. All drill
+servers stopped;
 lsof 8201 empty; PG container removed; drill Clerk users
 deleted; stale screenshot probe killed.
 C-N9 DRILL RECORD (hosted, real Clerk, own PG, demo repo):
