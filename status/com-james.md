@@ -114,6 +114,11 @@ NEEDS FROM AKINGBADE:
   automated daily Postgres backups (staging + prod, ≥7 days).
 - Baseten/Modal remaining hackathon credit numbers (for Jude's alerts).
 - Confirm provider product-use terms (roadmap §0.1) when known.
+- Tuning (Akingbade ask): baseline learning window 120s → 30s demo
+  (`DemoLearnIn` default + `/api/demo/.../learn` fallback), 120s → 60s
+  production (`BaselineStartIn` default). No test depended on 120.
+FLAG FOR JOHN: web copy still says "Two quiet minutes" (start/setup
+  page.tsx:687, start/page.tsx:83) — now 30s in demo. Your files.
 BLOCKED: none (8201 saga over — John's C-N9 made the devices e2e
   free-port, so the gate can never block on a squat again; the one-off
   check7 suite crash `can't open file '.../python -m unittest'` never

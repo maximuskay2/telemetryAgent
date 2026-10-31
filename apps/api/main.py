@@ -2296,7 +2296,7 @@ async def demo_documents(system_id: str) -> dict:
 
 
 class DemoLearnIn(BaseModel):
-    duration_s: float = Field(default=120.0, ge=5.0, le=600.0)
+    duration_s: float = Field(default=30.0, ge=5.0, le=600.0)
 
 
 demo_learn_tasks: Dict[str, "asyncio.Task"] = {}
@@ -2369,14 +2369,14 @@ async def _drive_demo_learning(
 async def demo_learn(
     system_id: str, payload: Optional[DemoLearnIn] = None
 ) -> dict:
-    """Start a 120 s demo learning window with gentle normal traffic (J3)."""
+    """Start a 30 s demo learning window with gentle normal traffic (J3)."""
     profile = setup_store.get_profile(system_id)
     if profile is None or profile.environment.get("demo") != "true":
         raise HTTPException(status_code=404, detail="unknown demo system")
     previous = demo_learn_tasks.pop(system_id, None)
     if previous is not None and not previous.done():
         previous.cancel()
-    duration = payload.duration_s if payload is not None else 120.0
+    duration = payload.duration_s if payload is not None else 30.0
     started = await _start_baseline(
         system_id, BaselineStartIn(duration_s=duration)
     )
@@ -2452,7 +2452,7 @@ baseline_sessions: Dict[str, dict] = {}
 
 
 class BaselineStartIn(BaseModel):
-    duration_s: float = Field(default=120.0, ge=5.0, le=86400.0)
+    duration_s: float = Field(default=60.0, ge=5.0, le=86400.0)
 
 
 class BaselineSensorIn(BaseModel):
