@@ -1,12 +1,14 @@
 # Janet status (tester)
 
-Current block: T-E4 (T-E1–T-E3 done)
+Current block: T-E5 (T-E1–T-E4 done)
 Environment: local API 127.0.0.1:8401 + shop 8402 + web localhost:3401 (2026-10-31; evidence below on origin/main 02d066b, branch rebased to 23bc080 at commit); Railway https://web-production-926b3.up.railway.app
 
 Done:
 - T-E1 PASS (local + Railway, all 5 checks)
 - T-E2 PASS (local + Railway, both checks)
 - T-E3 PASS (local, all 5 checks; 2 live runs used, see below)
+- T-E4 PARTIAL (#1, #2, #4 PASS local + Railway spot-check; #3 BLOCKED — Clerk sign-in unavailable, see NEEDS)
+- T-E1/T-E2 re-verified PASS on origin/main 9c487cf (welcome redesign + Get the app link)
 
 Decisions:
 - Stack runs with DATABASE_URL unset (worktree file store), GITHUB_TOKEN unset (no real PRs from test runs), FRIDGE_STREAM=1, SHOP_PORT=8402, CORS_ORIGIN_REGEX=http://(localhost|127\.0\.0\.1):3401. No .env written; ../telemetry-agent/.env sourced into process env only.
@@ -16,8 +18,10 @@ Failures (end to end): none in T-E1–T-E3 (one live run failed on the known Mod
 
 NEEDS FROM AKINGBADE:
 - (cosmetic) Clerk sign-in form shows app name "Telementry" (typo for Telemetry?) — dashboard fix, not in repo (grep found nothing).
+- (blocks T-E4#3 + T-E5) Clerk dev test user: verified email + password I can sign in with on localhost:3401. Headless signup stalls at Clerk bot protection ("Verifying your request"), and the local API only accepts real Clerk JWTs (RS256 via JWKS; no test issuer set). No credentials invented; nothing committed.
 
-BLOCKED: —
+BLOCKED:
+- T-E4#3 (lands on next page after sign-in) — needs a signed-in Clerk session.
 
 Live runs (what · result · seconds · model):
 - tour break-shop #1 (TA_VERIFY default/Modal) · FAILED at verify: Modal sandbox shut down mid-run, run crashed, veto never opened · spark diagnose + spark-open patch (run a85e71bb)
@@ -88,3 +92,18 @@ Notes:
 - Run #1 crashed at verify (Modal sandbox shutdown mid-run; known flake per smoke_demo.sh comment). The run 500s instead of degrading to local Docker (fallback only covers ImportError/AuthError), and the tour shows no error — it just waits. Retried with TA_VERIFY=local (same pin as smoke_demo.sh); API restarted, demo world intact.
 - Cancelled at the veto to avoid side effects (no fix applied, no PR — GITHUB_TOKEN unset anyway). Tour step 5 expects a PR link, unreachable here by design.
 - sha: origin/main 3d837c4.
+
+## Re-verify T-E1 + T-E2 on 9c487cf — PASS
+
+origin/main moved (d51aad5 + 9c487cf: welcome redesign, "Get the app" menu, APK, docs). Re-walked fresh signed-out on localhost:3401: both doors + hrefs, no skip, no /setup, How to → /guide and Support → /support (new "Get the app" → /guide#phone also present, anchor exists), / and /?skip=1 → /welcome; /guide demo+production paths, 0 /setup hrefs, /support link; /support mailto + tel:+2348036954577 + /guide back-link. No T-E1/T-E2 regressions.
+
+## T-E4 · Production gate — PARTIAL (#1, #2, #4 PASS; #3 BLOCKED)
+
+Method: fresh-profile headless Chrome per walk (new user, signed out) on localhost:3401; Railway spot-checks read-only. Base 9c487cf.
+
+| # | Check | URL | Clicks | Expected | Got | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | Home Connect your production | /welcome | click "Connect your production" | Goes to /signin?next=/connect | Final URL /signin?next=%2Fconnect, Clerk dev sign-in shown | PASS |
+| 2 | Direct production pages | /connect, /members, /devices, /usage | none (land each fresh) | Each redirects to /signin?next=<that page> | /connect → /signin?next=%2Fconnect; /members → …%2Fmembers; /devices → …%2Fdevices; /usage → …%2Fusage. Railway: /connect → /signin?next=%2Fconnect, /members → /signin?next=%2Fmembers | PASS |
+| 3 | After sign-in | /members → sign-in | "Sign up" → fill email+password → Continue | Land on the next page, not demo Mission Control | BLOCKED: signup runs on Clerk hosted page (accounts.dev); submit stalls at "Verifying your request" bot protection headless. No verified test user available; local API accepts only real Clerk JWTs. Nothing invented or committed. | BLOCKED |
+| 4 | Demo still public | /welcome | click "Try the live demo" while signed out | Demo reachable without sign-in | Landed on /start card 1 ("Your software and your equipment") | PASS |
