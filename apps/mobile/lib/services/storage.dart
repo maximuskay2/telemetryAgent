@@ -33,5 +33,13 @@ class PairingStorage {
     await _storage.write(key: _orgKey, value: connection.orgId);
   }
 
-  Future<void> clear() async => _storage.deleteAll();
+  Future<void> clear() async {
+    try {
+      await _storage.deleteAll();
+    } catch (_) {
+      for (final key in [_apiUrlKey, _tokenKey, _deviceKey, _orgKey]) {
+        await _storage.delete(key: key);
+      }
+    }
+  }
 }

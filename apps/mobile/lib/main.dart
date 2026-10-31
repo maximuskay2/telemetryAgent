@@ -7,6 +7,7 @@ import 'providers.dart';
 import 'screens/alarm_screen.dart';
 import 'screens/connect_screen.dart';
 import 'screens/home_screen.dart';
+import 'services/toast.dart';
 import 'theme.dart';
 
 void main() {
@@ -18,22 +19,33 @@ class TelemetryApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final connection = ref.watch(connectionProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp(
       title: 'Telemetry Agent',
+      navigatorKey: rootNavigatorKey,
+      scaffoldMessengerKey: rootMessengerKey,
       theme: telemetryLightTheme,
       darkTheme: telemetryDarkTheme,
       themeMode: themeMode,
-      home: connection.when(
-        data: (conn) => conn == null
-            ? const ConnectScreen()
-            : const AlarmNavigator(child: HomeScreen()),
-        loading: () =>
-            const Scaffold(body: Center(child: CircularProgressIndicator())),
-        error: (_, _) => const ConnectScreen(),
-      ),
+      home: const AppRoot(),
     );
+  }
+}
+
+/// Pairing screen or the paired app; rebuilds itself when pairing changes.
+class AppRoot extends ConsumerWidget {
+  const AppRoot({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(connectionProvider).when(
+          data: (conn) => conn == null
+              ? const ConnectScreen()
+              : const AlarmNavigator(child: HomeScreen()),
+          loading: () => const Scaffold(
+              body: Center(child: CircularProgressIndicator())),
+          error: (_, _) => const ConnectScreen(),
+        );
   }
 }
 

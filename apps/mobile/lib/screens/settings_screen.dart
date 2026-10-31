@@ -60,10 +60,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           OutlinedButton.icon(
-            onPressed: () async {
-              await ref.read(alarmProvider.notifier).silence();
-              await ref.read(connectionProvider.notifier).disconnect();
-            },
+            onPressed: () =>
+                ref.read(connectionProvider.notifier).disconnect(),
             icon: const Icon(Icons.link_off),
             label: const Text('Unpair this device'),
           ),

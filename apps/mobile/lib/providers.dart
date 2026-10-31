@@ -15,6 +15,7 @@ import 'services/api.dart';
 import 'services/foreground.dart';
 import 'services/socket.dart';
 import 'services/storage.dart';
+import 'services/toast.dart';
 import 'theme.dart';
 
 final storageProvider = Provider<PairingStorage>((ref) => PairingStorage());
@@ -63,17 +64,43 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
     final api = AgentApi(connection: connection, client: client);
     final ok = await api.checkHealth();
     api.close();
-    if (!ok) return false;
-    await ref.read(storageProvider).save(connection);
+    if (!ok) {
+      showToast('Pairing failed — no agent at ${connection.apiUrl}',
+          error: true);
+      return false;
+    }
+    try {
+      await ref.read(storageProvider).save(connection);
+    } catch (error) {
+      showToast('Pairing failed — could not save: $error', error: true);
+      return false;
+    }
     state = AsyncData(connection);
     unawaited(Keepalive.start());
+    showToast('Paired with ${connection.apiUrl}');
     return true;
   }
 
+  /// Always leaves the app unpaired; a storage failure is reported, not fatal.
   Future<void> disconnect() async {
-    await ref.read(storageProvider).clear();
+    final was = state.asData?.value;
     unawaited(Keepalive.stop());
+    String? problem;
+    // Never awaited: the audio plugin's stop() can hang and block unpairing.
+    unawaited(ref.read(alarmProvider.notifier).silence().catchError((_) {}));
+    try {
+      await ref.read(storageProvider).clear();
+    } catch (error) {
+      problem = '$error';
+    }
     state = const AsyncData(null);
+    rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+    if (problem != null) {
+      showToast('Unpaired, but the saved pairing could not be wiped: $problem',
+          error: true);
+    } else {
+      showToast(was == null ? 'Unpaired' : 'Unpaired from ${was.apiUrl}');
+    }
   }
 
   /// Per-user sign-in (C-N4): claim a web pairing code, then connect
@@ -90,7 +117,10 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
     );
     try {
       final claimed = await probe.claim(code);
-      if (claimed.deviceToken.isEmpty) return 'That code didn’t work.';
+      if (claimed.deviceToken.isEmpty) {
+        showToast('Pairing failed — that code didn’t work', error: true);
+        return 'That code didn’t work.';
+      }
       return await saveAndConnect(
         Connection(
           apiUrl: apiUrl,
@@ -103,6 +133,7 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
           ? null
           : 'No agent at that URL — same Wi-Fi? API running?';
     } on ApiError catch (error) {
+      showToast('Pairing failed — ${error.message}', error: true);
       return error.message;
     } finally {
       probe.close();

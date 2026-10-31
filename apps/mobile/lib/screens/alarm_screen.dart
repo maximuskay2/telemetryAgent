@@ -12,7 +12,6 @@ import '../providers.dart';
 import '../services/api.dart';
 import '../theme.dart';
 import '../widgets/widgets.dart';
-import 'home_screen.dart';
 
 /// Seconds left from the server deadline, corrected by the latest tick:
 /// a fresh tick (≤2 s old) wins over the local clock.
@@ -541,8 +540,7 @@ class OutcomeScreen extends StatelessWidget {
                     navigator.popUntil((route) => route.isFirst);
                   } else {
                     navigator.pushReplacement(MaterialPageRoute(
-                      builder: (_) =>
-                          const AlarmNavigator(child: HomeScreen()),
+                      builder: (_) => const AppRoot(),
                     ));
                   }
                 },
