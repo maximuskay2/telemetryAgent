@@ -215,6 +215,11 @@ export function blockedReasons(usage: Usage): string[] {
       `Free allowance reached: ${usage.fix_runs_used}/${usage.fix_runs_limit} fix runs`,
     );
   }
+  if (usage.cost_used_usd >= usage.cost_ceiling_usd) {
+    reasons.push(
+      `Free allowance reached: $${usage.cost_used_usd.toFixed(2)}/$${usage.cost_ceiling_usd.toFixed(2)} estimated cost`,
+    );
+  }
   if (usage.systems_used >= usage.systems_limit) {
     reasons.push(
       `Free allowance reached: ${usage.systems_used}/${usage.systems_limit} systems`,

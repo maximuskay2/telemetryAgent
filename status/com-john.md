@@ -1,5 +1,31 @@
 # John status (commercial)
-Current block: C-N9 rehearsal drill (in progress)
+Current block: C-N9 drill complete, merging
+C-N9 DRILL RECORD (hosted, real Clerk, own PG, demo repo):
+- Sign-up/org/invite/pair/claim/system/arm: all 200 in ~6 s API
+  time. Two Clerk users, 3 orgs, per-user phone pairing.
+- Crash 1 (genuine demo traceback) → run de2cae84187d PASS +
+  PR maximuskay2/telemetryAgent-demo#12 (<17 min). No phone
+  window: repo-PR runs don't ask (by design, no hosting yet).
+- Crash 2 → run 7994f896a7f0 PASS (repeat). Crash 3 → run
+  0ed601fa2c93 NO_ACTION (repeat dedupe on PR#12).
+- Crash 4 + webhook hosting: rollback option executed from the
+  phone flow → signed rollback POST received (run 13a856e6ca67).
+- Crash 5 (post-C-J4b code): fix_runs 6, cost $0.0033 present.
+- Usage reached state verified live (6/6 + banner, TA_FREE_*=6).
+- Isolation as org B: UI 5/5 (members/devices/usage Rival-only,
+  10 API bodies scanned, no org-A data) + API 4/4 (member invite
+  403, cross-org device reads 403, legit reads 200). No C-J4
+  failures from the edges.
+Contract mismatches → James:
+- C-N9-1: hosted POST /api/connections 500s (last_seen None
+  fails response validation AFTER insert; shown-once key lost).
+- C-N9-2: mitigate.decide() has zero callers — rollback windows
+  open+audit but are invisible to /api/actions and unapprovable;
+  options/execute bypasses windows. Wire decide or drop windows.
+Fixed in my files: UsageView + blockedReasons now mirror the
+cost dimension (backend blocks on it, §D promises it); tests 53/53.
+Shelved: my RequireAuth Suspense fix — Akingbade fixed it himself
+in 23bc080 (window.location); verified his build green 17/17.
 8201 discipline (Akingbade note): my drill API held 8201 for 2h and
 blocked James's merge gate (test_devices_e2e binds 8201) — it was
 killed. Rule from now on: stop any server I start on 8201 before I

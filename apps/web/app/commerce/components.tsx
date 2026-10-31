@@ -320,6 +320,15 @@ export function UsageView({ usage }: { usage: Usage }) {
           <UsageBar used={row.used} limit={row.limit} />
         </div>
       ))}
+      <div>
+        <p className="mb-1 flex items-baseline justify-between text-sm">
+          <span className="text-text">Estimated cost</span>
+          <span className="text-xs text-text-muted tabular-nums">
+            {`$${usage.cost_used_usd.toFixed(2)} of $${usage.cost_ceiling_usd.toFixed(2)} budget`}
+          </span>
+        </p>
+        <UsageBar used={usage.cost_used_usd} limit={usage.cost_ceiling_usd} />
+      </div>
       {languages.length > 0 && (
         <div>
           <p className="mb-1 text-sm text-text">Fix runs by language</p>

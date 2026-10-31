@@ -153,7 +153,7 @@ describe("blockedReasons", () => {
   it("is empty inside the allowance", () => {
     assert.deepEqual(commerce.blockedReasons(base), []);
   });
-  it("names each exhausted dimension without prices", () => {
+  it("names each exhausted dimension (cost mirrored, no prices)", () => {
     const reasons = commerce.blockedReasons({
       ...base, fix_runs_used: 30, devices_used: 5,
     });
@@ -161,7 +161,15 @@ describe("blockedReasons", () => {
       "Free allowance reached: 30/30 fix runs",
       "Free allowance reached: 5/5 devices",
     ]);
-    assert.ok(reasons.join(" ").match(/\$|usd|price|cost/i) === null);
+    assert.ok(reasons.join(" ").match(/upgrade|checkout|price/i) === null);
+  });
+  it("blocks on the cost ceiling like the backend", () => {
+    const reasons = commerce.blockedReasons({
+      ...base, cost_used_usd: 25.0,
+    });
+    assert.deepEqual(reasons, [
+      "Free allowance reached: $25.00/$25.00 estimated cost",
+    ]);
   });
 });
 

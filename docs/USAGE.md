@@ -566,8 +566,8 @@ install.
 1. Your app throws → forwarder/Sentry → a gate candidate (suppressed
    with a citation if it's known-normal).
 2. A repo run starts; progress streams to the dashboard and phone. A
-   rollback window is proposed alongside — it **expires** unless you
-   approve.
+   rollback window is proposed alongside — approve it by tapping
+   **Roll back now** (step 3) or it **expires**.
 3. The phone shows **“Software · PR ready”**: open the PR, or tap
    **Roll back now**. (The demo shop is different: its verified fix
    applies at the deadline unless you disapprove.)
@@ -612,6 +612,8 @@ Pause-all freezes the world in one tap. **Disconnect** kills that key;
 ## D. Your account (after sign-in)
 
 These pages sit behind sign-in. The live demo does not.
+Local development can also sign in with a test token on the
+sign-in page (needs a local API running with `TA_AUTH_TEST_ISSUER`).
 
 ### D.1 Members (`/members`)
 

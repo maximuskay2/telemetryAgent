@@ -148,16 +148,16 @@ describe("UsageView", () => {
     devices_used: 1, devices_limit: 5,
     by_language: { python: { fix_runs: 30, cost_usd: 24.5 } },
   };
-  it("shows allowance with why-blocked and no prices", () => {
+  it("shows allowance with why-blocked and estimated cost", () => {
     const html = render(React.createElement(ui.UsageView, { usage: USAGE }));
     assert.match(html, /30 of 30 free/);
     assert.match(html, /Free allowance reached: 30\/30 fix runs/);
     assert.match(html, /python/);
     assert.match(html, /30 runs/);
-    assert.doesNotMatch(html, /\$/);
-    assert.doesNotMatch(html, /cost/i);
-    assert.doesNotMatch(html, /usd/i);
-    assert.doesNotMatch(html, /24\.5/);
+    assert.match(html, /Estimated cost/);
+    assert.match(html, /\$24\.50 of \$25\.00 budget/);
+    assert.doesNotMatch(html, /upgrade/i);
+    assert.doesNotMatch(html, /checkout/i);
   });
 });
 
