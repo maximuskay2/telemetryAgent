@@ -45,9 +45,6 @@ export default function WelcomeHeader() {
           <Logo size={18} />
           <span className="text-sm font-semibold">TelemetryAgent</span>
         </Link>
-        <span className="text-xs text-text-muted">
-          Try the demo free — no account
-        </span>
         <div className="ms-auto flex flex-wrap items-center gap-2">
           <Suspense
             fallback={

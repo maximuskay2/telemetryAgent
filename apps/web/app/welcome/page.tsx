@@ -10,21 +10,21 @@ const VIDEO_URL = "";
 export const metadata: Metadata = {
   title: "TelemetryAgent — AI on-call engineer",
   description:
-    "An AI on-call engineer that catches failures, proves its fix works, and asks before it acts.",
+    "Telemetry is the signals a system sends while it runs. TelemetryAgent reports a proven fix, asks you, and acts if you do not answer — you give that permission.",
 };
 
 const STEPS = [
   {
-    title: "Notice",
-    text: "Watchers learn what normal looks like, then flag the rest — retries, deadlocks, a freezer door left open.",
+    title: "Learn the system",
+    text: "It reads the manuals and watches a quiet stretch. After that it knows what normal looks like.",
   },
   {
-    title: "Fix & prove",
-    text: "The agent diagnoses the cause, writes a fix with a test, and proves it fails before and passes after.",
+    title: "Fix, prove, report",
+    text: "It writes a fix with a test, proves it, and sends you the report. You see the diagnosis and the proof first.",
   },
   {
-    title: "Ask, then act",
-    text: "Nothing deploys without a 20-second cancel window. Approve it, cancel it, or let the countdown decide.",
+    title: "You give permission",
+    text: "It asks. Approve, cancel, or do nothing. If no one answers, it acts — because you already allowed that.",
   },
 ];
 
@@ -114,50 +114,109 @@ export default function WelcomePage() {
             AI on-call engineer
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-balance sm:text-4xl">
-            An AI on-call engineer that catches failures, proves its fix
-            works, and asks before it acts.
+            Telemetry is the signal. TelemetryAgent is the engineer.
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-sm text-text-muted sm:text-base">
-            Watch it guard a live parts shop and a cold-chain freezer. Set up
-            in about 3 minutes, then break something and see it fixed in 2
-            more. No signup.
+            Every running system talks. Software writes logs. Equipment
+            sends sensor readings. TelemetryAgent understands the system,
+            sends you a report, and asks. If no one answers, it acts —
+            you gave that permission.
           </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <DemoCta />
-            {VIDEO_URL !== "" && (
-              <a
-                href={VIDEO_URL}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text outline-none hover:border-text-faint focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-              >
-                Watch 3-min video
-              </a>
-            )}
-          </div>
         </div>
+
+        <section
+          aria-labelledby="what-telemetry-is"
+          className="mx-auto mt-10 grid max-w-3xl gap-3 sm:grid-cols-2"
+        >
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+              In software
+            </p>
+            <h2 id="what-telemetry-is" className="mt-1 text-sm font-semibold">
+              Logs, errors, retries, latency
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-text-muted">
+              A crash traceback is telemetry. So is a burst of retries.
+              So is a shop that cannot take an order.
+            </p>
+          </div>
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+              In hardware
+            </p>
+            <h2 className="mt-1 text-sm font-semibold">
+              Temperature, door, current, vibration
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-text-muted">
+              A freezer climbing past 8 °C is telemetry. So is a door left
+              open. A scheduled defrost is also telemetry — it is normal.
+            </p>
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="what-the-agent-is"
+          className="mx-auto mt-3 max-w-3xl rounded-lg border border-border bg-surface p-5"
+        >
+          <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+            What TelemetryAgent is
+          </p>
+          <h2 id="what-the-agent-is" className="mt-1 text-sm font-semibold">
+            One agent for both kinds of signal
+          </h2>
+          <p className="mt-2 text-xs leading-relaxed text-text-muted">
+            It learns the system from your manuals and a quiet watch. Then
+            it flags only real failures. It writes a fix, proves it, and
+            sends you the report. It asks. If there is no human
+            interaction, it acts — because you already gave permission.
+            Free for now. No signup for the live demo.
+          </p>
+        </section>
 
         <div className="mx-auto mt-10 grid max-w-3xl gap-3 sm:grid-cols-2">
           <section
-            aria-label="Demo business, part one: the parts shop"
+            aria-label="Software example: AutoParts Lagos"
             className="rounded-lg border border-border bg-surface p-4"
           >
+            <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+              Example · software
+            </p>
             <ShopArt />
             <h2 className="mt-2 text-sm font-semibold">AutoParts Lagos</h2>
-            <p className="mt-1 text-xs text-text-muted">
-              Online parts shop: web, orders and inventory services taking
-              real traffic.
+            <p className="mt-2 text-xs leading-relaxed text-text-muted">
+              A live parts shop. Web, orders, inventory. Two customers buy
+              the same part and the shop deadlocks. The agent reads the
+              crash log, writes a lock-order fix, and proves it with a
+              test.
             </p>
           </section>
           <section
-            aria-label="Demo business, part two: the freezer"
+            aria-label="Hardware example: cold-chain freezer"
             className="rounded-lg border border-border bg-surface p-4"
           >
+            <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+              Example · hardware
+            </p>
             <FreezerArt />
-            <h2 className="mt-2 text-sm font-semibold">Cold-chain Freezer</h2>
-            <p className="mt-1 text-xs text-text-muted">
-              Vaccine and food storage holding 2–8 °C, compressor and sensors
-              included.
+            <h2 className="mt-2 text-sm font-semibold">Cold-chain freezer</h2>
+            <p className="mt-2 text-xs leading-relaxed text-text-muted">
+              Vaccine and food storage at 2–8 °C. Door, compressor,
+              sensors. A door left open is an incident. A defrost cycle is
+              not. The agent knows the difference.
             </p>
           </section>
+        </div>
+
+        <div className="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-3">
+          <DemoCta />
+          {VIDEO_URL !== "" && (
+            <a
+              href={VIDEO_URL}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-5 py-2.5 text-sm font-medium text-text outline-none hover:border-text-faint focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Watch 3-min video
+            </a>
+          )}
         </div>
 
         <ol className="mx-auto mt-10 grid max-w-4xl list-none gap-3 p-0 sm:grid-cols-3">
