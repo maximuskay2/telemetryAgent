@@ -8,6 +8,7 @@ import { SignIn } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
+import Logo from "../../components/Logo";
 import ThemeToggle from "../../components/ThemeToggle";
 import { safeNext } from "../../lib/nextPath";
 import { useSession } from "../../lib/session";
@@ -59,8 +60,12 @@ function SignInInner() {
   return (
     <main className="mx-auto w-full max-w-md px-4 py-8">
       <div className="mb-6 flex items-center justify-between">
-        <Link href="/welcome" className="text-sm text-brand-cyan">
-          ← TelemetryAgent
+        <Link
+          href="/welcome"
+          className="inline-flex items-center gap-1.5 text-sm text-brand-cyan"
+        >
+          <Logo size={18} />
+          TelemetryAgent
         </Link>
         <ThemeToggle />
       </div>

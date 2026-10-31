@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
 import AccountNav from "../commerce/AccountNav";
+import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import { StatusDot } from "../ui";
 import { useMission } from "./state";
@@ -201,9 +202,7 @@ export default function TopBar() {
           aria-label="TelemetryAgent home"
           className="flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-brand rounded"
         >
-          <span className="text-sm text-brand-cyan" aria-hidden>
-            ◆
-          </span>
+          <Logo size={18} />
           <span className="text-sm font-semibold text-text">TelemetryAgent</span>
         </Link>
         <nav aria-label="Systems" className="flex flex-wrap items-center gap-1.5">

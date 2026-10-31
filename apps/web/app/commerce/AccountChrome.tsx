@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
+import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import { useSession } from "../lib/session";
 import { OrgSwitcher } from "./components";
@@ -49,9 +50,7 @@ export default function AccountChrome({ children }: { children: ReactNode }) {
             href="/welcome"
             className="flex items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
-            <span className="text-sm text-brand-cyan" aria-hidden>
-              ◆
-            </span>
+            <Logo size={18} />
             <span className="text-sm font-semibold">TelemetryAgent</span>
           </Link>
           <Suspense

@@ -1,5 +1,7 @@
 # TelemetryAgent
 
+<img src="docs/brand/telemetry-agent-logo.png" width="120" alt="TelemetryAgent logo">
+
 An autonomous SRE agent on Meta's Muse models that diagnoses crashes, writes
 fixes with the open-weight **Muse Spark Open**, proves them in a **Modal
 sandbox**, and opens the **PR** — and the same reasoning core diagnoses

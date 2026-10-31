@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Suspense } from "react";
+import Logo from "../components/Logo";
 import ThemeToggle from "../components/ThemeToggle";
 import { signInHref } from "../lib/nextPath";
 import { useSession } from "../lib/session";
@@ -38,9 +39,7 @@ export default function WelcomeHeader() {
           href="/welcome"
           className="flex items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
-          <span className="text-sm text-brand-cyan" aria-hidden>
-            ◆
-          </span>
+          <Logo size={18} />
           <span className="text-sm font-semibold">TelemetryAgent</span>
         </Link>
         <span className="text-xs text-text-muted">

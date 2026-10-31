@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Attribution from "../components/Attribution";
+import Logo from "../components/Logo";
 import DemoCta from "./DemoCta";
 import WelcomeHeader from "./WelcomeHeader";
 
@@ -106,7 +107,10 @@ export default function WelcomePage() {
 
       <main className="mx-auto w-full max-w-5xl px-4 pb-16">
         <div className="mx-auto max-w-3xl pt-12 text-center">
-          <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+          <div className="flex justify-center">
+            <Logo size={44} />
+          </div>
+          <p className="mt-4 text-xs font-medium tracking-wide text-brand-cyan uppercase">
             AI on-call engineer
           </p>
           <h1 className="mt-3 text-3xl font-semibold text-balance sm:text-4xl">
