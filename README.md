@@ -33,7 +33,7 @@ What is in this repository today:
 - **Equipment protocol.** `hardware/sim_device.py` posts readings and acks commands against the API (this is what the tests run). `hardware/wokwi/` is the same firmware as an ESP32 sketch plus circuit for [wokwi.com](https://wokwi.com) — paste it there and press play; that click-through is still a manual step.
 - **Checks.** `./scripts/check.sh`: 620+ Python tests, the simulation smoke test, the web build, and 56 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
 
-Hosted accounts, billing, and auto-fix beyond Python are specified, not shipped here: [commercial-roadmap.md](./commercial-roadmap.md), [languages-roadmap.md](./languages-roadmap.md).
+Hosted accounts and billing are specified, not shipped here: [commercial-roadmap.md](./commercial-roadmap.md). Auto-fix ships for Python, JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP ([languages-roadmap.md](./languages-roadmap.md) is the design record).
 
 ## Two doors, one agent
 
@@ -46,8 +46,8 @@ Hosted accounts, billing, and auto-fix beyond Python are specified, not shipped 
   webhook) and cold-chain devices. TelemetryAgent catches a real error, proves
   a fix on **your code** in a sandbox, and opens a **PR on your repo** — while
   the phone rings with fix options. Nothing shuts down without a human (see
-  [the uptime promise](#uptime-promise)). Auto-fix today: **Python**; rolling
-  out: **JavaScript/TypeScript, Java, Kotlin, Go, Rust, PHP** (per-language
+  [the uptime promise](#uptime-promise)). Auto-fix today: **Python,
+  JavaScript/TypeScript, Java, Kotlin, Go, Rust, PHP** (per-language
   repo needs: [docs/USAGE.md](docs/USAGE.md)).
 
 ## The 3-minute demo (judges start here)
@@ -261,8 +261,9 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
   [`simulation-roadmap.md`](./simulation-roadmap.md) — look, app, setup, sims.
 - [`commercial-roadmap.md`](./commercial-roadmap.md) — accounts, isolation,
   usage, and billing. Light mode is the default; dark stays. Meta product look.
-- [`languages-roadmap.md`](./languages-roadmap.md) — auto-fix for
-  JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP. Python is what runs today.
+- [`languages-roadmap.md`](./languages-roadmap.md) — the design record
+  behind the shipped multi-language auto-fix (JS/TS, Java, Kotlin, Go,
+  Rust, PHP alongside Python).
 
 ## Status
 
@@ -274,15 +275,15 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
   [telemetryAgent-demo#9](https://github.com/maximuskay2/telemetryAgent-demo/pull/9)),
   mitigations, pause, `/connect` wizard, devices, software ESP32.
 - ✅ Public demo on Railway (welcome URL above).
+- ✅ Multi-language auto-fix: Python, JS/TS, Java/Kotlin, Go, Rust, PHP
+  (adapters in `core/repo_fix/lang/`, per-language `test_lang_*` suites).
 - 🚧 Still manual: compile `hardware/wokwi/` on [wokwi.com](https://wokwi.com)
   and hold the door button; push `examples/proof-app/` to its own repo;
   joint proof run ×2; the 3-minute video. FCM push was descoped (no
   Firebase project in the event window — the app uses live WebSocket
   alerts + a foreground service).
 - 📋 Specified, not in this tree yet: hosted accounts and billing
-  ([commercial-roadmap.md](./commercial-roadmap.md)); auto-fix for
-  JS/TS, Java, Kotlin, Go, Rust, PHP
-  ([languages-roadmap.md](./languages-roadmap.md)).
+  ([commercial-roadmap.md](./commercial-roadmap.md)).
 
 ## License
 
