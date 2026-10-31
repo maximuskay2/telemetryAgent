@@ -21,6 +21,9 @@ if [ -f ../telemetry-agent/.env ]; then
   set -a; . ../telemetry-agent/.env; set +a
 fi
 unset GITHUB_TOKEN GH_TOKEN
+# The smoke proof is "sim works WITHOUT a database": never inherit a
+# DATABASE_URL from .env (hosted mode would 401 every mutation below).
+unset DATABASE_URL
 # Pin the Docker verifier: smoke proves the ROUTE is preserved, and the
 # demo loop's live Modal attempts flake (frozen code, not ours to fix).
 export TA_VERIFY=local

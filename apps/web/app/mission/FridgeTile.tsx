@@ -247,14 +247,14 @@ export default function FridgeTile({ systemId }: { systemId: string | null }) {
         >
           Ambient {ambientHot ? "on" : "off"}
         </button>
-        <div className="relative ml-auto flex gap-2">
+        <div className="ml-auto flex gap-2">
           <button
             type="button"
             aria-expanded={menu === "faults"}
             onClick={() => setMenu(menu === "faults" ? null : "faults")}
             className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
           >
-            Faults ▾
+            Faults {menu === "faults" ? "▾" : "▸"}
           </button>
           <button
             type="button"
@@ -262,32 +262,32 @@ export default function FridgeTile({ systemId }: { systemId: string | null }) {
             onClick={() => setMenu(menu === "fixes" ? null : "fixes")}
             className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
           >
-            Fix ▾
+            Fix {menu === "fixes" ? "▾" : "▸"}
           </button>
-          {menu && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full z-10 mt-1 w-48 rounded-md border border-border bg-surface-2 py-1 shadow-lg"
-            >
-              {(menu === "faults" ? FAULTS : FIXES).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    if (menu === "faults") fridgeControl("fault", { fault: opt.value });
-                    else fridgeControl("action", { action: opt.value });
-                    setMenu(null);
-                  }}
-                  className="block w-full px-3 py-1.5 text-left text-xs text-text hover:bg-surface"
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
+      {menu && (
+        <div
+          role="group"
+          aria-label={menu === "faults" ? "Inject a fault" : "Apply a fix"}
+          className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2"
+        >
+          {(menu === "faults" ? FAULTS : FIXES).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                if (menu === "faults") fridgeControl("fault", { fault: opt.value });
+                else fridgeControl("action", { action: opt.value });
+                setMenu(null);
+              }}
+              className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

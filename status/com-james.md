@@ -119,6 +119,11 @@ NEEDS FROM AKINGBADE:
   production (`BaselineStartIn` default). No test depended on 120.
 FLAG FOR JOHN: web copy still says "Two quiet minutes" (start/setup
   page.tsx:687, start/page.tsx:83) — now 30s in demo. Your files.
+  (Also: Akingbade asked me to fix FridgeTile Faults/Fix dropdowns
+  directly — replaced the overlay menu with in-flow option chips;
+  John's file, minimal diff, build green. Shout if you want it back.)
+- Fix (gate): smoke_demo.sh now unsets DATABASE_URL — .env gained one
+  and the sim-without-DB proof was booting hosted (401s). Smoke green.
 BLOCKED: none (8201 saga over — John's C-N9 made the devices e2e
   free-port, so the gate can never block on a squat again; the one-off
   check7 suite crash `can't open file '.../python -m unittest'` never
