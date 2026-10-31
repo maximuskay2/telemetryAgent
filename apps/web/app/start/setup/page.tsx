@@ -7,18 +7,14 @@ import Logo from "../../components/Logo";
 import ThemeToggle from "../../components/ThemeToggle";
 import { useAgentStream } from "../../hooks/useAgentStream";
 import {
-  armSystem,
-  confirmProfile,
   demoBootstrap,
   demoDocuments,
   demoLearn,
+  demoStartWatching,
   demoStatus,
-  finishBaseline,
-  getProfile,
-  putProfile,
+  getDemoProfile,
   type DemoStatus,
   type DocumentsResult,
-  type SetupConflict,
   type SetupProfile,
 } from "../../lib/setupApi";
 import type { StreamEvent } from "../../types/api";
@@ -87,26 +83,6 @@ function profileFacts(profile: SetupProfile): Fact[] {
     });
   }
   return facts.slice(0, 3);
-}
-
-/** Pre-resolved conflict pick: narrowest band wins, else the first reading. */
-function safestPick(conflict: SetupConflict): number {
-  if (conflict.field === "normal_ranges") {
-    let best = 0;
-    let span = Number.POSITIVE_INFINITY;
-    conflict.values.forEach((candidate, i) => {
-      const value = (candidate.value ?? {}) as Record<string, unknown>;
-      if (typeof value.min === "number" && typeof value.max === "number") {
-        const width = value.max - value.min;
-        if (width < span) {
-          span = width;
-          best = i;
-        }
-      }
-    });
-    return best;
-  }
-  return 0;
 }
 
 function Ring({ pct, label }: { pct: number; label: string }) {
@@ -209,7 +185,7 @@ export default function GuidedSetupPage() {
         for (const side of ["shop", "freezer"] as Side[]) {
           const row = snapshot[side];
           if (row) {
-            const full = await getProfile(row.system_id);
+            const full = await getDemoProfile(row.system_id);
             next[side] = full.profile;
           }
         }
@@ -296,7 +272,7 @@ export default function GuidedSetupPage() {
         freezer: boot.freezer,
       };
       for (const side of ["shop", "freezer"] as Side[]) {
-        const full = await getProfile(next[side]?.system_id ?? "");
+        const full = await getDemoProfile(next[side]?.system_id ?? "");
         next[side] = full.profile;
       }
       setProfiles(next);
@@ -354,33 +330,9 @@ export default function GuidedSetupPage() {
         (side) => status?.[side] && status[side]?.status !== "armed",
       );
       await Promise.all(
-        sides.map(async (side) => {
-          const id = status?.[side]?.system_id ?? "";
-          const row = status?.[side];
-          if (row?.status === "learning") {
-            await finishBaseline(id);
-          }
-          const full = await getProfile(id);
-          const withPolicy: SetupProfile = {
-            ...full.profile,
-            policy: {
-              ...(full.profile.policy ?? {}),
-              auto_fix_allowed: true,
-              countdown_s: 20,
-            },
-          };
-          const saved = await putProfile(id, withPolicy);
-          const picks = (docs[side]?.conflicts ?? full.conflicts).map(
-            (conflict) => ({
-              field: conflict.field,
-              key: conflict.key,
-              pick: safestPick(conflict),
-            }),
-          );
-          await confirmProfile(id, "Demo visitor", picks);
-          await armSystem(id);
-          void saved;
-        }),
+        sides.map((side) =>
+          demoStartWatching(status?.[side]?.system_id ?? ""),
+        ),
       );
       router.push("/?tour=1");
     });
@@ -558,7 +510,7 @@ export default function GuidedSetupPage() {
         )}
 
         {!loading && error && (
-          <Card className="border-crit/50">
+          <Card className="border-crit/50" title="Couldn't finish this step">
             <p className="text-sm text-crit" role="alert">
               {error}
             </p>

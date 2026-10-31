@@ -164,6 +164,30 @@ def _need(request: Request, *roles: str):
         ) from exc
 
 
+def _is_demo_system(system_id: str) -> bool:
+    """The live shop/freezer walkthrough — never requires an account."""
+    profile = setup_store.get_profile(system_id)
+    return bool(
+        profile is not None
+        and (profile.environment or {}).get("demo") == "true"
+    )
+
+
+def _need_system(request: Request, system_id: str, *roles: str):
+    """Own systems need sign-in. Demo shop and freezer stay public."""
+    if _is_demo_system(system_id):
+        from core.commerce.auth import AuthContext
+
+        return AuthContext()
+    return _need(request, *roles)
+
+
+def _org_for_system(request: Request, system_id: str) -> str:
+    if _is_demo_system(system_id):
+        return ""
+    return _read_org(request)
+
+
 def _read_org(request: Request) -> str:
     """Org scope for demo-channel reads: ctx org hosted, else demo."""
     from core.commerce import auth as auth_module
@@ -1853,7 +1877,7 @@ async def upload_documents(
     system_id: str, request: Request, files: list[UploadFile] = File(...)
 ) -> dict:
     """Upload spec docs; extract a draft profile (P1, stub-able model)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -1983,7 +2007,7 @@ async def _extract_documents(
 @app.get("/api/systems/{system_id}/profile")
 async def get_profile(system_id: str, request: Request) -> dict:
     """Draft profile plus unresolved extraction conflicts (wizard review)."""
-    profile = await _profile_get(system_id, _read_org(request))
+    profile = await _profile_get(system_id, _org_for_system(request, system_id))
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     return {
@@ -2002,7 +2026,7 @@ async def put_profile(
     system_id: str, request: Request, payload: SystemProfile
 ) -> dict:
     """Human edits; any edit returns the system to draft (re-confirm)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     current = await _profile_get(system_id, ctx.org_id)
     if current is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2034,7 +2058,7 @@ async def confirm_profile(
     """Resolve conflicts, stamp the human, move draft → confirmed."""
     from datetime import datetime, timezone
 
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2127,7 +2151,7 @@ async def confirm_profile(
 @app.post("/api/systems/{system_id}/arm")
 async def arm_system(system_id: str, request: Request) -> dict:
     """Confirmed → armed: watchers start acting on this system."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2152,7 +2176,7 @@ async def arm_system(system_id: str, request: Request) -> dict:
 @app.post("/api/systems/{system_id}/disarm")
 async def disarm_system(system_id: str, request: Request) -> dict:
     """Armed → confirmed: watchers stop acting; setup can run again."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2177,7 +2201,7 @@ async def disarm_system(system_id: str, request: Request) -> dict:
 @app.delete("/api/systems/{system_id}")
 async def delete_system_endpoint(system_id: str, request: Request) -> dict:
     """Delete a system and everything setup stored for it."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     if not await _profile_delete(system_id, ctx.org_id):
         raise HTTPException(status_code=404, detail="unknown system_id")
     await emit_for(
@@ -2497,6 +2521,78 @@ async def demo_learn(
     return {**started, "driver": "demo-gentle"}
 
 
+@app.get("/api/demo/{system_id}/profile")
+async def demo_profile(system_id: str) -> dict:
+    """Public profile read for the shop/freezer walkthrough."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None or (profile.environment or {}).get("demo") != "true":
+        raise HTTPException(status_code=404, detail="unknown demo system")
+    return {
+        "profile": profile.model_dump(mode="json"),
+        "conflicts": setup_store.get_conflicts(system_id),
+        "feedback": [
+            item
+            for item in setup_store.get_feedback(system_id)
+            if item.get("status") == "pending"
+        ],
+    }
+
+
+def _safest_conflict_pick(conflict: dict) -> int:
+    """Narrowest band for ranges; otherwise the first reading."""
+    if conflict.get("field") != "normal_ranges":
+        return 0
+    best = 0
+    span = float("inf")
+    for index, candidate in enumerate(conflict.get("values") or []):
+        value = candidate.get("value") or {}
+        try:
+            width = float(value["max"]) - float(value["min"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if width < span:
+            span = width
+            best = index
+    return best
+
+
+@app.post("/api/demo/{system_id}/start-watching")
+async def demo_start_watching(system_id: str, request: Request) -> dict:
+    """Arm one demo system: policy, confirm, watch. No account."""
+    profile = setup_store.get_profile(system_id)
+    if profile is None or (profile.environment or {}).get("demo") != "true":
+        raise HTTPException(status_code=404, detail="unknown demo system")
+    if profile.status == "learning":
+        await finish_baseline(system_id, request)
+        profile = setup_store.get_profile(system_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="unknown demo system")
+    if profile.status == "armed":
+        return profile.model_dump(mode="json")
+    policy = profile.policy.model_copy(
+        update={"auto_fix_allowed": True, "countdown_s": 20}
+    )
+    await put_profile(
+        system_id, request, profile.model_copy(update={"policy": policy})
+    )
+    current = setup_store.get_profile(system_id)
+    if current is not None and current.status == "draft":
+        resolve = [
+            {
+                "field": conflict.get("field"),
+                "key": conflict.get("key"),
+                "pick": _safest_conflict_pick(conflict),
+            }
+            for conflict in setup_store.get_conflicts(system_id)
+        ]
+        await confirm_profile(
+            system_id,
+            request,
+            ConfirmIn(confirmed_by="Demo visitor", resolve=resolve),
+        )
+    return await arm_system(system_id, request)
+
+
 class ModeIn(BaseModel):
     mode: str = Field(max_length=60, description="Empty string clears")
     duration_s: Optional[float] = Field(default=None, ge=1.0, le=86400.0)
@@ -2519,7 +2615,7 @@ async def set_system_mode(
     """Human/pipeline mode set; unknown names are rejected (P4)."""
     from core.setup import modes as setup_modes
 
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2541,7 +2637,7 @@ async def get_system_mode(system_id: str, request: Request) -> dict:
     """Effective mode from manual/device sources, with overrun flag."""
     from core.setup import modes as setup_modes
 
-    profile = await _profile_get(system_id, _read_org(request))
+    profile = await _profile_get(system_id, _org_for_system(request, system_id))
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     state = setup_modes.current_mode(
@@ -2730,7 +2826,7 @@ async def start_baseline(
     system_id: str, request: Request, payload: BaselineStartIn
 ) -> dict:
     """Start baseline learning; the system observes but never acts (P7)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     return await _start_baseline(system_id, payload, ctx.org_id)
 
 
@@ -2788,7 +2884,7 @@ async def _start_baseline(
 @app.post("/api/systems/{system_id}/baseline/finish")
 async def finish_baseline(system_id: str, request: Request) -> dict:
     """Stop learning early and compile the baseline (demo + tests)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2804,7 +2900,7 @@ async def finish_baseline(system_id: str, request: Request) -> dict:
 @app.get("/api/systems/{system_id}/baseline")
 async def get_baseline(system_id: str, request: Request) -> dict:
     """Learning session (if any) plus the stored baseline (wizard step 4)."""
-    org_id = _read_org(request)
+    org_id = _org_for_system(request, system_id)
     profile = await _profile_get(system_id, org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2847,7 +2943,7 @@ async def observe_baseline(
     system_id: str, request: Request, payload: BaselineObserveIn
 ) -> dict:
     """Feed logs / sensors / shop metrics to an active learner (P7)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     learner = baseline_learners.get(system_id)
     if learner is None:
         raise HTTPException(status_code=400, detail="not learning")
@@ -2909,7 +3005,7 @@ async def create_feedback(
     """Park a 'this is normal' vote as pending (P8); review confirms it."""
     from datetime import datetime, timezone
 
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2948,7 +3044,7 @@ async def confirm_feedback(system_id: str, fid: str, request: Request) -> dict:
     """Confirm a pending item: it becomes an expected behaviour (P8)."""
     from core.schemas.profile import ExpectedBehaviour, Provenance
 
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
@@ -2993,7 +3089,7 @@ async def confirm_feedback(system_id: str, fid: str, request: Request) -> dict:
 @app.delete("/api/systems/{system_id}/feedback/{fid}")
 async def reject_feedback(system_id: str, fid: str, request: Request) -> dict:
     """Reject a pending item; it stays on record as rejected (P8)."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     if await _profile_get(system_id, ctx.org_id) is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     items = setup_store.get_feedback(system_id)
@@ -3216,7 +3312,7 @@ async def load_sample_profile(
     system_id: str, request: Request, payload: SampleIn
 ) -> dict:
     """Skip extraction in the demo: load a pre-confirmed sample as draft."""
-    ctx = _need(request, "admin")
+    ctx = _need_system(request, system_id, "admin")
     profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")

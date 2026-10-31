@@ -692,6 +692,50 @@ class DemoBootstrapTests(unittest.TestCase):
                     )
 
 
+class DemoStaysOpenWhenHostedTests(unittest.TestCase):
+    def test_demo_start_watching_without_signin(self) -> None:
+        """Hosted Postgres must not gate the public demo walkthrough."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                "os.environ",
+                {
+                    "TA_DATA_DIR": tmp,
+                    "DATABASE_URL": "postgresql://hosted.example/telemetry",
+                },
+            ), patch("core.commerce.db.ensure_schema"):
+                with TestClient(app) as client:
+                    own = client.post(
+                        "/api/systems",
+                        json={"name": "mine", "kind": "software"},
+                    )
+                    self.assertEqual(own.status_code, 401)
+                    self.assertEqual(
+                        own.json()["detail"], "sign-in required"
+                    )
+                    boot = client.post("/api/demo/bootstrap")
+                    self.assertEqual(boot.status_code, 200)
+                    shop_id = boot.json()["shop"]["system_id"]
+                    sample = client.post(
+                        f"/api/systems/{shop_id}/profile/sample",
+                        json={"sample": "shop"},
+                    )
+                    self.assertEqual(sample.status_code, 200)
+                    watching = client.post(
+                        f"/api/demo/{shop_id}/start-watching"
+                    )
+                    self.assertEqual(
+                        watching.status_code, 200, watching.text
+                    )
+                    self.assertEqual(watching.json()["status"], "armed")
+                    profile = client.get(f"/api/demo/{shop_id}/profile")
+                    self.assertEqual(profile.status_code, 200)
+                    self.assertEqual(
+                        profile.json()["profile"]["status"], "armed"
+                    )
+
+
 class DemoDocumentsTests(unittest.TestCase):
     def test_failed_extraction_falls_back_to_saved_reading(self) -> None:
         import tempfile

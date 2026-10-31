@@ -142,6 +142,24 @@ export async function getProfile(systemId: string): Promise<{
   return req(`/api/systems/${encodeURIComponent(systemId)}/profile`);
 }
 
+/** Public demo-channel profile — never requires sign-in. */
+export async function getDemoProfile(systemId: string): Promise<{
+  profile: SetupProfile;
+  conflicts: SetupConflict[];
+  feedback: unknown[];
+}> {
+  return req(`/api/demo/${encodeURIComponent(systemId)}/profile`);
+}
+
+/** Public last step of the guided demo: policy, confirm, arm. */
+export async function demoStartWatching(
+  systemId: string,
+): Promise<SetupProfile> {
+  return req(`/api/demo/${encodeURIComponent(systemId)}/start-watching`, {
+    method: "POST",
+  });
+}
+
 export async function putProfile(
   systemId: string,
   profile: SetupProfile,
