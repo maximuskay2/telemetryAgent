@@ -46,10 +46,16 @@ def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
     Generated code is untrusted and only ever runs inside a sandbox. When Modal
     is unavailable (not installed, or no credentials), this falls back to the
     local Docker runner instead of failing. `TA_VERIFY=local` forces Docker
-    (fast, offline) without touching Modal.
+    (fast, offline) without touching Modal. Sandbox-side failures (a shut
+    down sandbox, a hung test) return structured feedback for the next
+    generate retry instead of raising.
     """
     if not patch_code or not test_code:
         raise ValueError("patch_code and test_code must be non-empty strings")
+    from core.schemas.remediation import normalize_code
+
+    patch_code = normalize_code(patch_code)
+    test_code = normalize_code(test_code)
     if os.environ.get("TA_VERIFY", "").lower() == "local":
         return _local_fallback(patch_code, test_code, timeout)
     try:
@@ -69,13 +75,33 @@ def verify_patch(patch_code: str, test_code: str, timeout: int = 60) -> dict:
         _write_file(sandbox, "/work/solution.py", patch_code)
         _write_file(sandbox, "/work/test_solution.py", test_code)
         process = sandbox.exec("pytest", "-q", "test_solution.py", workdir="/work")
-        process.wait()
+        try:
+            process.wait(timeout=timeout)
+        except TypeError:
+            process.wait()
         return {
             "passed": process.returncode == 0,
             "feedback": process.stderr.read() + process.stdout.read(),
         }
+    except TimeoutError:
+        return {
+            "passed": False,
+            "feedback": (
+                f"[modal] pytest timed out after {timeout}s — the test hung "
+                "(a real deadlock in the patch or test will do this). "
+                "Retry with lock ordering fixed and no unbounded waits."
+            ),
+        }
+    except Exception as exc:
+        return {
+            "passed": False,
+            "feedback": f"[modal] sandbox error: {type(exc).__name__}: {exc}",
+        }
     finally:
-        sandbox.terminate()
+        try:
+            sandbox.terminate()
+        except Exception:
+            pass
 
 
 ORIGINAL_PASS_PREFIX = "Test passes on the original code; not a regression test.\n"

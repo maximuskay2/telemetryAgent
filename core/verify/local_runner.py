@@ -49,6 +49,10 @@ def verify_patch_local(patch_code: str, test_code: str, timeout: int = 120) -> d
     """Run a patch + pytest suite inside a throwaway Docker container."""
     if not patch_code or not test_code:
         raise ValueError("patch_code and test_code must be non-empty strings")
+    from core.schemas.remediation import normalize_code
+
+    patch_code = normalize_code(patch_code)
+    test_code = normalize_code(test_code)
     docker = resolve_docker()
     if docker is None:
         raise RuntimeError(

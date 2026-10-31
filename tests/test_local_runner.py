@@ -169,5 +169,86 @@ class SandboxFallbackTests(unittest.TestCase):
                 verify_patch("p", "t")
 
 
+class _FakeStream:
+    def __init__(self, text="") -> None:
+        self._text = text
+
+    def read(self):
+        return self._text
+
+
+class _FakeProcess:
+    def __init__(self, behavior="ok") -> None:
+        self._behavior = behavior
+        self.returncode = 0
+        self.stderr = _FakeStream()
+        self.stdout = _FakeStream("1 passed")
+
+    def wait(self, timeout=None):
+        if self._behavior == "timeout":
+            raise TimeoutError("timed out")
+        if self._behavior == "shutdown":
+            raise Exception("Sandbox already shut down")
+
+
+class _FakeSandbox:
+    def __init__(self, behavior="ok") -> None:
+        self._behavior = behavior
+        self.terminated = False
+
+    def exec(self, *args, **kwargs):
+        return _FakeProcess(self._behavior)
+
+    def terminate(self):
+        self.terminated = True
+
+
+class SandboxExecTests(unittest.TestCase):
+    """Mid-run sandbox failures return feedback, never raise."""
+
+    def _run_with(self, behavior):
+        try:
+            import modal  # noqa: F401
+        except ImportError:
+            self.skipTest("modal not installed")
+        sandbox = _FakeSandbox(behavior)
+        with patch("modal.App.lookup"), patch(
+            "modal.Sandbox.create", return_value=sandbox
+        ), patch("modal.Image.debian_slim") as debian:
+            debian.return_value.pip_install.return_value = object()
+            return verify_patch("x = 1\n", "def test_x(): assert True\n"), sandbox
+
+    def test_shutdown_sandbox_returns_feedback(self) -> None:
+        result, sandbox = self._run_with("shutdown")
+        self.assertFalse(result["passed"])
+        self.assertIn("sandbox error", result["feedback"])
+        self.assertTrue(sandbox.terminated)
+
+    def test_hung_pytest_returns_timeout_feedback(self) -> None:
+        result, _ = self._run_with("timeout")
+        self.assertFalse(result["passed"])
+        self.assertIn("timed out", result["feedback"])
+
+    def test_wait_without_timeout_kw_falls_back(self) -> None:
+        class _LegacyProcess(_FakeProcess):
+            def wait(self):  # noqa: D102 - old modal has no timeout kw
+                self.returncode = 0
+
+        class _LegacySandbox(_FakeSandbox):
+            def exec(self, *args, **kwargs):
+                return _LegacyProcess()
+
+        try:
+            import modal  # noqa: F401
+        except ImportError:
+            self.skipTest("modal not installed")
+        with patch("modal.App.lookup"), patch(
+            "modal.Sandbox.create", return_value=_LegacySandbox()
+        ), patch("modal.Image.debian_slim") as debian:
+            debian.return_value.pip_install.return_value = object()
+            result = verify_patch("x = 1\n", "def test_x(): assert True\n")
+        self.assertTrue(result["passed"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1118,5 +1118,108 @@ class EmbeddedShopTests(unittest.TestCase):
         self.assertTrue(stop.is_set())
 
 
+class RunningRunTests(unittest.TestCase):
+    """In-flight runs are visible: detail polls during a run 200, not 404."""
+
+    def setUp(self) -> None:
+        from apps.api.main import run_steps, software_runs
+
+        self._runs = software_runs
+        self._steps = run_steps
+
+    def tearDown(self) -> None:
+        self._runs.pop("run-live", None)
+        self._steps.pop("run-live", None)
+
+    def _inject_running(self) -> None:
+        from core.schemas.events import AgentStep
+
+        self._runs["run-live"] = {
+            "target": "inventory",
+            "result": None,
+            "status": "running",
+            "org_id": "",
+            "source": "gate",
+        }
+        self._steps["run-live"] = [
+            AgentStep(
+                step="diagnose",
+                model="test-model",
+                status="ok",
+                run_id="run-live",
+                domain="software",
+                detail="deadlock suspected",
+                source="gate",
+            )
+        ]
+
+    def test_detail_returns_live_steps_while_running(self) -> None:
+        self._inject_running()
+        with TestClient(app) as client:
+            response = client.get("/api/runs/run-live")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "running")
+        self.assertIsNone(body["result"])
+        self.assertEqual(len(body["steps"]), 1)
+        self.assertEqual(body["steps"][0]["step"], "diagnose")
+
+    def test_list_shows_running_status(self) -> None:
+        self._inject_running()
+        with TestClient(app) as client:
+            response = client.get("/api/runs")
+        self.assertEqual(response.status_code, 200)
+        entry = next(
+            r for r in response.json()["runs"] if r["run_id"] == "run-live"
+        )
+        self.assertEqual(entry["status"], "running")
+        self.assertEqual(entry["attempts"], 0)
+        self.assertEqual(entry["n_steps"], 1)
+
+    def test_apply_fix_rejects_running_run(self) -> None:
+        self._inject_running()
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/sim/shop/apply-fix", json={"run_id": "run-live"}
+            )
+        self.assertEqual(response.status_code, 409)
+
+    def test_attach_prefers_result_run_id_over_newest(self) -> None:
+        from apps.api.main import _attach_gate_run
+        from core.schemas.remediation import ExecutionResult
+
+        store = {
+            "run-old": {"result": "old", "org_id": ""},
+            "run-new": {"result": None, "status": "running", "org_id": ""},
+        }
+        result = ExecutionResult(
+            status="PASS",
+            stdout="",
+            stderr="",
+            attempts=1,
+            model_used="test",
+            run_id="run-old",
+        )
+        body = {"decision": "act"}
+        run_id = _attach_gate_run(store, result, body, "")
+        self.assertEqual(run_id, "run-old")
+        self.assertEqual(store["run-old"]["gate"], body)
+        self.assertNotIn("gate", store["run-new"])
+
+    def test_attach_falls_back_to_newest_without_run_id(self) -> None:
+        from types import SimpleNamespace
+
+        from apps.api.main import _attach_gate_run
+
+        store = {
+            "run-old": {"result": "old", "org_id": ""},
+            "run-new": {"result": "new", "org_id": ""},
+        }
+        run_id = _attach_gate_run(
+            store, SimpleNamespace(run_id=""), {"decision": "act"}, ""
+        )
+        self.assertEqual(run_id, "run-new")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,13 +1,49 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from core.schemas.production import MitigationSummary, SuiteSummary
+
+
+def normalize_code(code: str) -> str:
+    """Undo one layer of escape doubling in model-generated Python.
+
+    Providers return JSON, so one `json.loads` decodes the model's `\\n`
+    escapes. Some models double-escape, leaving literal backslash-n text
+    that fails collection with `SyntaxError: unexpected character after
+    line continuation character`. Only rewrite when the blob does not
+    compile as-is and the decoded form does; valid code (including
+    intentional `"a\\n"` string escapes) passes through untouched.
+    """
+    if not isinstance(code, str) or "\\n" not in code:
+        return code
+    try:
+        compile(code, "<generated>", "exec")
+    except (SyntaxError, ValueError):
+        pass
+    else:
+        return code
+    try:
+        decoded = code.encode("ascii").decode("unicode_escape")
+    except (UnicodeEncodeError, UnicodeDecodeError, ValueError):
+        return code
+    try:
+        compile(decoded, "<generated>", "exec")
+    except (SyntaxError, ValueError):
+        return code
+    return decoded
 
 
 class GeneratedPatch(BaseModel):
     patch_code: str = Field(min_length=1, description="Python module implementing the fix")
     test_code: str = Field(min_length=1, description="Pytest suite asserting the fix")
+
+    @field_validator("patch_code", "test_code", mode="before")
+    @classmethod
+    def _unescape_doubled_code(cls, value: object) -> object:
+        if isinstance(value, str):
+            return normalize_code(value)
+        return value
 
 
 class Runbook(BaseModel):

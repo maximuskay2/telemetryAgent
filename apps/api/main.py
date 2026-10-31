@@ -684,6 +684,18 @@ async def _run_agent_impl(
         else:
             opener = open_fix_pr
 
+    # Register before the loop starts: steps already stream with this run_id,
+    # so detail polls during the (minutes-long) run must 200, not 404.
+    _remember(
+        software_runs, run_id,
+        {
+            "target": payload.target,
+            "result": None,
+            "status": "running",
+            "org_id": org_id,
+            "source": payload.source,
+        },
+    )
     try:
         result = await asyncio.to_thread(
             run_diagnostic_loop,
@@ -700,6 +712,7 @@ async def _run_agent_impl(
             payload.target or "",
         )
     except RuntimeError as exc:
+        software_runs.pop(run_id, None)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     done = AgentStep(
         step="done",
@@ -712,11 +725,16 @@ async def _run_agent_impl(
         source=payload.source,
     )
     _record_step(done)
+    entry = software_runs.get(run_id)
+    if entry is None:  # evicted mid-run under heavy churn; re-store final
+        _remember(
+            software_runs, run_id,
+            {"target": payload.target, "result": result, "org_id": org_id},
+        )
+    else:
+        entry["result"] = result
+        entry["status"] = result.status
     await emit_for(org_id, done)
-    _remember(
-        software_runs, run_id,
-        {"target": payload.target, "result": result, "org_id": org_id},
-    )
     await _maybe_open_action(run_id, "software")
     return result
 
@@ -735,11 +753,23 @@ async def run_appliance(payload: ApplianceRunRequest) -> ApplianceResult:
         n_readings=payload.n_readings,
         source_id=payload.source_id,
     )
+    # Register before the loop starts so mid-run detail polls 200, not 404.
+    _remember(
+        appliance_runs,
+        run_id,
+        {
+            "appliance_type": payload.appliance_type,
+            "result": None,
+            "status": "running",
+            "source": payload.source,
+        },
+    )
     try:
         result = await asyncio.to_thread(
             run_appliance_loop, telemetry, 3, on_event, send_alert, run_id
         )
     except RuntimeError as exc:
+        appliance_runs.pop(run_id, None)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     message = ""
     if result.alert is not None:
@@ -755,12 +785,17 @@ async def run_appliance(payload: ApplianceRunRequest) -> ApplianceResult:
         source=payload.source,
     )
     _record_step(done)
+    entry = appliance_runs.get(run_id)
+    if entry is None:  # evicted mid-run under heavy churn; re-store final
+        _remember(
+            appliance_runs,
+            run_id,
+            {"appliance_type": payload.appliance_type, "result": result},
+        )
+    else:
+        entry["result"] = result
+        entry["status"] = result.status
     await hub.broadcast(done)
-    _remember(
-        appliance_runs,
-        run_id,
-        {"appliance_type": payload.appliance_type, "result": result},
-    )
     await _maybe_open_action(run_id, "appliance")
     return result
 
@@ -779,6 +814,18 @@ async def _run_appliance_from_telemetry(
 
     run_id = uuid4().hex[:8]
     on_event = _step_bridge(asyncio.get_running_loop(), source, org_id)
+    # Register before the loop starts so mid-run detail polls 200, not 404.
+    _remember(
+        appliance_runs,
+        run_id,
+        {
+            "appliance_type": telemetry.appliance_type,
+            "result": None,
+            "status": "running",
+            "org_id": org_id,
+            "source": source,
+        },
+    )
     result = await asyncio.to_thread(
         run_appliance_loop,
         telemetry,
@@ -804,16 +851,21 @@ async def _run_appliance_from_telemetry(
         source=source,
     )
     _record_step(done)
+    entry = appliance_runs.get(run_id)
+    if entry is None:  # evicted mid-run under heavy churn; re-store final
+        _remember(
+            appliance_runs,
+            run_id,
+            {
+                "appliance_type": telemetry.appliance_type,
+                "result": result,
+                "org_id": org_id,
+            },
+        )
+    else:
+        entry["result"] = result
+        entry["status"] = result.status
     await emit_for(org_id, done)
-    _remember(
-        appliance_runs,
-        run_id,
-        {
-            "appliance_type": telemetry.appliance_type,
-            "result": result,
-            "org_id": org_id,
-        },
-    )
     await _maybe_open_action(run_id, "appliance")
     return result
 
@@ -1396,7 +1448,9 @@ async def _deploy_patch_for_run(run_id: str) -> dict:
     entry = software_runs.get(run_id)
     if entry is None:
         raise _ApplyError(404, "unknown run_id")
-    result = entry["result"]
+    result = entry.get("result")
+    if result is None:
+        raise _ApplyError(409, "run still running")
     if result.status != "PASS" or not result.patch_code:
         raise _ApplyError(409, "only verified (PASS) runs can be deployed")
     if entry.get("target") != "inventory":
@@ -1475,7 +1529,9 @@ async def _apply_runbook_for_run(run_id: str) -> dict:
     entry = appliance_runs.get(run_id)
     if entry is None:
         raise _ApplyError(404, "unknown run_id")
-    result = entry["result"]
+    result = entry.get("result")
+    if result is None:
+        raise _ApplyError(409, "run still running")
     if result.status != "PASS" or result.runbook is None:
         raise _ApplyError(409, "only validated (PASS) runbooks can run")
     violations = validate_runbook(result.runbook, entry.get("appliance_type", ""))
@@ -1781,6 +1837,22 @@ def _run_entry(run_id: str):
     return None, None
 
 
+def _attach_gate_run(store: dict, result, body: dict, org_id: str) -> str:
+    """Tag the finished gate run with its decision; return its run_id.
+
+    Prefers the run_id the loop stamped on the result: under concurrent
+    gate acts, `next(reversed(store))` can point at a newer run that
+    another candidate started. Falls back to newest-first for results
+    without an id (legacy callers).
+    """
+    run_id = getattr(result, "run_id", "") or ""
+    if not run_id or run_id not in store:
+        run_id = next(reversed(store))
+    store[run_id]["gate"] = body
+    store[run_id]["org_id"] = org_id
+    return run_id
+
+
 def _org_for_run(run_id: str) -> str:
     """Owning org of an in-memory run ("" when sim/demo/unknown)."""
     _domain, entry = _run_entry(run_id)
@@ -1801,7 +1873,7 @@ async def list_runs(request: Request) -> dict:
         for run_id, entry in store.items():
             if _hosted() and not _entry_visible(entry, org_id):
                 continue
-            result = entry["result"]
+            result = entry.get("result")
             steps = run_steps.get(run_id, [])
             decision = pending_actions.get(run_id)
             gate = entry.get("gate") or {}
@@ -1809,10 +1881,18 @@ async def list_runs(request: Request) -> dict:
                 {
                     "run_id": run_id,
                     "domain": domain,
-                    "status": result.status,
-                    "attempts": result.attempts,
-                    "model_used": result.model_used,
-                    "source": steps[0].source if steps else "",
+                    "status": (
+                        result.status if result is not None
+                        else entry.get("status", "running")
+                    ),
+                    "attempts": result.attempts if result is not None else 0,
+                    "model_used": (
+                        result.model_used if result is not None else ""
+                    ),
+                    "source": (
+                        steps[0].source if steps
+                        else entry.get("source", "")
+                    ),
                     "n_steps": len(steps),
                     "decision": decision.state if decision else None,
                     "gate_decision": gate.get("decision"),
@@ -1830,11 +1910,16 @@ async def get_run(run_id: str, request: Request) -> dict:
     if _hosted() and not _entry_visible(entry, _read_org(request)):
         raise HTTPException(status_code=404, detail="unknown run_id")
     decision = pending_actions.get(run_id)
-    verification = getattr(entry["result"], "verification", None)
+    result = entry.get("result")
+    verification = getattr(result, "verification", None)
     return {
         "run_id": run_id,
         "domain": domain,
-        "result": entry["result"].model_dump(mode="json"),
+        "status": (
+            result.status if result is not None
+            else entry.get("status", "running")
+        ),
+        "result": result.model_dump(mode="json") if result is not None else None,
         "steps": [s.model_dump(mode="json") for s in run_steps.get(run_id, [])],
         "decision": decision.model_dump(mode="json") if decision else None,
         "gate": entry.get("gate"),
@@ -3284,9 +3369,7 @@ async def _post_incident_candidate(
             telemetry, "gate", reference=reference, gate=body,
             profile=profile, org_id=org_id,
         )
-        run_id = next(reversed(appliance_runs))
-        appliance_runs[run_id]["gate"] = body
-        appliance_runs[run_id]["org_id"] = org_id
+        run_id = _attach_gate_run(appliance_runs, result, body, org_id)
         return {"decision": body, "run_id": run_id, "status": result.status}
     request = RunRequest(
         log_text=payload.window or payload.signature or payload.rule,
@@ -3300,9 +3383,7 @@ async def _post_incident_candidate(
     else:
         # Untagged (sim/demo) gate runs keep the public entry point.
         result = await run_agent(request)
-    run_id = next(reversed(software_runs))
-    software_runs[run_id]["gate"] = body
-    software_runs[run_id]["org_id"] = org_id
+    run_id = _attach_gate_run(software_runs, result, body, org_id)
     return {"decision": body, "run_id": run_id, "status": result.status}
 
 
