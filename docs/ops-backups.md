@@ -71,4 +71,15 @@ role the fixture creates; DB tests skip when Postgres is unreachable.
 
 ### Drill log
 
-(none yet — C-J5)
+- 2026-10-31 (James, C-J5) — PASS (local). Seeded `ta_james` with one
+  org + user + membership + system, `pg_dump -Fc` → fresh `ta_drill`
+  → `pg_restore` exit 0, row counts identical (orgs/users/memberships/
+  systems/systems_versions/connections/audit 1/1), all 6 DEFINER
+  functions present (4 resolvers + 2 sweep). `ensure_app_role` on the
+  restored DB, then booted the API against it as `ta_app`:
+  `GET /api/health` 200, RLS-scoped repo read returned the drill org
+  (owner) + system, authed `GET /api/orgs` 200. Scratch DB, dump, and
+  seed deleted after. Note: restore into a non-empty DB fails loudly
+  (87 already-exists errors) — always restore into a fresh database.
+  Staging drill with Railway backups + real Clerk login still NEEDS
+  Akingbade (no Railway access for agents).

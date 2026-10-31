@@ -31,6 +31,16 @@ async def _call(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
+def _require_pg() -> None:
+    """Lifecycle routes need Postgres rows (export/restore/purge)."""
+    from core.commerce import db as db_module
+
+    if not db_module.using_postgres():
+        raise HTTPException(
+            status_code=501, detail="org lifecycle needs Postgres"
+        )
+
+
 def _ctx(request: Request) -> auth_module.AuthContext:
     ctx = getattr(request.state, "auth", None)
     if ctx is None:
@@ -191,6 +201,83 @@ async def delete_org(request: Request, org_id: str) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="unknown org")
     return {"deleted": True, "grace_until": grace_until}
+
+
+@router.get("/api/orgs/{org_id}/export")
+async def export_org(request: Request, org_id: str) -> dict:
+    """Owner-only full org dump (C-J5 portability).
+
+    Contains key hashes + still-encrypted secrets so a restore keeps
+    integrations working; device-token hashes are excluded (re-pair
+    after restore). Treat the blob like a credential.
+    """
+    role = await _role_in(request, org_id)
+    if role != "owner":
+        raise HTTPException(
+            status_code=403, detail="only the owner exports the org"
+        )
+    _require_pg()
+    ctx = _ctx(request)
+    try:
+        return await _call(
+            _store().scoped(org_id, ctx.user_id).export_org, org_id
+        )
+    except Exception as exc:
+        if "unknown org" in str(exc):
+            raise HTTPException(
+                status_code=404, detail="unknown org"
+            ) from exc
+        raise
+
+
+@router.post("/api/orgs/restore")
+async def restore_org(request: Request, payload: dict) -> dict:
+    """Rebuild an org from an export blob; caller becomes owner (C-J5).
+
+    Members re-attach by provider identity when their user rows still
+    exist; device tokens must be re-paired (hashes never exported).
+    """
+    ctx = _ctx(request)
+    if not ctx.user_id:
+        raise HTTPException(status_code=401, detail="sign-in required")
+    _require_pg()
+    try:
+        return await _call(
+            _store().restore_org, payload, ctx.user_id
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "already taken" in message:
+            raise HTTPException(
+                status_code=409, detail=message
+            ) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+
+
+@router.post("/api/orgs/{org_id}/purge")
+async def purge_org(request: Request, org_id: str) -> dict:
+    """Hard-delete after the delete grace elapsed (C-J5).
+
+    Removes every org-owned row; user rows survive (shared identity).
+    Export first — this cannot be undone.
+    """
+    role = await _role_in(request, org_id)
+    if role != "owner":
+        raise HTTPException(
+            status_code=403, detail="only the owner purges the org"
+        )
+    _require_pg()
+    ctx = _ctx(request)
+    ok, reason = await _call(
+        _store().scoped(org_id, ctx.user_id).purge_org, org_id
+    )
+    if not ok:
+        if reason == "unknown org":
+            raise HTTPException(
+                status_code=404, detail="unknown org"
+            )
+        raise HTTPException(status_code=409, detail=reason)
+    return {"purged": True}
 
 
 @router.get("/api/orgs/{org_id}/members")

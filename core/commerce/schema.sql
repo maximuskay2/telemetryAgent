@@ -382,3 +382,44 @@ RETURNS TABLE (
     FROM invites WHERE token_hash = digest;
 $$;
 GRANT EXECUTE ON FUNCTION resolve_invite(text) TO PUBLIC;
+
+-- --- Retention sweep (C-J5) -------------------------------------------------
+-- The app role cannot see across orgs (RLS), so the retention script calls
+-- these SECURITY DEFINER functions. Floors keep a bad argument from wiping
+-- recent history: audit keeps >= 7 days, versions keep >= 5 per system.
+DROP FUNCTION IF EXISTS sweep_audit_older_than(int);
+CREATE FUNCTION sweep_audit_older_than(p_days int)
+RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    days int := GREATEST(COALESCE(p_days, 90), 7);
+    removed int := 0;
+BEGIN
+    DELETE FROM audit WHERE at < now() - make_interval(days => days);
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION sweep_audit_older_than(int) TO PUBLIC;
+
+DROP FUNCTION IF EXISTS sweep_system_versions_keep(int);
+CREATE FUNCTION sweep_system_versions_keep(p_keep int)
+RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    keep int := GREATEST(COALESCE(p_keep, 20), 5);
+    removed int := 0;
+BEGIN
+    DELETE FROM systems_versions v USING (
+        SELECT system_id, version,
+            ROW_NUMBER() OVER (
+                PARTITION BY system_id ORDER BY version DESC
+            ) AS rn
+        FROM systems_versions
+    ) ranked
+    WHERE v.system_id = ranked.system_id
+        AND v.version = ranked.version
+        AND ranked.rn > keep;
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION sweep_system_versions_keep(int) TO PUBLIC;

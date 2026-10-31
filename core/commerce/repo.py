@@ -84,6 +84,28 @@ class BaseStore:
     def soft_delete_org(self, org_id: str, grace_until: float) -> bool:
         raise NotImplementedError
 
+    def export_org(self, org_id: str) -> Dict[str, Any]:
+        """Full org dump for portability (owner-only route). PG only."""
+        raise NotImplementedError
+
+    def restore_org(
+        self, blob: Dict[str, Any], owner_user_id: str
+    ) -> Dict[str, Any]:
+        """Rebuild an org from export_org (fresh id). PG only."""
+        raise NotImplementedError
+
+    def purge_org(self, org_id: str) -> tuple:
+        """Hard-delete after grace: (True, \"\") or (False, reason). PG only."""
+        raise NotImplementedError
+
+    def sweep_audit(self, days: int) -> int:
+        """Delete audit rows older than `days` (floor 7). Returns count."""
+        raise NotImplementedError
+
+    def sweep_versions(self, keep: int) -> int:
+        """Keep `keep` versions per system (floor 5). Returns count."""
+        raise NotImplementedError
+
     def org_data_key(self, org_id: str) -> bytes:
         """Raw 32-byte org data key, creating + storing it wrapped."""
         raise NotImplementedError
@@ -390,6 +412,292 @@ class PostgresBackend(BaseStore):
                 (when, org_id),
             )
             return cur.rowcount > 0
+
+    def export_org(self, org_id: str) -> Dict[str, Any]:
+        import time as time_module
+
+        org = self.get_org(org_id)
+        if org is None:
+            raise CommerceStoreError("unknown org")
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT system_id, version, profile, at FROM systems_versions"
+                " WHERE system_id IN (SELECT id FROM systems WHERE org_id"
+                " = %s) ORDER BY system_id, version",
+                (org_id,),
+            )
+            version_rows = [_row_to_dict(cur, row) for row in cur.fetchall()]
+            cur.execute(
+                "SELECT id, org_id, system_id, kind, config, secret_enc,"
+                " secret_hint, key_hash, status, detail, last_seen,"
+                " created_at FROM connections WHERE org_id = %s ORDER BY id",
+                (org_id,),
+            )
+            connections = [
+                _row_to_dict(cur, row) for row in cur.fetchall()
+            ]
+            cur.execute(
+                "SELECT id, user_id, label, created_at FROM device_tokens"
+                " WHERE org_id = %s ORDER BY id",
+                (org_id,),
+            )
+            tokens = [_row_to_dict(cur, row) for row in cur.fetchall()]
+            cur.execute(
+                "SELECT id, system_id, domain, kind, status, language,"
+                " fingerprint, pr_url, result, cost_estimate_usd,"
+                " started_at, finished_at FROM runs WHERE org_id = %s"
+                " ORDER BY id",
+                (org_id,),
+            )
+            runs = [_row_to_dict(cur, row) for row in cur.fetchall()]
+        versions_by_system: Dict[str, list] = {}
+        for item in version_rows:
+            versions_by_system.setdefault(item["system_id"], []).append(
+                {
+                    "version": item["version"],
+                    "profile": item["profile"],
+                    "at": item["at"],
+                }
+            )
+        systems = []
+        for row in self.list_systems(org_id):
+            systems.append(
+                {**row, "versions": versions_by_system.get(row["id"], [])}
+            )
+        members = []
+        for item in self.list_members(org_id):
+            user = self.get_user(item["user_id"])
+            members.append(
+                {
+                    "user_id": item["user_id"],
+                    "role": item["role"],
+                    "external_id": (user or {}).get("external_id", ""),
+                    "email": item.get("email", ""),
+                }
+            )
+        return {
+            "export_version": 1,
+            "exported_at": time_module.time(),
+            "org": {
+                "id": org["id"],
+                "name": org.get("name", ""),
+            },
+            "members": members,
+            "systems": systems,
+            "connections": connections,
+            "device_tokens": tokens,
+            "audit": self.list_audit(org_id, 100000),
+            "runs": runs,
+            "pause": self.get_pause(org_id),
+            "allowances": self.get_allowance(org_id),
+            "usage_events": self.list_usage(org_id),
+        }
+
+    def restore_org(
+        self, blob: Dict[str, Any], owner_user_id: str
+    ) -> Dict[str, Any]:
+        import json as json_module
+        import time as time_module
+
+        if not isinstance(blob, dict) or blob.get("export_version") != 1:
+            raise CommerceStoreError("not an export v1 blob")
+        source = blob.get("org") or {}
+        org_id = str(source.get("id", ""))
+        if not org_id:
+            raise CommerceStoreError("export has no org id")
+        if self.scoped(org_id, owner_user_id).get_org(org_id) is not None:
+            raise CommerceStoreError("org id is already taken")
+        org = self.create_org(
+            str(source.get("name", "restored")), owner_user_id, org_id
+        )
+        store = self.scoped(org_id, owner_user_id)
+        skipped_users: list = []
+        for member in blob.get("members") or []:
+            external_id = str(member.get("external_id", ""))
+            if not external_id:
+                continue
+            user = store.get_user_by_external(external_id)
+            if user is None or user["id"] == owner_user_id:
+                if user is None:
+                    skipped_users.append(external_id)
+                continue
+            store.add_membership(
+                org_id, user["id"], str(member.get("role", "member"))
+            )
+        systems_n = 0
+        versions_n = 0
+        for item in blob.get("systems") or []:
+            profile = dict(item.get("profile") or {})
+            profile["system_id"] = item["id"]
+            store.save_system(org_id, profile)
+            systems_n += 1
+            with store._txn() as conn, conn.cursor() as cur:
+                for saved in item.get("versions") or []:
+                    cur.execute(
+                        "INSERT INTO systems_versions"
+                        " (system_id, version, profile) VALUES (%s, %s,"
+                        " %s::jsonb) ON CONFLICT (system_id, version)"
+                        " DO NOTHING",
+                        (
+                            item["id"], int(saved.get("version", 1)),
+                            json_module.dumps(saved.get("profile") or {}),
+                        ),
+                    )
+                    versions_n += cur.rowcount
+        connections_n = 0
+        with store._txn() as conn, conn.cursor() as cur:
+            for record in blob.get("connections") or []:
+                cur.execute(
+                    "INSERT INTO connections (id, org_id, system_id, kind,"
+                    " config, secret_enc, secret_hint, key_hash, status,"
+                    " detail) VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s,"
+                    " %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                    (
+                        record["id"], org_id,
+                        str(record.get("system_id", "")),
+                        str(record.get("kind", "")),
+                        json_module.dumps(record.get("config") or {}),
+                        str(record.get("secret_enc", "")),
+                        str(record.get("secret_hint", "")),
+                        str(record.get("key_hash", "")),
+                        str(record.get("status", "waiting")),
+                        str(record.get("detail", "")),
+                    ),
+                )
+                connections_n += cur.rowcount
+        audit_n = 0
+        with store._txn() as conn, conn.cursor() as cur:
+            for entry in blob.get("audit") or []:
+                detail = entry.get("detail")
+                if isinstance(detail, str):
+                    try:
+                        detail = json_module.loads(detail)
+                    except ValueError:
+                        detail = {"raw": detail}
+                cur.execute(
+                    "INSERT INTO audit (org_id, actor, action, detail)"
+                    " VALUES (%s, %s, %s, %s::jsonb)",
+                    (
+                        org_id, str(entry.get("actor", "")),
+                        str(entry.get("action", "")),
+                        json_module.dumps(detail or {}),
+                    ),
+                )
+                audit_n += 1
+        runs_n = 0
+        with store._txn() as conn, conn.cursor() as cur:
+            for entry in blob.get("runs") or []:
+                cur.execute(
+                    "INSERT INTO runs (id, org_id, system_id, domain, kind,"
+                    " status, language, fingerprint, pr_url, result,"
+                    " cost_estimate_usd) VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                    " %s, %s, %s::jsonb, %s) ON CONFLICT (id) DO NOTHING",
+                    (
+                        entry["id"], org_id,
+                        entry.get("system_id"),
+                        str(entry.get("domain", "")),
+                        str(entry.get("kind", "")),
+                        str(entry.get("status", "")),
+                        entry.get("language"),
+                        str(entry.get("fingerprint", "")),
+                        str(entry.get("pr_url", "")),
+                        json_module.dumps(entry.get("result") or {}),
+                        float(entry.get("cost_estimate_usd") or 0.0),
+                    ),
+                )
+                runs_n += cur.rowcount
+        pause = blob.get("pause") or {}
+        if pause.get("paused"):
+            store.set_pause(org_id, True)
+        usage_n = 0
+        with store._txn() as conn, conn.cursor() as cur:
+            for entry in blob.get("usage_events") or []:
+                cur.execute(
+                    "INSERT INTO usage_events (org_id, system_id, run_id,"
+                    " kind, quantity, unit, provider, model, language,"
+                    " cost_estimate_usd) VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                    " %s, %s, %s)",
+                    (
+                        org_id, entry.get("system_id"),
+                        entry.get("run_id"), str(entry.get("kind", "")),
+                        float(entry.get("quantity") or 0.0),
+                        str(entry.get("unit", "count")),
+                        str(entry.get("provider", "")),
+                        str(entry.get("model", "")),
+                        entry.get("language"),
+                        float(entry.get("cost_estimate_usd") or 0.0),
+                    ),
+                )
+                usage_n += 1
+        tokens = blob.get("device_tokens") or []
+        return {
+            "org_id": org["id"],
+            "restored_at": time_module.time(),
+            "restored": {
+                "members": len(blob.get("members") or [])
+                - len(skipped_users),
+                "systems": systems_n,
+                "versions": versions_n,
+                "connections": connections_n,
+                "audit": audit_n,
+                "runs": runs_n,
+                "usage_events": usage_n,
+            },
+            "skipped_users": skipped_users,
+            "tokens_must_repair": len(tokens),
+        }
+
+    def purge_org(self, org_id: str) -> tuple:
+        import time as time_module
+
+        org = self.get_org(org_id)
+        if org is None:
+            return False, "unknown org"
+        deleted_at = org.get("deleted_at")
+        if deleted_at is None:
+            return False, "delete the org first (grace not started)"
+        try:
+            due = float(deleted_at)
+        except (TypeError, ValueError):
+            return False, "delete the org first (grace not started)"
+        if due > time_module.time():
+            return False, "grace period has not elapsed"
+        with self._txn() as conn, conn.cursor() as cur:
+            for table in (
+                "usage_events", "audit", "runs", "rate_stamps",
+                "pause_state", "allowances", "connections",
+                "systems_versions", "systems", "device_tokens",
+                "pairing_codes", "invites", "memberships",
+            ):
+                if table == "systems_versions":
+                    cur.execute(
+                        "DELETE FROM systems_versions WHERE system_id IN"
+                        " (SELECT id FROM systems WHERE org_id = %s)",
+                        (org_id,),
+                    )
+                else:
+                    cur.execute(
+                        f"DELETE FROM {table} WHERE org_id = %s",
+                        (org_id,),
+                    )
+            cur.execute("DELETE FROM orgs WHERE id = %s", (org_id,))
+            return cur.rowcount > 0, ""
+
+    def sweep_audit(self, days: int) -> int:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT sweep_audit_older_than(%s)", (int(days),)
+            )
+            found = cur.fetchone()
+            return int(found[0]) if found else 0
+
+    def sweep_versions(self, keep: int) -> int:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT sweep_system_versions_keep(%s)", (int(keep),)
+            )
+            found = cur.fetchone()
+            return int(found[0]) if found else 0
 
     def org_data_key(self, org_id: str) -> bytes:
         from core.commerce import crypto as crypto_module
