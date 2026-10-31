@@ -1,5 +1,7 @@
 # TelemetryAgent
 
+<img src="docs/brand/telemetry-agent-logo.png" width="120" alt="TelemetryAgent logo">
+
 An autonomous SRE agent on Meta's Muse models that diagnoses crashes, writes
 fixes with the open-weight **Muse Spark Open**, proves them in a **Modal
 sandbox**, and opens the **PR** — and the same reasoning core diagnoses
@@ -8,6 +10,28 @@ physical equipment.
 Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon/details)
 (Indie Developer track, Push the Frontier). The repository was started fresh
 for the event — every line was written during the hackathon (Oct 27 – Nov 4).
+
+## Live
+
+- **Demo:** [web-production-926b3.up.railway.app/welcome](https://web-production-926b3.up.railway.app/welcome) — Try the live demo. No account.
+- **API:** [api-production-0c9a.up.railway.app](https://api-production-0c9a.up.railway.app)
+- **How to use it:** [docs/USAGE.md](./docs/USAGE.md) · **Reference:** [docs/DOCUMENTATION.md](./docs/DOCUMENTATION.md)
+
+## Built
+
+What is in this repository today:
+
+- **3-minute demo.** `/welcome` → `/start` → `/start/setup` arms the shop and the freezer together → Mission Control tour → wrap-up. The gate cites its source ("Expected: defrost, spec sheet p.2").
+- **Two simulators.** AutoParts Lagos (retries, deadlocks, load) and a cold-chain freezer (door, defrost, compressor) with injectable faults.
+- **Teach-it-normal.** `/setup` quotes every extracted value, flags conflicts, and never lets a document set policy. After arming, hard limits act, expected behaviour is ignored with a citation, and the rest stays a quiet observe until there is proof of impact.
+- **Proven software repair.** Crash log → Muse Spark diagnosis → Muse Spark Open patch and pytest → fail-to-pass in a Modal sandbox (Docker fallback) → GitHub PR. Live proof: [telemetryAgent-demo#9](https://github.com/maximuskay2/telemetryAgent-demo/pull/9) (lock-order fix, suite 5 passed / 0 new failures). One open PR per error fingerprint; repeats comment. No tests or too big → draft PR with the diagnosis, never a crash.
+- **Uptime promise.** Read-only by default. Fixes are PRs, not pushes. The only automatic hosting actions are `rollback` and `restart`. Each one waits out a **20-second phone veto**. Pause-all, per-system Stop watching, and per-connection Disconnect are kill switches. At most one mitigation per system per 10 minutes.
+- **Connect a real system.** `/connect`: log forwarder (`ta_live_*` key) or Sentry, GitHub repo check, Railway or a signed webhook, device key, teach normal, pair the phone, then Start watching.
+- **Phone** (`apps/mobile/`, Flutter): full-screen alarm, veto countdown, run reports, QR pairing, foreground service, plus "PR ready / Roll back now" and "Choose a fix" cards.
+- **Equipment protocol.** `hardware/sim_device.py` posts readings and acks commands against the API (this is what the tests run). `hardware/wokwi/` is the same firmware as an ESP32 sketch plus circuit for [wokwi.com](https://wokwi.com) — paste it there and press play; that click-through is still a manual step.
+- **Checks.** `./scripts/check.sh`: 620+ Python tests, the simulation smoke test, the web build, and 56 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
+
+Hosted accounts, billing, and auto-fix beyond Python are specified, not shipped here: [commercial-roadmap.md](./commercial-roadmap.md), [languages-roadmap.md](./languages-roadmap.md).
 
 ## Two doors, one agent
 
@@ -67,14 +91,26 @@ every auto-action waits out a **20-second phone veto** first.
   limits. After arming, every hit passes the gate: hard limits always act;
   expected behaviours, modes and the baseline suppress with citations;
   anything else needs proof of impact or stays a quiet observe.
-- **Mobile app** (`apps/mobile/`, Flutter): veto countdown, full-screen alarm,
-  run reports, activity feed, QR pairing, foreground service — and the
-  production action center: "PR ready / Roll back now" and "Choose a fix"
-  hardware cards plus a Pause-all toggle, all wired to the live API.
+- **Phone app** (`apps/mobile/`, Flutter): the on-call alarm and the
+  production actions. How to run it is [below](#phone-app).
 - **Simulators:** AutoParts Lagos shop (retries, deadlocks, load) and a
   cold-chain fridge/freezer (door, defrost, compressor) with injectable
   faults, plus a software ESP32 (`hardware/sim_device.py`) and Wokwi
   firmware that speak the production device protocol.
+
+## Phone app
+
+Flutter app in `apps/mobile/`. It is the thing that rings when the agent is about to act.
+
+- **Alarm.** Full-screen countdown (the same 20 seconds as the dashboard), over the lock screen. **Disapprove** or **Approve now**, one tap. Sound and vibration step up in the last 5 seconds.
+- **Reports.** Live feed and each incident: diagnosis, the proven fix, the decision, charts for the freezer, and the PR link.
+- **Production.** "PR ready / Roll back now" for software, "Choose a fix" for the fridge, and Pause-all.
+
+```bash
+cd apps/mobile && flutter pub get && flutter run
+```
+
+The phone and the API have to be on the same Wi-Fi. Start the API with `--host 0.0.0.0`. In the app, scan the dashboard QR (Mission Control → Pair), then type `MOBILE_API_TOKEN` from `.env` (leave it blank if that variable is empty). On the Android emulator the API is `http://10.0.2.2:8001`. Settings → Test alarm plays a fake 20-second window without calling the server.
 
 ## Production route (how a real customer uses it)
 
@@ -125,7 +161,7 @@ hashed/masked, never in `NEXT_PUBLIC_*`.
                                     ▼
                muse-spark-1.3 (Meta Model API) — diagnose
                                     ▼
-              meta-models/muse-spark-open on Baseten
+              meta-models/muse-spark-open-1026 on Baseten
               (backup: Fireworks → muse-spark-1.3)
                 software → patch + pytest     appliance → runbook
                                     ▼
@@ -147,7 +183,7 @@ Every step streams to the dashboard and the phone over WebSockets.
 | Role | Model | Provider |
 | --- | --- | --- |
 | Diagnosis and classification | `muse-spark-1.3` | Meta Model API |
-| Patch, test and runbook generation | `meta-models/muse-spark-open` | Baseten |
+| Patch, test and runbook generation | `meta-models/muse-spark-open-1026` | Baseten |
 | Generation backup | Muse Spark Open | Fireworks |
 | Final-attempt escalation | `muse-wonder-1.0` | Meta Model API |
 | Sandbox verification | — | Modal Sandboxes (Docker fallback) |
@@ -219,6 +255,10 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
 - [`ui-roadmap.md`](./ui-roadmap.md), [`mobile-roadmap.md`](./mobile-roadmap.md),
   [`setup-roadmap.md`](./setup-roadmap.md),
   [`simulation-roadmap.md`](./simulation-roadmap.md) — look, app, setup, sims.
+- [`commercial-roadmap.md`](./commercial-roadmap.md) — accounts, isolation,
+  usage, and billing. Light mode is the default; dark stays. Meta product look.
+- [`languages-roadmap.md`](./languages-roadmap.md) — auto-fix for
+  JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP. Python is what runs today.
 
 ## Status
 
@@ -228,11 +268,17 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
   action center).
 - ✅ Production backend: connections, ingest, repo-fix PRs (proven live:
   [telemetryAgent-demo#9](https://github.com/maximuskay2/telemetryAgent-demo/pull/9)),
-  mitigations, pause, `/connect` wizard, devices + firmware.
-- 🚧 Human-side leftovers: push `examples/proof-app/` to its own repo and
-  deploy on Railway; compile-check the Wokwi sketch; joint proof run ×2,
-  then the video. (FCM push was descoped: no Firebase project in the
-  event window — the app uses live WebSocket alerts + foreground service.)
+  mitigations, pause, `/connect` wizard, devices, software ESP32.
+- ✅ Public demo on Railway (welcome URL above).
+- 🚧 Still manual: compile `hardware/wokwi/` on [wokwi.com](https://wokwi.com)
+  and hold the door button; push `examples/proof-app/` to its own repo;
+  joint proof run ×2; the 3-minute video. FCM push was descoped (no
+  Firebase project in the event window — the app uses live WebSocket
+  alerts + a foreground service).
+- 📋 Specified, not in this tree yet: hosted accounts and billing
+  ([commercial-roadmap.md](./commercial-roadmap.md)); auto-fix for
+  JS/TS, Java, Kotlin, Go, Rust, PHP
+  ([languages-roadmap.md](./languages-roadmap.md)).
 
 ## License
 

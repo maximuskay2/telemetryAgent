@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Logo from "../../components/Logo";
 import { useAgentStream } from "../../hooks/useAgentStream";
 import {
   armSystem,
@@ -534,9 +535,9 @@ export default function GuidedSetupPage() {
             href="/welcome"
             title="Home"
             aria-label="TelemetryAgent home"
-            className="rounded text-sm text-brand-cyan outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            className="rounded outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
-            ◆
+            <Logo size={16} />
           </Link>
           <span className="text-sm font-semibold">Guided setup</span>
           <span className="ms-auto text-xs text-text-muted">

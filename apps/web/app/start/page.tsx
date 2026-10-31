@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Logo from "../components/Logo";
 import { Button, Card } from "../ui";
 
 function WatchArt() {
@@ -113,9 +114,7 @@ export default function StartPage() {
     <div className="flex min-h-screen flex-col bg-bg font-sans text-text">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex w-full max-w-2xl items-center gap-1.5 px-4 py-3">
-          <span className="text-sm text-brand-cyan" aria-hidden>
-            ◆
-          </span>
+          <Logo size={18} />
           <span className="text-sm font-semibold">TelemetryAgent</span>
         </div>
       </header>
