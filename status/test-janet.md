@@ -1,23 +1,27 @@
 # Janet status (tester)
 
-Current block: T-E3 (T-E1, T-E2 done)
+Current block: T-E4 (T-E1–T-E3 done)
 Environment: local API 127.0.0.1:8401 + shop 8402 + web localhost:3401 (2026-10-31; evidence below on origin/main 02d066b, branch rebased to 23bc080 at commit); Railway https://web-production-926b3.up.railway.app
 
 Done:
 - T-E1 PASS (local + Railway, all 5 checks)
 - T-E2 PASS (local + Railway, both checks)
+- T-E3 PASS (local, all 5 checks; 2 live runs used, see below)
 
 Decisions:
 - Stack runs with DATABASE_URL unset (worktree file store), GITHUB_TOKEN unset (no real PRs from test runs), FRIDGE_STREAM=1, SHOP_PORT=8402, CORS_ORIGIN_REGEX=http://(localhost|127\.0\.0\.1):3401. No .env written; ../telemetry-agent/.env sourced into process env only.
 - Interactive local walks use http://localhost:3401: Next.js dev `allowedDevOrigins` blocks client JS over 127.0.0.1 (dev-server-only artifact; SSR identical on both hosts; production/Railway unaffected). Method per walk is noted below.
 
-Failures (end to end): none in T-E1–T-E2.
+Failures (end to end): none in T-E1–T-E3 (one live run failed on the known Modal flake; retried on the pinned local verifier — see T-E3 notes).
 
-NEEDS FROM AKINGBADE: —
+NEEDS FROM AKINGBADE:
+- (cosmetic) Clerk sign-in form shows app name "Telementry" (typo for Telemetry?) — dashboard fix, not in repo (grep found nothing).
 
 BLOCKED: —
 
-Live runs (what · result · seconds · model): none (0/3 used)
+Live runs (what · result · seconds · model):
+- tour break-shop #1 (TA_VERIFY default/Modal) · FAILED at verify: Modal sandbox shut down mid-run, run crashed, veto never opened · spark diagnose + spark-open patch (run a85e71bb)
+- tour break-shop #2 (TA_VERIFY=local) · veto opened, cancelled by tester · 105 s break→veto · spark diagnose (meta:muse-spark-1.3) + spark-open patch (baseten:meta-models/muse-spark-open-1026), run 93c24dce PASS (2/3 used)
 
 ## T-E1 · Home doors — PASS
 
@@ -67,3 +71,20 @@ Method: fresh-profile headless Chrome per walk (new user, signed out). Local on 
 |---|---|---|---|---|---|
 | 1 | /guide | /guide | Same as local | Same: demo + production paths, 4 plain-text Advanced setup mentions, 0 /setup hrefs, /support link | PASS |
 | 2 | /support | /support | Same as local | Same: mailto + tel:+2348036954577 + /guide back-link | PASS |
+
+## T-E3 · Demo walkthrough (no account) — PASS
+
+Method: fresh-profile headless Chrome per walk (new user, signed out) on localhost:3401. Local only — the Railway demo world is shared/live, so no walkthrough or break-shop there. Base: origin/main 3d837c4 (API/shop unchanged since 02d066b).
+
+| # | Check | URL | Clicks | Expected | Got | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | /start | /start | land (card 1) → Card 3 tab | Three cards; last card has "Use the demo business" + "Connect my own system" (→ sign-in → /connect, not Advanced setup) | Card 1 "Your software and your equipment"; card 3 "Start with the demo business" with "Use the demo business" → /start/setup and "Connect my own system" → /signin?next=%2Fconnect; clicked the latter → landed on Clerk dev sign-in with next=/connect; zero /setup hrefs | PASS |
+| 2 | /start/setup | /start/setup | "Set up my demo business" → "Read the manuals" → "Watch normal for 2 min" → "Start watching" | Four stages: meet → manuals → watch normal → start watching | Stage 1 both systems created (draft); stage 2 extracted facts with cites via saved readings; stage 3 baseline ready 100/learned after ~2 min; stage 4 "Start watching" → armed both → pushed to /?tour=1 | PASS |
+| 3 | Advanced setup | /start/setup stage 2; /welcome | none | Appears on "Read the manuals", not on Home | "Advanced setup" href=/setup inside the stage-2 card ("…use Advanced setup — same teach-it-normal path"); /welcome has no /setup (T-E1) | PASS |
+| 4 | Mission Control | /?tour=1 (before walkthrough; after) | "Break the shop" → Cancel at veto | Opens only after walkthrough; tour breaks shop; 20 s cancel window visible | Before arming: /?tour=1 bounced to /start/setup. After: Mission Control (both Watching) + tour 1/5; break → step 2 (8 s) → step 3 (13 s) → step 4 + veto "19s / Deploy the verified inventory patch to the shop / Cancel / Do it now" (105 s); Cancel → "Last: Cancelled — left for a human (dashboard)" | PASS |
+| 5 | Still no login | all T-E3 walks | — | Never had to sign in | All walks fresh signed-out profiles; no auth wall on /start, /start/setup, /?tour=1; session stayed signed-out | PASS |
+
+Notes:
+- Run #1 crashed at verify (Modal sandbox shutdown mid-run; known flake per smoke_demo.sh comment). The run 500s instead of degrading to local Docker (fallback only covers ImportError/AuthError), and the tour shows no error — it just waits. Retried with TA_VERIFY=local (same pin as smoke_demo.sh); API restarted, demo world intact.
+- Cancelled at the veto to avoid side effects (no fix applied, no PR — GITHUB_TOKEN unset anyway). Tour step 5 expects a PR link, unreachable here by design.
+- sha: origin/main 3d837c4.
