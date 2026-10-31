@@ -210,8 +210,9 @@ pause gate, rate limit, options safety.
 | `TEST_DATABASE_URL` | Bootstrap URL for DB tests (default localhost `telemetry_test`) |
 | `COMMERCE_MASTER_KEY` | base64 32B Fernet key wrapping org data keys (never committed) |
 | `COMMERCE_ADMIN_EMAILS` | comma list for `GET /api/admin/costs` (else 403) |
-| `CLERK_JWKS_URL` | session-JWT verification (unset = sign-in unavailable) |
-| `CLERK_SECRET_KEY` | email backfill at first login (optional) |
+| `CLERK_JWKS_URL` | session-JWT verification (unset = sign-in unavailable) — dev app live |
+| `CLERK_SECRET_KEY` | email backfill at first login (optional) — dev key live |
+| `CLERK_API_URL` | Backend API base (bare host or `…/v1` both accepted; default `https://api.clerk.com/v1`) |
 | `TA_AUTH_TEST_ISSUER` | HS256 secret for test tokens — tests only, never deployed |
 
 ## Commerce auth + orgs (C-J2, frozen §8.3/§8.4)

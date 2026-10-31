@@ -201,12 +201,37 @@ def check_repo(
             http.close()
 
 
-def connection_repo(system_id: str) -> Optional[Dict[str, str]]:
+def connection_repo(
+    system_id: str, org_id: str = ""
+) -> Optional[Dict[str, str]]:
     """A system's github connection as {connection_id, repo, base, token}.
 
     None when no github connection (or no token) is stored. The token is
     for outbound GitHub calls only — never log or return it.
+    Hosted callers pass the org (per-org Postgres rows, decrypted with the
+    org's data key); self-hosted reads the file store as before.
     """
+    import os
+
+    if os.environ.get("DATABASE_URL", "").strip() and org_id:
+        from core.commerce import repo as repo_module
+
+        store = repo_module.get_store().scoped(org_id)
+        for connection in store.list_connections(org_id, system_id):
+            if connection.get("kind") != "github":
+                continue
+            config = connection.get("config") or {}
+            repo = str(config.get("repo", "")).strip()
+            base = str(config.get("base_branch", "")).strip()
+            token = store.get_connection_secret(org_id, connection["id"])
+            if repo and token:
+                return {
+                    "connection_id": connection["id"],
+                    "repo": repo,
+                    "base": base,
+                    "token": token,
+                }
+        return None
     for connection in connection_store.list_connections(system_id):
         if connection.kind != "github":
             continue

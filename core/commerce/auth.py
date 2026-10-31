@@ -157,6 +157,9 @@ def _clerk_email(sub: str) -> str:
 
     secret = os.environ.get("CLERK_SECRET_KEY", "").strip()
     base = os.environ.get("CLERK_API_URL", "https://api.clerk.com/v1").strip()
+    base = base.rstrip("/")
+    if not base.endswith("/v1"):
+        base += "/v1"
     if not secret:
         return ""
     try:
@@ -294,6 +297,90 @@ def require_roles(ctx: AuthContext, *roles: str) -> None:
         return
     if ctx.role not in roles:
         raise AuthError(403, "this needs a higher org role")
+
+
+def hosted() -> bool:
+    """True when org data lives in Postgres (DATABASE_URL set)."""
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
+def req_ctx(request) -> AuthContext:
+    """Commerce auth context for this request (empty when self-hosted)."""
+    return getattr(request.state, "auth", None) or AuthContext()
+
+
+def need(request, *roles: str) -> AuthContext:
+    """Role guard for product mutations.
+
+    Self-hosted: no-op (existing open/code gates apply). Hosted: session
+    or device auth + org membership + one of `roles` (owner passes all).
+    Raises AuthError(401/403), or AuthError(400) without an org selected.
+    """
+    ctx = req_ctx(request)
+    if not hosted():
+        return ctx
+    if not ctx.user_id:
+        raise AuthError(401, "sign-in required")
+    if not ctx.org_id:
+        raise AuthError(400, "X-Org-Id required")
+    require_roles(ctx, *roles)
+    return ctx
+
+
+def read_org(request) -> str:
+    """Org scope for demo-channel reads ("" = demo/self-hosted)."""
+    if not hosted():
+        return ""
+    return req_ctx(request).org_id or ""
+
+
+def resolve_ws_token(
+    store, token: str, org_id: str = ""
+) -> AuthContext:
+    """Join-channel auth for /api/ws?token= (&org= for sessions).
+
+    Device tokens join their org; session tokens join the named org they
+    belong to. Raises AuthError(401/403) — the route closes the socket.
+    """
+    from core.connections import store as connection_store
+
+    if token.startswith(DEVICE_PREFIX):
+        row = store.get_device_token_by_hash(
+            connection_store.hash_key(token)
+        )
+        if row is None or row.get("revoked_at"):
+            raise AuthError(401, "unknown or revoked device token")
+        if org_id and org_id != row["org_id"]:
+            raise AuthError(403, "device token belongs to another org")
+        scoped = store.scoped(row["org_id"], row["user_id"])
+        membership = scoped.get_membership(row["org_id"], row["user_id"])
+        if membership is None:
+            raise AuthError(403, "no longer a member of this org")
+        scoped.touch_device_token(row["id"])
+        return AuthContext(
+            org_id=row["org_id"],
+            user_id=row["user_id"],
+            role=str(membership.get("role", "")),
+            auth_mode="device",
+        )
+    identity = verify_session_token(token)
+    user = provision_user(
+        store, identity["external_id"], identity["email"]
+    )
+    if not org_id:
+        raise AuthError(401, "org query param required")
+    membership = store.scoped(org_id, user["id"]).get_membership(
+        org_id, user["id"]
+    )
+    if membership is None:
+        raise AuthError(403, "no longer a member of this org")
+    return AuthContext(
+        org_id=org_id,
+        user_id=user["id"],
+        role=str(membership.get("role", "")),
+        auth_mode="session",
+        email=user["email"],
+    )
 
 
 def authorize_action_run(ctx: AuthContext, entry: Dict[str, Any]) -> None:

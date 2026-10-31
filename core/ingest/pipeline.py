@@ -21,7 +21,6 @@ from core.ingest.traceback import (
 from core.repo_fix.lang import by_name as _adapter_by_name
 from core.repo_fix.lang import parse as _registry_parse
 from core.setup import gate as setup_gate
-from core.setup import store as setup_store
 from core.setup.modes import ModeState
 from core.watch import rules
 
@@ -125,17 +124,19 @@ async def process_lines(
     lines: List[str],
     extra_metrics: Optional[Dict[str, float]] = None,
     commit: str = "",
+    org_id: str = "",
 ) -> Dict[str, Any]:
     """Evaluate one batch; returns accepted/candidates/decisions."""
     from apps.api.main import (  # deferred: routers load before main ends
         CandidateIn,
         _mark_learning_incident,
+        _post_incident_candidate,
         _record_gate_decision,
-        post_incident_candidate,
     )
+    from core.commerce import repo as repo_module
 
     now = time.time()
-    profile = setup_store.get_profile(system_id)
+    profile = repo_module.get_profile(system_id, org_id)
     production = profile is None or is_production(profile)
     entries = assemble(f"ingest:{system_id}:{service}", lines, now)
     decisions: List[Dict[str, Any]] = []
@@ -166,7 +167,7 @@ async def process_lines(
             else entry.hint
         )
         if not production:
-            await post_incident_candidate(
+            await _post_incident_candidate(
                 CandidateIn(
                     system_id=system_id,
                     source="log",
@@ -174,7 +175,8 @@ async def process_lines(
                     fingerprint=fingerprint,
                     signature=signature,
                     window=window,
-                )
+                ),
+                org_id,
             )
             continue
         candidate = setup_gate.Candidate(
@@ -194,6 +196,7 @@ async def process_lines(
             # J-R3 re-parses frames from this window (run["gate"] keeps it).
             "window": window,
             "commit": commit,
+            "org_id": org_id,
         }
         if language:
             # Languages §3: the gate may carry the language; readers that

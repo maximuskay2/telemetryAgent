@@ -14,6 +14,12 @@ append the audit log, and set the run's `mitigation` summary (§3.4).
 
 Adapters: Railway GraphQL (redeploy previous SUCCESS / restart latest) and
 a signed webhook (HMAC-SHA256 POST the customer's script verifies).
+
+Multi-tenant (C-J3): every function takes `org_id=""`. Self-hosted ("")
+keeps the legacy files exactly; hosted (DATABASE_URL set) requires a real
+org and reads/writes the Postgres org tables instead — pause, rate
+stamps, audit, profiles and connections are all per-org. Hosted calls
+with no org raise rather than leak across tenants.
 """
 
 from __future__ import annotations
@@ -51,14 +57,42 @@ RAILWAY_API = "https://backboard.railway.app/graphql/v2"
 WEBHOOK_TIMEOUT_S = 15.0
 RAILWAY_TIMEOUT_S = 20.0
 
-#: In-memory rate stamps (atomic check-and-set; file is for restarts).
+#: In-memory rate stamps (atomic check-and-set; file/repo is for restarts).
 _last_action: Dict[str, float] = {}
 
-#: Open mitigation windows + their action/system (keyed by run_id).
+#: Open mitigation windows + their action/system/org (keyed by run_id).
 _windows: Dict[str, PendingAction] = {}
 _window_actions: Dict[str, str] = {}
 _window_systems: Dict[str, str] = {}
+_window_orgs: Dict[str, str] = {}
 _ticker_task: Optional["asyncio.Task"] = None
+
+
+def _hosted() -> bool:
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
+def _pg(org_id: str):
+    """Org-scoped Postgres store; raises when the org is missing."""
+    from core.commerce import repo as repo_module
+
+    if not org_id:
+        raise repo_module.CommerceStoreError(
+            "org_id is required in hosted mode"
+        )
+    return repo_module.get_store().scoped(org_id)
+
+
+def _usage(org_id: str, kind: str, **fields: Any) -> None:
+    """Best-effort usage hook (never breaks the pipeline)."""
+    if not org_id or not _hosted():
+        return
+    try:
+        from core.commerce import usage as usage_module
+
+        usage_module.record_usage(org_id, kind, **fields)
+    except Exception as exc:
+        log.warning("usage hook skipped: %s", exc)
 
 
 def _data_root() -> str:
@@ -93,12 +127,17 @@ def _write_json(path: str, payload: dict) -> None:
 # --- pause ---------------------------------------------------------------
 
 
-def is_paused() -> bool:
-    """Global pause switch (persisted; survives restarts)."""
+def is_paused(org_id: str = "") -> bool:
+    """Pause switch (persisted; per-org hosted, global self-hosted)."""
+    if _hosted():
+        return bool(_pg(org_id).get_pause(org_id).get("paused", False))
     return bool(_read_json(_pause_path(), {}).get("paused", False))
 
 
-def set_paused(paused: bool) -> bool:
+def set_paused(paused: bool, org_id: str = "", by_user: str = "") -> bool:
+    if _hosted():
+        _pg(org_id).set_pause(org_id, bool(paused), by_user)
+        return bool(paused)
     _write_json(_pause_path(), {"paused": bool(paused), "at": time.time()})
     return bool(paused)
 
@@ -110,24 +149,33 @@ def _rate_state() -> dict:
     return _read_json(_state_path(), {"last": {}, "log": []})
 
 
-def _rate_limited(system_id: str) -> Optional[float]:
+def _rate_limited(
+    system_id: str, org_id: str = ""
+) -> Optional[float]:
     """Seconds until the next mitigation may run, or None when clear."""
     now = time.time()
-    last = _last_action.get(system_id)
+    key = f"{org_id}\x00{system_id}"
+    last = _last_action.get(key)
     if last is None:
-        file_last = _rate_state().get("last", {}).get(system_id, 0.0)
-        try:
-            last = float(file_last)
-        except (TypeError, ValueError):
-            last = 0.0
-        _last_action[system_id] = last
+        if _hosted():
+            last = _pg(org_id).get_rate(org_id, system_id)
+        else:
+            file_last = _rate_state().get("last", {}).get(system_id, 0.0)
+            try:
+                last = float(file_last)
+            except (TypeError, ValueError):
+                last = 0.0
+        _last_action[key] = last
     wait = RATE_LIMIT_S - (now - last)
     return wait if wait > 0 else None
 
 
-def _stamp_rate(system_id: str) -> None:
+def _stamp_rate(system_id: str, org_id: str = "") -> None:
     now = time.time()
-    _last_action[system_id] = now
+    _last_action[f"{org_id}\x00{system_id}"] = now
+    if _hosted():
+        _pg(org_id).stamp_rate(org_id, system_id)
+        return
     state = _rate_state()
     last = state.get("last", {})
     last[system_id] = now
@@ -135,7 +183,10 @@ def _stamp_rate(system_id: str) -> None:
     _write_json(_state_path(), state)
 
 
-def audit(entry: Dict[str, Any]) -> None:
+def audit(entry: Dict[str, Any], org_id: str = "") -> None:
+    if _hosted():
+        _pg(org_id).audit(org_id, entry)
+        return
     state = _rate_state()
     items = state.get("log", [])
     items.append({"ts": time.time(), **entry})
@@ -149,15 +200,19 @@ def reset_mitigate_state() -> None:
     _windows.clear()
     _window_actions.clear()
     _window_systems.clear()
+    _window_orgs.clear()
 
 
 # --- profile / policy / hosting --------------------------------------------
 
 
-def _profile(system_id: str) -> Optional[Any]:
-    from core.setup import store as setup_store
+def _profile(system_id: str, org_id: str = "") -> Optional[Any]:
+    if _hosted():
+        # Fail closed: hosted reads need an org (never legacy files).
+        _pg(org_id)
+    from core.commerce import repo as repo_module
 
-    return setup_store.get_profile(system_id)
+    return repo_module.get_profile(system_id, org_id)
 
 
 def policy_allows(profile: Any, action: str) -> bool:
@@ -168,8 +223,26 @@ def policy_allows(profile: Any, action: str) -> bool:
     return action in allowed
 
 
-def hosting_for(system_id: str) -> Optional[Dict[str, Any]]:
+def hosting_for(
+    system_id: str, org_id: str = ""
+) -> Optional[Dict[str, Any]]:
     """Railway connection first, else webhook; None when neither."""
+    if _hosted():
+        store = _pg(org_id)
+        connections = store.list_connections(org_id, system_id)
+        for kind in ("railway", "webhook"):
+            for connection in connections:
+                if connection.get("kind") != kind:
+                    continue
+                return {
+                    "kind": kind,
+                    "connection_id": connection["id"],
+                    "config": dict(connection.get("config") or {}),
+                    "secret": store.get_connection_secret(
+                        org_id, connection["id"]
+                    ),
+                }
+        return None
     from core.connections import store as connection_store
 
     connections = connection_store.list_connections(system_id)
@@ -190,21 +263,25 @@ def _refuse(reason: str, **extra: Any) -> Dict[str, Any]:
 
 
 def _gate(
-    system_id: str, action: str, *, check_policy: bool
+    system_id: str,
+    action: str,
+    *,
+    check_policy: bool,
+    org_id: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Shared gates; None when clear, else the refusal dict."""
     if action not in ALLOWLIST:
         return _refuse(
             f"action {action!r} is not allowlisted (rollback/restart only)"
         )
-    if is_paused():
+    if is_paused(org_id):
         return _refuse("actions are paused")
-    profile = _profile(system_id)
+    profile = _profile(system_id, org_id)
     if profile is None:
         return _refuse("unknown system_id")
     if getattr(profile, "status", "") == "learning":
         return _refuse("system is still learning its baseline")
-    wait = _rate_limited(system_id)
+    wait = _rate_limited(system_id, org_id)
     if wait is not None:
         return _refuse(
             f"1 mitigation per 10 min; retry in {int(wait)}s",
@@ -212,7 +289,7 @@ def _gate(
         )
     if check_policy and not policy_allows(profile, action):
         return _refuse(f"policy does not allow {action}")
-    if hosting_for(system_id) is None:
+    if hosting_for(system_id, org_id) is None:
         return _refuse("no railway or webhook connection")
     return None
 
@@ -489,17 +566,18 @@ def execute(
     run_id: str,
     decided_by: str = "",
     client: Optional[httpx.Client] = None,
+    org_id: str = "",
 ) -> Dict[str, Any]:
     """Run one allowlisted mitigation now (explicit human tap)."""
     if action == "open_pr":
         return {"status": "noop", "detail": "open the PR url; nothing to run"}
-    refused = _gate(system_id, action, check_policy=False)
+    refused = _gate(system_id, action, check_policy=False, org_id=org_id)
     if refused is not None:
         refused.update(
             {"system_id": system_id, "action": action, "run_id": run_id}
         )
         return refused
-    hosting = hosting_for(system_id)
+    hosting = hosting_for(system_id, org_id)
     assert hosting is not None  # _gate guarantees a connection
     try:
         result = _run_adapter(hosting, action, system_id, run_id, client)
@@ -509,7 +587,11 @@ def execute(
     if result["status"] == "done":
         # Only successful runs consume the rate budget; failures are
         # immediately retryable.
-        _stamp_rate(system_id)
+        _stamp_rate(system_id, org_id)
+        _usage(
+            org_id, "mitigation", system_id=system_id, run_id=run_id,
+            unit=f"action:{action}",
+        )
     _set_run_mitigation(
         run_id,
         {
@@ -528,7 +610,8 @@ def execute(
             "status": result["status"],
             "detail": result.get("detail", ""),
             "decided_by": decided_by or "human",
-        }
+        },
+        org_id,
     )
     return {
         "status": result["status"],
@@ -574,6 +657,7 @@ async def propose(
     action: str,
     auto_apply: bool = False,
     start_ticker: bool = True,
+    org_id: str = "",
 ) -> Dict[str, Any]:
     """Open a veto window for one mitigation (policy-gated, approve-to-run).
 
@@ -581,10 +665,10 @@ async def propose(
     human approves — nothing runs by itself until an error-rate feed can
     justify automatic action.
     """
-    from apps.api.main import hub
+    from apps.api.main import emit_for
     from core.schemas.events import SimEvent
 
-    refused = _gate(system_id, action, check_policy=True)
+    refused = _gate(system_id, action, check_policy=True, org_id=org_id)
     if refused is not None:
         refused.update(
             {"system_id": system_id, "action": action, "run_id": run_id}
@@ -598,7 +682,7 @@ async def propose(
             "deadline": existing.deadline,
             "detail": "window already open",
         }
-    hosting = hosting_for(system_id)
+    hosting = hosting_for(system_id, org_id)
     assert hosting is not None  # _gate guarantees a connection
     now = time.time()
     window = PendingAction(
@@ -609,18 +693,20 @@ async def propose(
         deadline=now + window_seconds(),
         auto_apply=auto_apply,
     )
-    # The action/system ride alongside (PendingAction has no slot).
+    # The action/system/org ride alongside (PendingAction has no slot).
     _windows[run_id] = window
     _window_actions[run_id] = action
     _window_systems[run_id] = system_id
-    await hub.broadcast(
+    _window_orgs[run_id] = org_id
+    await emit_for(
+        org_id,
         SimEvent(
             kind="action_pending",
             payload={
                 **window.model_dump(mode="json"),
                 "seconds": window_seconds(),
             },
-        )
+        ),
     )
     if start_ticker:
         _ensure_ticker()
@@ -633,7 +719,8 @@ async def propose(
             "status": "proposed",
             "detail": window.action,
             "decided_by": "server",
-        }
+        },
+        org_id,
     )
     return {"status": "proposed", "run_id": run_id, "deadline": window.deadline}
 
@@ -656,7 +743,7 @@ async def settle_due(
     client: Optional[httpx.Client] = None,
 ) -> List[Dict[str, Any]]:
     """Expire or auto-run due windows; returns what settled."""
-    from apps.api.main import hub
+    from apps.api.main import emit_for
     from core.schemas.events import SimEvent
 
     settled: List[Dict[str, Any]] = []
@@ -665,8 +752,21 @@ async def settle_due(
             continue
         action = _window_actions.get(run_id, "")
         system_id = _window_systems.get(run_id, "")
-        hosting = hosting_for(system_id) if system_id else None
-        if is_paused() or not auto_enabled() or not window.auto_apply:
+        org_id = _window_orgs.get(run_id, "")
+        if _hosted() and not org_id:
+            # Orphaned window (pre-C-J3 caller): expire, never run.
+            log.warning("expiring orphan window %s (no org)", run_id)
+            window.state = "expired"
+            window.detail = "window expired without approval"
+            window.resolved_at = time.time()
+            settled.append({"run_id": run_id, "status": "expired"})
+            continue
+        hosting = hosting_for(system_id, org_id) if system_id else None
+        if (
+            is_paused(org_id)
+            or not auto_enabled()
+            or not window.auto_apply
+        ):
             window.state = "expired"
             window.detail = "window expired without approval"
             window.resolved_at = time.time()
@@ -674,7 +774,7 @@ async def settle_due(
         elif (
             hosting is None
             or action not in ALLOWLIST
-            or _rate_limited(system_id) is not None
+            or _rate_limited(system_id, org_id) is not None
         ):
             window.state = "expired"
             window.detail = "connection, action or rate no longer valid"
@@ -688,7 +788,11 @@ async def settle_due(
             except Exception as exc:
                 result = {"status": "failed", "detail": f"adapter error: {exc}"}
             if result["status"] == "done":
-                _stamp_rate(system_id)
+                _stamp_rate(system_id, org_id)
+                _usage(
+                    org_id, "mitigation", system_id=system_id,
+                    run_id=run_id, unit=f"action:{action}",
+                )
             window.state = (
                 "auto_applied" if result["status"] == "done" else "failed"
             )
@@ -706,14 +810,16 @@ async def settle_due(
                     "status": window.state,
                     "detail": window.detail,
                     "decided_by": "deadline",
-                }
+                },
+                org_id,
             )
             settled.append({"run_id": run_id, "status": window.state})
-        await hub.broadcast(
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="action_resolved",
                 payload=window.model_dump(mode="json"),
-            )
+            ),
         )
     return settled
 
@@ -723,7 +829,7 @@ async def decide(
     client: Optional[httpx.Client] = None,
 ) -> Dict[str, Any]:
     """Approve (run now) or disapprove (cancel) an open window."""
-    from apps.api.main import hub
+    from apps.api.main import emit_for
     from core.schemas.events import SimEvent
 
     window = _windows.get(run_id)
@@ -735,27 +841,31 @@ async def decide(
         return {"status": "error", "reason": "too late: deadline passed"}
     action = _window_actions.get(run_id, "")
     system_id = _window_systems.get(run_id, "")
+    org_id = _window_orgs.get(run_id, "")
+    if _hosted() and not org_id:
+        return {"status": "error", "reason": "window has no org"}
     if not approve:
         window.state = "disapproved"
         window.detail = f"cancelled by {device}"
         window.decided_by = device
         window.resolved_at = time.time()
-        await hub.broadcast(
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="action_resolved",
                 payload=window.model_dump(mode="json"),
-            )
+            ),
         )
         return {"status": "cancelled", "run_id": run_id}
-    if is_paused():
+    if is_paused(org_id):
         return {"status": "error", "reason": "actions are paused"}
-    hosting = hosting_for(system_id) if system_id else None
+    hosting = hosting_for(system_id, org_id) if system_id else None
     if hosting is None or action not in ALLOWLIST:
         window.state = "failed"
         window.detail = "connection removed or action invalid"
         window.resolved_at = time.time()
         return {"status": "failed", "reason": window.detail}
-    wait = _rate_limited(system_id) if system_id else None
+    wait = _rate_limited(system_id, org_id) if system_id else None
     if wait is not None:
         return {
             "status": "error",
@@ -766,7 +876,11 @@ async def decide(
     except Exception as exc:
         result = {"status": "failed", "detail": f"adapter error: {exc}"}
     if result["status"] == "done":
-        _stamp_rate(system_id)
+        _stamp_rate(system_id, org_id)
+        _usage(
+            org_id, "mitigation", system_id=system_id, run_id=run_id,
+            unit=f"action:{action}",
+        )
     window.state = "approved" if result["status"] == "done" else "failed"
     window.decided_by = device
     window.detail = (
@@ -787,13 +901,15 @@ async def decide(
             "status": window.state,
             "detail": window.detail,
             "decided_by": device,
-        }
+        },
+        org_id,
     )
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="action_resolved",
             payload=window.model_dump(mode="json"),
-        )
+        ),
     )
     return {
         "status": result["status"],
@@ -842,9 +958,10 @@ def software_options(run: dict) -> List[Option]:
                 status="available",
             )
         )
-    hosting = hosting_for(system_id) if system_id else None
+    org_id = str(run.get("org_id", "") or "")
+    hosting = hosting_for(system_id, org_id) if system_id else None
     for action in ("rollback", "restart"):
-        ok, reason = _option_safety(system_id, action, hosting)
+        ok, reason = _option_safety(system_id, action, hosting, org_id)
         detail = (
             _summary_for(action, system_id, hosting)
             if hosting is not None
@@ -876,18 +993,21 @@ def action_for_option_id(option_id: str) -> Optional[str]:
 
 
 def _option_safety(
-    system_id: str, action: str, hosting: Optional[Dict[str, Any]]
+    system_id: str,
+    action: str,
+    hosting: Optional[Dict[str, Any]],
+    org_id: str = "",
 ) -> tuple:
     if not system_id:
         return False, "unknown system"
-    if is_paused():
+    if is_paused(org_id):
         return False, "actions are paused"
-    profile = _profile(system_id)
+    profile = _profile(system_id, org_id)
     if profile is None:
         return False, "unknown system"
     if getattr(profile, "status", "") == "learning":
         return False, "system is still learning"
-    wait = _rate_limited(system_id)
+    wait = _rate_limited(system_id, org_id)
     if wait is not None:
         return False, f"rate limited; retry in {int(wait)}s"
     if hosting is None:

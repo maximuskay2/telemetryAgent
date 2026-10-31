@@ -1,7 +1,8 @@
 # James status (commercial)
-Current block: C-J3 (Phase 2 isolation core)
+Current block: C-J4 (isolation suite: two-org endpoint matrix)
 Done: C-J0 (f33e06c, tagged commercial-contracts-in), C-J1 (2baf475),
-  C-J2 (8d6b046) — both on main, gate 1036 green
+  C-J2 (8d6b046), C-J3 (org threading + RLS + EventHub + migration +
+  live Clerk wiring) — full suite 1048 green, check.sh green
 Decisions:
 - Auth provider: Clerk (dev instance, test keys). Provider proves identity
   only (sub + email); our memberships table owns orgs + roles, so we stay
@@ -54,13 +55,31 @@ Decisions:
   is gated); WS keeps today's behaviour until C-J3's token join.
 - Merged 8d6b046 (C-J1+C-J2 over John's C-N3..C-N5, zero shared files);
   John's 8201 freed so the devices e2e gate is reliable again.
+- C-J3 DONE: org_id through mitigate/run/github/ingest/pipeline,
+  per-org EventHub channels + WS token join (device tokens join own org,
+  cross-org refused 4403), org-scoped device routes (system-key auth,
+  queue-link + ack checks), sensor/ingest path org-aware (profiles via
+  repo, gate/watcher/appliance runs tagged), run/action broadcasts via
+  emit_for, /api/actions demo leak closed (per-run visibility),
+  create_org pins ids + import_connection (hash-preserving),
+  core/commerce/migrate.py + scripts/commerce-migrate.py (profiles/
+  connections/pause/rate/audit into `legacy`, demo stays in files,
+  idempotent), tests/test_com_migrate.py (5) + tests/test_com_isolation.py
+  C-J3 rows (RLS direct-SQL bypass over 6 tables, pause A/B, WS join +
+  fan-out). Live Clerk wiring proven: JWKS fetch, real session JWT
+  verifies to clerk|…, email backfill True, garbage 401; probe users
+  deleted. Found + fixed: CLERK_API_URL tolerates a bare host (no /v1).
+- C-J3 test notes: test_prod_repofix in-flight seed uses the new
+  (org, fingerprint) key (same assertion); gate-candidate tests mock
+  run_agent, so untagged gate runs keep calling it (scoped impl only
+  for org-tagged runs) — no test rewrites.
 Contract changes requested: none (§8 frozen; John's 8201 freed — the
   free-port hardening suggestion for test_devices_e2e.py stands as a
   nice-to-have in his court)
 Live runs (lang · result · seconds · model): none this round
+Clerk wiring: LIVE (dev app; JWKS + secret + API URL received and
+  verified end-to-end; users cleaned up). No production keys in use.
 NEEDS FROM AKINGBADE:
-- Clerk dev application: JWKS URL + test publishable/secret keys (dev only,
-  no production keys this round).
 - Railway Postgres for staging (+ DATABASE_URL), staging/prod environments,
   Railway volume for TA_DATA_DIR/uploads; provider spend caps; enable
   automated daily Postgres backups (staging + prod, ≥7 days).

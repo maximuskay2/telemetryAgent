@@ -10,6 +10,7 @@ queue a 2-minute device command; manual/dispatch executes resolve at once.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Literal, Optional
@@ -53,17 +54,43 @@ def _require_mobile_token(request: Request) -> None:
         )
 
 
-def _require_device_key(request: Request, device_id: str) -> str:
+def _hosted() -> bool:
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
+async def _require_device_key(
+    request: Request, device_id: str
+) -> tuple[str, str]:
+    """System-bound device key → (org_id, system_id).
+
+    Hosted (C-J3): `ta_live_` connection keys resolve through Postgres to
+    their owning org + system; per-user `ta_dev_` tokens carry no system
+    and are rejected here. Self-hosted: the file key store, org "".
+    """
     scheme, _, value = request.headers.get("Authorization", "").partition(" ")
-    system_id = (
-        key_auth.system_for_key(value.strip(), "device")
-        if scheme.lower() == "bearer" and value.strip()
-        else None
-    )
+    token = value.strip() if scheme.lower() == "bearer" else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="unknown device key")
+    if _hosted():
+        from core.commerce import repo as repo_module
+
+        record = await asyncio.to_thread(
+            repo_module.PostgresBackend().find_record_for_key,
+            token, "device",
+        )
+        if record is None:
+            raise HTTPException(
+                status_code=401, detail="unknown device key"
+            )
+        return (
+            str(record.get("org_id") or ""),
+            str(record.get("system_id") or ""),
+        )
+    system_id = key_auth.system_for_key(token, "device")
     if system_id is None:
         raise HTTPException(status_code=401, detail="unknown device key")
     _ = device_id
-    return system_id
+    return "", system_id
 
 
 def _api_main():
@@ -92,6 +119,11 @@ def _profile_for(entry: dict):
     if not system_id:
         return None
     try:
+        org_id = str(entry.get("org_id") or "")
+        if org_id and org_id != "demo" and _hosted():
+            from core.commerce import repo as repo_module
+
+            return repo_module.get_profile(system_id, org_id)
         return setup_store.get_profile(system_id)
     except Exception:
         return None
@@ -145,10 +177,11 @@ def _with_statuses(
 
 
 async def _broadcast_connection(
-    connection_id: str, system_id: str, detail: str
+    connection_id: str, system_id: str, detail: str, org_id: str = ""
 ) -> None:
     api_main = _api_main()
-    await api_main.hub.broadcast(
+    await api_main.emit_for(
+        org_id,
         SimEvent(
             kind="connection_status",
             payload={
@@ -157,15 +190,16 @@ async def _broadcast_connection(
                 "status": "ok",
                 "detail": detail,
             },
-        )
+        ),
     )
 
 
 async def _broadcast_option(
-    run_id: str, option_id: str, status: str, detail: str
+    run_id: str, option_id: str, status: str, detail: str, org_id: str = ""
 ) -> None:
     api_main = _api_main()
-    await api_main.hub.broadcast(
+    await api_main.emit_for(
+        org_id,
         SimEvent(
             kind="option_status",
             payload={
@@ -174,17 +208,35 @@ async def _broadcast_option(
                 "status": status,
                 "detail": detail,
             },
-        )
+        ),
     )
 
 
 @router.get(
     "/api/incidents/{run_id}/options", response_model=OptionsResult
 )
-async def incident_options(run_id: str) -> OptionsResult:
+async def incident_options(request: Request, run_id: str) -> OptionsResult:
     domain, entry = _find_run(run_id)
     if entry is None or domain is None:
         raise HTTPException(status_code=404, detail="unknown run_id")
+    if _hosted():
+        # Org runs need a member of the owning org (404 masks org runs
+        # from outsiders); demo/sim entries stay public (C-J3).
+        from core.commerce import auth as auth_module
+
+        org_id = str(entry.get("org_id") or "")
+        if org_id and org_id != "demo":
+            ctx = getattr(request.state, "auth", None)
+            if ctx is None:
+                ctx = auth_module.AuthContext()
+            if not ctx.user_id:
+                raise HTTPException(
+                    status_code=401, detail="sign-in required"
+                )
+            if ctx.org_id != org_id:
+                raise HTTPException(
+                    status_code=404, detail="unknown run_id"
+                )
     if domain == "software":
         options = _with_statuses(run_id, _software_options(entry))
     else:
@@ -201,26 +253,26 @@ async def incident_options(run_id: str) -> OptionsResult:
 async def execute_option(
     request: Request, run_id: str, option_id: str
 ) -> OptionExecuted:
-    if os.environ.get("DATABASE_URL", "").strip():
+    domain, entry = _find_run(run_id)
+    if _hosted():
         # Hosted (C-J2): demo runs public, org runs need member+.
         from core.commerce import auth as auth_module
 
-        _domain, _entry = _find_run(run_id)
-        if _entry is not None:
+        if entry is not None:
             ctx = getattr(request.state, "auth", None)
             if ctx is None:
                 ctx = auth_module.AuthContext()
             try:
-                auth_module.authorize_action_run(ctx, _entry)
+                auth_module.authorize_action_run(ctx, entry)
             except auth_module.AuthError as exc:
                 raise HTTPException(
                     status_code=exc.status, detail=exc.detail
                 ) from exc
     else:
         _require_mobile_token(request)
-    if mitigate.is_paused():
+    org_id = str((entry or {}).get("org_id") or "")
+    if entry is not None and mitigate.is_paused(org_id):
         raise HTTPException(status_code=409, detail="actions paused")
-    domain, entry = _find_run(run_id)
     if entry is None or domain is None:
         raise HTTPException(status_code=404, detail="unknown run_id")
     now = time.time()
@@ -247,14 +299,14 @@ async def execute_option(
 
     if option.kind in ("manual", "dispatch"):
         device_queue.set_option_status(run_id, option_id, "done", "", now)
-        await _broadcast_option(run_id, option_id, "done", "")
+        await _broadcast_option(run_id, option_id, "done", "", org_id)
         return OptionExecuted(status="done", command_id="")
     if option.kind == "open_pr":
         # The PR already exists; the phone opens its URL directly.
         return OptionExecuted(status="done", command_id="")
     if option.kind in ("rollback", "restart"):
         result = mitigate.execute(
-            _system_id_for(entry), option.kind, run_id
+            _system_id_for(entry), option.kind, run_id, org_id=org_id
         )
         status = str(result.get("status", "failed"))
         detail = str(result.get("reason", result.get("detail", "")))
@@ -263,7 +315,7 @@ async def execute_option(
                 status_code=409, detail=detail or f"{option.kind} refused"
             )
         device_queue.set_option_status(run_id, option_id, status, detail, now)
-        await _broadcast_option(run_id, option_id, status, detail)
+        await _broadcast_option(run_id, option_id, status, detail, org_id)
         return OptionExecuted(
             status=status, command_id=str(result.get("command_id", ""))
         )
@@ -291,7 +343,7 @@ async def execute_option(
             command["params"],
             now,
         )
-        await _broadcast_option(run_id, option_id, "sent", "")
+        await _broadcast_option(run_id, option_id, "sent", "", org_id)
         return OptionExecuted(status="sent", command_id=queued["id"])
     raise HTTPException(
         status_code=400, detail=f"cannot execute {option.kind}"
@@ -302,9 +354,15 @@ async def execute_option(
     "/api/devices/{device_id}/commands", response_model=CommandList
 )
 async def device_commands(request: Request, device_id: str) -> CommandList:
-    system_id = _require_device_key(request, device_id)
+    org_id, system_id = await _require_device_key(request, device_id)
+    if _hosted():
+        # A caller may only poll the device its own system key serves —
+        # otherwise one org could drain another org's queue (C-J3).
+        linked = device_queue.device_for_system(system_id)
+        if linked is not None and linked != device_id:
+            raise HTTPException(status_code=404, detail="unknown device")
     device_queue.note_device_seen(system_id, device_id, time.time())
-    if mitigate.is_paused():
+    if mitigate.is_paused(org_id):
         return CommandList(commands=[])
     pending = device_queue.pending_for(device_id, time.time())
     return CommandList(
@@ -319,17 +377,24 @@ async def device_commands(request: Request, device_id: str) -> CommandList:
 async def ack_command(
     request: Request, device_id: str, command_id: str, payload: CommandAck
 ) -> AckResult:
-    _require_device_key(request, device_id)
+    org_id, _system_id = await _require_device_key(request, device_id)
     entry = device_queue.get(command_id)
     if entry is None or entry["device_id"] != device_id:
         raise HTTPException(status_code=404, detail="unknown command")
+    if _hosted():
+        # The ack lands on the owning org's channel; a foreign org's key
+        # can neither ack nor observe the command (C-J3).
+        _domain, run_entry = _find_run(entry.get("run_id", ""))
+        run_org = str((run_entry or {}).get("org_id") or "")
+        if run_org and run_org != "demo" and run_org != org_id:
+            raise HTTPException(status_code=404, detail="unknown command")
     result = device_queue.ack(
         command_id, payload.ok, payload.detail, time.time()
     )
     assert result is not None
     await _broadcast_option(
         result["run_id"], result["option_id"], result["status"],
-        payload.detail,
+        payload.detail, org_id,
     )
     return AckResult(status=result["status"])
 
@@ -352,21 +417,42 @@ class DeviceReadingIn(BaseModel):
 async def device_readings(
     request: Request, device_id: str, payload: DeviceReadingIn
 ) -> dict:
-    system_id = _require_device_key(request, device_id)
+    org_id, system_id = await _require_device_key(request, device_id)
     device_queue.note_device_seen(system_id, device_id, time.time())
     scheme, _, value = request.headers.get("Authorization", "").partition(" ")
-    record = (
-        connection_store.find_record_for_key(value.strip(), "device")
-        if scheme.lower() == "bearer" and value.strip()
-        else None
-    )
-    if record is not None:
-        first = record.get("status") != "ok"
-        connection_store.mark_seen(record["id"])
-        if first:
-            await _broadcast_connection(
-                record["id"], system_id, "first reading received"
+    token = value.strip() if scheme.lower() == "bearer" else ""
+    if _hosted():
+        from core.commerce import repo as repo_module
+
+        record = await asyncio.to_thread(
+            repo_module.PostgresBackend().find_record_for_key,
+            token, "device",
+        )
+        if record is not None:
+            first = record.get("status") != "ok"
+            await asyncio.to_thread(
+                repo_module.PostgresBackend().scoped(org_id)
+                .mark_connection_seen,
+                org_id, record["id"],
             )
+            if first:
+                await _broadcast_connection(
+                    record["id"], system_id, "first reading received",
+                    org_id,
+                )
+    else:
+        record = (
+            connection_store.find_record_for_key(token, "device")
+            if token
+            else None
+        )
+        if record is not None:
+            first = record.get("status") != "ok"
+            connection_store.mark_seen(record["id"])
+            if first:
+                await _broadcast_connection(
+                    record["id"], system_id, "first reading received"
+                )
     api_main = _api_main()
     ingest = api_main.TelemetryIngestIn(
         source_id=device_id,
@@ -378,5 +464,5 @@ async def device_readings(
         door_open=payload.door_open,
         ambient_c=payload.ambient_c,
     )
-    result = await api_main.ingest_appliance_reading(ingest)
+    result = await api_main._ingest_appliance_reading(ingest, org_id)
     return {**result, "device_id": device_id, "system_id": system_id}

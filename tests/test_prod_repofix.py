@@ -460,7 +460,7 @@ class TriggerTests(unittest.TestCase):
                 repo_run.should_trigger(learning, self._decision())
             )
             # In-flight fingerprint: no second trigger.
-            repo_run._active.add("fp9f2c4d8a1b3e")
+            repo_run._active.add(("", "fp9f2c4d8a1b3e"))
             self.assertIsNone(
                 repo_run.should_trigger(profile, self._decision())
             )

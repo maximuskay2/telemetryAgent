@@ -542,5 +542,48 @@ class SelfHostedTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
 
+class ClerkApiUrlTests(unittest.TestCase):
+    def _called_url(self, api_url: str) -> str:
+        from core.commerce import auth as auth_module
+
+        seen: dict = {}
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {
+                    "primary_email_address_id": "e1",
+                    "email_addresses": [
+                        {"id": "e1", "email_address": "a@x.co"}
+                    ],
+                }
+
+        def _fake_get(url: str, **kwargs):
+            seen["url"] = url
+            return _Response()
+
+        with mock.patch.dict(
+            os.environ,
+            {"CLERK_SECRET_KEY": "sk_test_x", "CLERK_API_URL": api_url},
+        ), mock.patch("httpx.get", side_effect=_fake_get):
+            email = auth_module._clerk_email("user_1")
+        self.assertEqual(email, "a@x.co")
+        return seen["url"]
+
+    def test_bare_host_gets_v1(self) -> None:
+        self.assertEqual(
+            self._called_url("https://api.clerk.com"),
+            "https://api.clerk.com/v1/users/user_1",
+        )
+
+    def test_explicit_v1_untouched(self) -> None:
+        self.assertEqual(
+            self._called_url("https://api.clerk.com/v1/"),
+            "https://api.clerk.com/v1/users/user_1",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

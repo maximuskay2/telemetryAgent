@@ -54,8 +54,14 @@ class BaseStore:
         raise NotImplementedError
 
     # -- orgs / users / memberships ------------------------------------
-    def create_org(self, name: str, user_id: str) -> Dict[str, Any]:
-        """Create the org with `user_id` as its owner; returns the org row."""
+    def create_org(
+        self, name: str, user_id: str, org_id: str = ""
+    ) -> Dict[str, Any]:
+        """Create the org with `user_id` as its owner; returns the org row.
+
+        `org_id` pins the id (the legacy migration claims "legacy");
+        empty generates one.
+        """
         raise NotImplementedError
 
     def get_org(self, org_id: str) -> Optional[Dict[str, Any]]:
@@ -197,6 +203,17 @@ class BaseStore:
     def delete_connection(self, org_id: str, connection_id: str) -> bool:
         raise NotImplementedError
 
+    def import_connection(
+        self, org_id: str, record: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Migrate one file-store record (id/key hash preserved).
+
+        Returns the row, or None when the id already exists (re-runs
+        are idempotent). PG only; the file backend has nothing to
+        import into.
+        """
+        raise NotImplementedError
+
     def mark_connection_seen(
         self, org_id: str, connection_id: str,
         status: str = "ok", detail: str = "",
@@ -312,8 +329,10 @@ class PostgresBackend(BaseStore):
         )
 
     # -- orgs / users / memberships ------------------------------------
-    def create_org(self, name: str, user_id: str) -> Dict[str, Any]:
-        org_id = models.new_org_id()
+    def create_org(
+        self, name: str, user_id: str, org_id: str = ""
+    ) -> Dict[str, Any]:
+        org_id = org_id or models.new_org_id()
         user_scope = self.scoped("", user_id)
         with user_scope._txn() as conn, conn.cursor() as cur:
             cur.execute(
@@ -774,6 +793,54 @@ class PostgresBackend(BaseStore):
             )
             return cur.rowcount > 0
 
+    def import_connection(
+        self, org_id: str, record: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        import json as json_module
+
+        from core.commerce import crypto as crypto_module
+
+        connection_id = str(record.get("id", ""))
+        if not connection_id:
+            raise CommerceStoreError("connection record without id")
+        if self.get_connection(org_id, connection_id) is not None:
+            return None
+        secret = str(record.get("secret") or "")
+        secret_enc = ""
+        if secret:
+            secret_enc = crypto_module.seal(
+                self.org_data_key(org_id), secret
+            )
+        last_seen = record.get("last_seen") or None
+        try:
+            last_seen = (
+                float(last_seen) if last_seen is not None else None
+            )
+        except (TypeError, ValueError):
+            last_seen = None
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO connections (id, org_id, system_id, kind,"
+                " config, secret_enc, secret_hint, key_hash, status,"
+                " detail, last_seen) VALUES (%s, %s, %s, %s, %s::jsonb,"
+                " %s, %s, %s, %s, %s,"
+                " CASE WHEN %s::double precision IS NULL THEN NULL"
+                " ELSE to_timestamp(%s) END)",
+                (
+                    connection_id, org_id,
+                    str(record.get("system_id", "")),
+                    str(record.get("kind", "")),
+                    json_module.dumps(record.get("config") or {}),
+                    secret_enc,
+                    str(record.get("secret_hint", "")),
+                    str(record.get("key_hash", "")),
+                    str(record.get("status", "waiting")),
+                    str(record.get("detail", "")),
+                    last_seen, last_seen,
+                ),
+            )
+        return self.get_connection(org_id, connection_id)
+
     def mark_connection_seen(
         self, org_id: str, connection_id: str,
         status: str = "ok", detail: str = "",
@@ -1150,9 +1217,11 @@ class FileBackend(BaseStore):
             path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     # -- orgs / users / memberships ---------------------------------------
-    def create_org(self, name: str, user_id: str) -> Dict[str, Any]:
+    def create_org(
+        self, name: str, user_id: str, org_id: str = ""
+    ) -> Dict[str, Any]:
         orgs = self._load("orgs", {})
-        org_id = models.new_org_id()
+        org_id = org_id or models.new_org_id()
         orgs[org_id] = {
             "id": org_id,
             "name": name,
@@ -1497,11 +1566,7 @@ class FileBackend(BaseStore):
         from core.setup import store as setup_store
 
         _ = org_id
-        try:
-            setup_store.profile_path(system_id).unlink()
-        except FileNotFoundError:
-            return False
-        return True
+        return bool(setup_store.delete_system(system_id))
 
     @staticmethod
     def _profile_row(profile) -> Dict[str, Any]:
@@ -1791,3 +1856,24 @@ def get_store(url: Optional[str] = None) -> BaseStore:
     if db_module.using_postgres(url):
         return PostgresBackend(url)
     return FileBackend()
+
+
+def get_profile(system_id: str, org_id: str = ""):
+    """Org-aware profile read (PG hosted+org, files otherwise).
+
+    The canonical read for mitigate/run/ingest/routes: one branch, one
+    shape (SystemProfile or None) in every mode.
+    """
+    if db_module.using_postgres() and org_id:
+        from core.schemas.profile import SystemProfile
+
+        row = PostgresBackend().scoped(org_id).get_system(org_id, system_id)
+        if row is None:
+            return None
+        try:
+            return SystemProfile.model_validate(row.get("profile", {}))
+        except ValueError:
+            return None
+    from core.setup import store as setup_store
+
+    return setup_store.get_profile(system_id)

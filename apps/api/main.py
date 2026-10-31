@@ -107,9 +107,13 @@ _MAX_STEPS_PER_RUN = 50
 gate_decisions: Deque[dict] = deque(maxlen=200)
 
 
-def _record_gate_decision(system_id: str, body: dict) -> None:
+def _record_gate_decision(
+    system_id: str, body: dict, org_id: str = ""
+) -> None:
     """Append a gate decision payload with its timestamp (S1)."""
-    gate_decisions.append({**body, "system_id": system_id, "ts": time.time()})
+    gate_decisions.append(
+        {**body, "system_id": system_id, "org_id": org_id, "ts": time.time()}
+    )
 
 
 def _record_step(step: AgentStep) -> None:
@@ -133,6 +137,94 @@ def _mobile_authorized(request: Request) -> bool:
 def _require_mobile_token(request: Request) -> None:
     if not _mobile_authorized(request):
         raise HTTPException(status_code=401, detail="bad or missing mobile token")
+
+
+def _hosted() -> bool:
+    from core.commerce import auth as auth_module
+
+    return auth_module.hosted()
+
+
+def _req_ctx(request: Request):
+    """Commerce auth context for this request (empty when self-hosted)."""
+    from core.commerce import auth as auth_module
+
+    return auth_module.req_ctx(request)
+
+
+def _need(request: Request, *roles: str):
+    """Role guard for systems-family mutations (C-J3, HTTP errors)."""
+    from core.commerce import auth as auth_module
+
+    try:
+        return auth_module.need(request, *roles)
+    except auth_module.AuthError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail=exc.detail
+        ) from exc
+
+
+def _read_org(request: Request) -> str:
+    """Org scope for demo-channel reads: ctx org hosted, else demo."""
+    from core.commerce import auth as auth_module
+
+    return auth_module.read_org(request)
+
+
+def _entry_visible(entry: dict, org_id: str) -> bool:
+    """Demo-channel filter for in-memory runs/decisions."""
+    if not org_id:
+        return not entry.get("org_id") or entry.get("org_id") == "demo"
+    return entry.get("org_id") == org_id
+
+
+def _systems_store(org_id: str):
+    """Profile store: org Postgres hosted, files for demo/self-hosted."""
+    from core.commerce import repo as repo_module
+
+    if org_id and _hosted():
+        return repo_module.PostgresBackend().scoped(org_id)
+    return repo_module.FileBackend()
+
+
+def _profile_for_org(system_id: str, org_id: str = ""):
+    """Org-aware profile read (C-J3): PG for hosted orgs, files otherwise."""
+    if org_id and _hosted():
+        from core.commerce import repo as repo_module
+
+        return repo_module.get_profile(system_id, org_id)
+    return setup_store.get_profile(system_id)
+
+
+async def _profiles_list(org_id: str = "") -> list:
+    store = _systems_store(org_id)
+    rows = await asyncio.to_thread(store.list_systems, org_id)
+    return [
+        SystemProfile.model_validate(row.get("profile", {})) for row in rows
+    ]
+
+
+async def _profile_get(
+    system_id: str, org_id: str = ""
+):
+    store = _systems_store(org_id)
+    row = await asyncio.to_thread(store.get_system, org_id, system_id)
+    if row is None:
+        return None
+    return SystemProfile.model_validate(row.get("profile", {}))
+
+
+async def _profile_save(profile, org_id: str = ""):
+    store = _systems_store(org_id)
+    row = await asyncio.to_thread(
+        store.save_system, org_id, profile.model_dump(mode="json")
+    )
+    return SystemProfile.model_validate(row.get("profile", {}))
+
+
+async def _profile_delete(system_id: str, org_id: str = "") -> bool:
+    store = _systems_store(org_id)
+    return await asyncio.to_thread(store.delete_system, org_id, system_id)
 
 
 def shop_base_url() -> str:
@@ -286,25 +378,63 @@ app.add_middleware(
 
 
 class EventHub:
+    """Per-org channels (C-J3, §8.3). `clients` stays the demo channel.
+
+    `broadcast(org_id, event)` targets one org; `broadcast(event)` keeps
+    the legacy shape and goes to the demo channel (sim flows).
+    """
+
     def __init__(self) -> None:
         self.clients: Set[WebSocket] = set()
+        self._channels: Dict[str, Set[WebSocket]] = {"demo": self.clients}
 
-    async def connect(self, websocket: WebSocket) -> None:
+    def _channel(self, org_id: str) -> Set[WebSocket]:
+        return self._channels.setdefault(org_id or "demo", set())
+
+    async def connect(
+        self, websocket: WebSocket, org_id: str = "demo"
+    ) -> None:
         await websocket.accept()
-        self.clients.add(websocket)
+        self._channel(org_id).add(websocket)
 
-    def disconnect(self, websocket: WebSocket) -> None:
-        self.clients.discard(websocket)
+    def disconnect(
+        self, websocket: WebSocket, org_id: Optional[str] = None
+    ) -> None:
+        if org_id is not None:
+            self._channel(org_id).discard(websocket)
+            return
+        for channel in self._channels.values():
+            channel.discard(websocket)
 
-    async def broadcast(self, event: BaseModel) -> None:
+    async def broadcast(
+        self, org_or_event, event: Optional[BaseModel] = None
+    ) -> None:
+        if event is None:
+            if not isinstance(org_or_event, BaseModel):
+                raise TypeError("broadcast(event) or broadcast(org_id, event)")
+            org_id, event = "demo", org_or_event
+        else:
+            org_id = str(org_or_event or "demo")
         stale: list[WebSocket] = []
-        for client in self.clients:
+        for client in self._channel(org_id):
             try:
                 await client.send_json(event.model_dump(mode="json"))
             except (RuntimeError, WebSocketDisconnect):
                 stale.append(client)
         for client in stale:
-            self.disconnect(client)
+            self.disconnect(client, org_id)
+
+
+async def emit_for(org_id: str, event: BaseModel) -> None:
+    """Scoped broadcast: the org channel hosted, legacy shape otherwise.
+
+    Self-hosted callers keep the exact 1-arg call (and its tests); hosted
+    org events never touch another channel.
+    """
+    if org_id and os.environ.get("DATABASE_URL", "").strip():
+        await hub.broadcast(org_id, event)
+    else:
+        await hub.broadcast(event)
 
 
 hub = EventHub()
@@ -340,7 +470,9 @@ async def diagnose_logs(payload: DiagnosisRequest) -> Diagnosis:
     return await diagnose(payload.log_text)
 
 
-def _step_bridge(loop: asyncio.AbstractEventLoop, source: str):
+def _step_bridge(
+    loop: asyncio.AbstractEventLoop, source: str, org_id: str = ""
+):
     def on_event(event: dict) -> None:
         step = AgentStep(
             step=str(event.get("step", "")),
@@ -355,7 +487,7 @@ def _step_bridge(loop: asyncio.AbstractEventLoop, source: str):
             source=source,
             suggestions=[s for s in (event.get("suggestions") or []) if isinstance(s, str)],
         )
-        asyncio.run_coroutine_threadsafe(hub.broadcast(step), loop)
+        asyncio.run_coroutine_threadsafe(emit_for(org_id, step), loop)
         _record_step(step)
 
     return on_event
@@ -363,10 +495,20 @@ def _step_bridge(loop: asyncio.AbstractEventLoop, source: str):
 
 @app.post("/api/run", response_model=ExecutionResult)
 async def run_agent(payload: RunRequest) -> ExecutionResult:
+    """Run the software diagnostic loop (demo/sim entry; untagged)."""
+    return await _run_agent_impl(payload)
+
+
+async def _run_agent_impl(
+    payload: RunRequest, org_id: str = ""
+) -> ExecutionResult:
+    """Shared core; gate/org callers pass the owning org (C-J3)."""
     from core.agent.loop import run_diagnostic_loop
 
     run_id = uuid4().hex[:8]
-    on_event = _step_bridge(asyncio.get_running_loop(), payload.source)
+    on_event = _step_bridge(
+        asyncio.get_running_loop(), payload.source, org_id
+    )
 
     original_code = payload.original_code
     code_path = "solution.py"
@@ -429,8 +571,11 @@ async def run_agent(payload: RunRequest) -> ExecutionResult:
         source=payload.source,
     )
     _record_step(done)
-    await hub.broadcast(done)
-    _remember(software_runs, run_id, {"target": payload.target, "result": result})
+    await emit_for(org_id, done)
+    _remember(
+        software_runs, run_id,
+        {"target": payload.target, "result": result, "org_id": org_id},
+    )
     await _maybe_open_action(run_id, "software")
     return result
 
@@ -485,13 +630,14 @@ async def _run_appliance_from_telemetry(
     reference: str = "",
     gate: Optional[dict] = None,
     profile=None,
+    org_id: str = "",
 ) -> ApplianceResult:
     """Shared by the readings endpoint and the sensor-watcher trigger path."""
     from core.actions.notify import send_alert
     from core.agent.loop import run_appliance_loop
 
     run_id = uuid4().hex[:8]
-    on_event = _step_bridge(asyncio.get_running_loop(), source)
+    on_event = _step_bridge(asyncio.get_running_loop(), source, org_id)
     result = await asyncio.to_thread(
         run_appliance_loop,
         telemetry,
@@ -517,11 +663,15 @@ async def _run_appliance_from_telemetry(
         source=source,
     )
     _record_step(done)
-    await hub.broadcast(done)
+    await emit_for(org_id, done)
     _remember(
         appliance_runs,
         run_id,
-        {"appliance_type": telemetry.appliance_type, "result": result},
+        {
+            "appliance_type": telemetry.appliance_type,
+            "result": result,
+            "org_id": org_id,
+        },
     )
     await _maybe_open_action(run_id, "appliance")
     return result
@@ -595,10 +745,13 @@ def ensure_fridge_stream() -> None:
         fridge_task = asyncio.get_running_loop().create_task(_fridge_loop())
 
 
-async def _broadcast_sensor_trigger(hit: SensorHit) -> None:
+async def _broadcast_sensor_trigger(
+    hit: SensorHit, org_id: str = ""
+) -> None:
     from core.watch.rules import fingerprint_for
 
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="watcher_trigger",
             payload={
@@ -619,6 +772,7 @@ async def _run_watcher_appliance(
     gate: Optional[dict] = None,
     reference: str = "",
     profile=None,
+    org_id: str = "",
 ) -> None:
     try:
         telemetry = watcher.telemetry()
@@ -627,10 +781,13 @@ async def _run_watcher_appliance(
     try:
         await _run_appliance_from_telemetry(
             telemetry, "watcher", reference=reference, gate=gate,
-            profile=profile,
+            profile=profile, org_id=org_id,
         )
-        if gate is not None and appliance_runs:
-            appliance_runs[next(reversed(appliance_runs))]["gate"] = gate
+        if appliance_runs:
+            newest = appliance_runs[next(reversed(appliance_runs))]
+            if gate is not None:
+                newest["gate"] = gate
+            newest["org_id"] = org_id
     except RuntimeError as exc:
         done = AgentStep(
             step="done",
@@ -641,13 +798,14 @@ async def _run_watcher_appliance(
             source="watcher",
         )
         _record_step(done)
-        await hub.broadcast(done)
+        await emit_for(org_id, done)
 
 
 async def _evaluate_overlay_hit(
     system_id: str,
     hit: SensorHit,
     reading: SensorReading,
+    org_id: str = "",
 ) -> Optional[dict]:
     """Gate-check a legacy overlay hit for a setup system (P9/C-6).
 
@@ -659,7 +817,7 @@ async def _evaluate_overlay_hit(
     from core.setup import modes as setup_modes
     from core.setup.modes import ModeState
 
-    profile = setup_store.get_profile(system_id)
+    profile = _profile_for_org(system_id, org_id)
     if profile is None:
         return None
     state = setup_modes.current_mode(
@@ -692,8 +850,8 @@ async def _evaluate_overlay_hit(
         "signature": hit.detail,
     }
     _mark_learning_incident(system_id, body)
-    _record_gate_decision(system_id, body)
-    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    _record_gate_decision(system_id, body, org_id)
+    await emit_for(org_id, SimEvent(kind="gate_decision", payload=body))
     return body
 
 
@@ -704,6 +862,7 @@ async def _evaluate_sensor_reading(
     reference: str = "",
     profile=None,
     veto=None,
+    org_id: str = "",
 ) -> tuple[Optional[SensorHit], Optional[dict]]:
     """Shared trigger path for the virtual fridge and hardware ingest.
 
@@ -719,9 +878,9 @@ async def _evaluate_sensor_reading(
             return None, veto_body
         if veto_body is not None:
             gate = veto_body
-    await _broadcast_sensor_trigger(hit)
+    await _broadcast_sensor_trigger(hit, org_id)
     asyncio.get_running_loop().create_task(
-        _run_watcher_appliance(watcher, gate, reference, profile)
+        _run_watcher_appliance(watcher, gate, reference, profile, org_id)
     )
     return hit, gate
 
@@ -730,6 +889,7 @@ async def _evaluate_sensor_candidate(
     system_id: str,
     payload: "TelemetryIngestIn",
     reading: SensorReading,
+    org_id: str = "",
 ) -> tuple[Optional[dict], str, Any]:
     """Gate one hardware reading through the system's profile (P5).
 
@@ -745,7 +905,7 @@ async def _evaluate_sensor_candidate(
     if watch is None:
         watch = SignalWatch(system_id)
         signal_watches[system_id] = watch
-    profile = setup_store.get_profile(system_id)
+    profile = _profile_for_org(system_id, org_id)
     if profile is None:
         state = ModeState()
     else:
@@ -805,8 +965,8 @@ async def _evaluate_sensor_candidate(
         "signature": found.signature,
     }
     _mark_learning_incident(system_id, body)
-    _record_gate_decision(system_id, body)
-    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    _record_gate_decision(system_id, body, org_id)
+    await emit_for(org_id, SimEvent(kind="gate_decision", payload=body))
     reference = profile_summary(profile, state.mode) if profile else ""
     return body, reference, profile
 
@@ -877,6 +1037,13 @@ async def ingest_appliance_reading(payload: TelemetryIngestIn) -> dict:
     and is evaluated by the same rules engine as the virtual fridge, with a
     per-source watcher so interleaved sources keep their own streaks.
     """
+    return await _ingest_appliance_reading(payload)
+
+
+async def _ingest_appliance_reading(
+    payload: TelemetryIngestIn, org_id: str = ""
+) -> dict:
+    """Shared ingest core; the device route passes the caller's org (C-J3)."""
     import time
 
     reading = SensorReading(
@@ -887,7 +1054,8 @@ async def ingest_appliance_reading(payload: TelemetryIngestIn) -> dict:
         door_open=payload.door_open,
     )
     watcher = external_watcher_for(payload.source_id, payload.appliance_type)
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="fridge_reading",
             payload={
@@ -900,14 +1068,14 @@ async def ingest_appliance_reading(payload: TelemetryIngestIn) -> dict:
                     "hardware": True,
                 },
             },
-        )
+        ),
     )
     gate_body: Optional[dict] = None
     reference = ""
     run_profile = None
     if payload.system_id:
         gate_body, reference, run_profile = await _evaluate_sensor_candidate(
-            payload.system_id, payload, reading
+            payload.system_id, payload, reading, org_id
         )
         if gate_body is not None and gate_body["decision"] == "suppress":
             return {
@@ -930,11 +1098,12 @@ async def ingest_appliance_reading(payload: TelemetryIngestIn) -> dict:
             async def veto(hit: SensorHit) -> Optional[dict]:
                 assert payload.system_id is not None
                 return await _evaluate_overlay_hit(
-                    payload.system_id, hit, reading
+                    payload.system_id, hit, reading, org_id
                 )
 
         hit, veto_body = await _evaluate_sensor_reading(
-            watcher, reading, gate_body, reference, run_profile, veto
+            watcher, reading, gate_body, reference, run_profile, veto,
+            org_id,
         )
         if veto_body is not None:
             gate_body = veto_body
@@ -1089,7 +1258,8 @@ async def _deploy_patch_for_run(run_id: str) -> dict:
         httpx.post(f"{shop_base_url().rstrip('/')}/restart", timeout=2.0)
     except Exception:  # noqa: BLE001 - the hot-swapped shop already works
         pass
-    await hub.broadcast(
+    await emit_for(
+        str(entry.get("org_id") or ""),
         SimEvent(
             kind="fix_applied",
             payload={
@@ -1097,7 +1267,7 @@ async def _deploy_patch_for_run(run_id: str) -> dict:
                 "domain": "software",
                 "inventory": str(runtime_path),
             },
-        )
+        ),
     )
     return {
         "run_id": run_id,
@@ -1151,12 +1321,13 @@ async def _apply_runbook_for_run(run_id: str) -> dict:
             continue
         fridge.apply_action(action)
         applied.append({"step": step, "action": action})
-    await hub.broadcast(
+    await emit_for(
+        str(entry.get("org_id") or ""),
         SimEvent(
             kind="fix_applied",
             payload={"run_id": run_id, "domain": "appliance",
                      "applied": [a["action"] for a in applied]},
-        )
+        ),
     )
     return {
         "run_id": run_id,
@@ -1218,14 +1389,15 @@ async def _maybe_open_action(run_id: str, domain: str) -> Optional[PendingAction
         auto_apply=auto_apply_for(entry, _policy_allows(entry)),
     )
     pending_actions[run_id] = action
-    await hub.broadcast(
+    await emit_for(
+        str(entry.get("org_id") or ""),
         SimEvent(
             kind="action_pending",
             payload={
                 **action.model_dump(mode="json"),
                 "seconds": window_seconds(),
             },
-        )
+        ),
     )
     return action
 
@@ -1263,9 +1435,10 @@ async def _settle_window(run_id: str) -> Optional[PendingAction]:
             action.state = "auto_applied"
             action.detail = action.action
         action.resolved_at = time.time()
-    await hub.broadcast(
+    await emit_for(
+        _org_for_run(run_id),
         SimEvent(kind="action_resolved",
-                 payload=action.model_dump(mode="json"))
+                 payload=action.model_dump(mode="json")),
     )
     return action
 
@@ -1286,9 +1459,10 @@ async def _decide_action(
     if not approve:
         action.detail = f"cancelled by {device}"
         action.resolved_at = time.time()
-        await hub.broadcast(
+        await emit_for(
+            _org_for_run(run_id),
             SimEvent(kind="action_resolved",
-                     payload=action.model_dump(mode="json"))
+                     payload=action.model_dump(mode="json")),
         )
         return action
     apply = (
@@ -1307,8 +1481,10 @@ async def _decide_action(
     else:
         action.detail = f"applied by {device}"
     action.resolved_at = time.time()
-    await hub.broadcast(
-        SimEvent(kind="action_resolved", payload=action.model_dump(mode="json"))
+    await emit_for(
+        _org_for_run(run_id),
+        SimEvent(kind="action_resolved",
+                 payload=action.model_dump(mode="json")),
     )
     return action
 
@@ -1320,10 +1496,11 @@ async def _action_ticker() -> None:
             if action.state != "pending":
                 continue
             seconds_left = max(0, int(action.deadline - time.time()))
-            await hub.broadcast(
+            await emit_for(
+                _org_for_run(run_id),
                 SimEvent(kind="action_tick",
                          payload={"run_id": run_id,
-                                  "seconds_left": seconds_left})
+                                  "seconds_left": seconds_left}),
             )
             await _settle_window(run_id)
 
@@ -1392,10 +1569,21 @@ async def disapprove_action(
 
 
 @app.get("/api/actions")
-async def list_actions() -> dict:
+async def list_actions(request: Request) -> dict:
     """Open veto windows plus recent decisions (mobile + U2)."""
+    org_id = _read_org(request)
+
+    def _visible(action: PendingAction) -> bool:
+        if not _hosted():
+            return True
+        _domain, entry = _run_entry(action.run_id)
+        if entry is None:
+            return False
+        return _entry_visible(entry, org_id)
+
     ordered = sorted(
-        pending_actions.values(), key=lambda a: a.opened_at, reverse=True
+        [a for a in pending_actions.values() if _visible(a)],
+        key=lambda a: a.opened_at, reverse=True,
     )
     now = time.time()
 
@@ -1422,15 +1610,26 @@ def _run_entry(run_id: str):
     return None, None
 
 
+def _org_for_run(run_id: str) -> str:
+    """Owning org of an in-memory run ("" when sim/demo/unknown)."""
+    _domain, entry = _run_entry(run_id)
+    if entry is None:
+        return ""
+    return str(entry.get("org_id") or "")
+
+
 @app.get("/api/runs")
-async def list_runs() -> dict:
+async def list_runs(request: Request) -> dict:
     """Recent runs with step counts and decision states (mobile + U2)."""
+    org_id = _read_org(request)
     runs = []
     for domain, store in (
         ("software", software_runs),
         ("appliance", appliance_runs),
     ):
         for run_id, entry in store.items():
+            if _hosted() and not _entry_visible(entry, org_id):
+                continue
             result = entry["result"]
             steps = run_steps.get(run_id, [])
             decision = pending_actions.get(run_id)
@@ -1452,10 +1651,12 @@ async def list_runs() -> dict:
 
 
 @app.get("/api/runs/{run_id}")
-async def get_run(run_id: str) -> dict:
+async def get_run(run_id: str, request: Request) -> dict:
     """One run: full result, streamed steps, decision record."""
     domain, entry = _run_entry(run_id)
     if entry is None:
+        raise HTTPException(status_code=404, detail="unknown run_id")
+    if _hosted() and not _entry_visible(entry, _read_org(request)):
         raise HTTPException(status_code=404, detail="unknown run_id")
     decision = pending_actions.get(run_id)
     verification = getattr(entry["result"], "verification", None)
@@ -1476,12 +1677,18 @@ async def get_run(run_id: str) -> dict:
 
 @app.get("/api/gate/decisions")
 async def gate_decision_log(
-    limit: int = Query(default=50, ge=1, le=200),
+    request: Request, limit: int = Query(default=50, ge=1, le=200),
 ) -> dict:
     """Last gate decisions, newest first, with decision counts (S1)."""
-    items = list(gate_decisions)[-limit:][::-1]
+    visible = list(gate_decisions)
+    if _hosted():
+        org_id = _read_org(request)
+        visible = [
+            item for item in visible if _entry_visible(item, org_id)
+        ]
+    items = visible[-limit:][::-1]
     counts = {"suppress": 0, "observe": 0, "act": 0}
-    for item in gate_decisions:
+    for item in visible:
         name = item.get("decision")
         if name in counts:
             counts[name] += 1
@@ -1503,8 +1710,9 @@ def _slug_system_id(name: str) -> str:
 
 
 @app.post("/api/systems")
-async def create_system(payload: SystemCreateIn) -> dict:
+async def create_system(request: Request, payload: SystemCreateIn) -> dict:
     """Create a watched system; its profile starts as a draft (P0/P1)."""
+    ctx = _need(request, "admin")
     try:
         profile = SystemProfile(
             system_id=_slug_system_id(payload.name),
@@ -1515,27 +1723,28 @@ async def create_system(payload: SystemCreateIn) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    stored = setup_store.save_profile(profile)
+    stored = await _profile_save(profile, ctx.org_id)
     return stored.model_dump(mode="json")
 
 
 @app.get("/api/systems")
-async def list_systems() -> dict:
+async def list_systems(request: Request) -> dict:
     """All systems with their setup status (wizard + Systems chip)."""
     return {
         "systems": [
             profile.model_dump(mode="json")
-            for profile in setup_store.list_profiles()
+            for profile in await _profiles_list(_read_org(request))
         ]
     }
 
 
 @app.post("/api/systems/{system_id}/documents")
 async def upload_documents(
-    system_id: str, files: list[UploadFile] = File(...)
+    system_id: str, request: Request, files: list[UploadFile] = File(...)
 ) -> dict:
     """Upload spec docs; extract a draft profile (P1, stub-able model)."""
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     payload: list[tuple[str, bytes]] = []
@@ -1543,11 +1752,12 @@ async def upload_documents(
         filename = Path(upload.filename or "upload").name
         data = await upload.read(setup_extract.MAX_FILE_BYTES + 1)
         payload.append((filename, data))
-    return await _extract_documents(system_id, profile, payload)
+    return await _extract_documents(system_id, profile, payload, ctx.org_id)
 
 
 async def _extract_documents(
-    system_id: str, profile, files: list[tuple[str, bytes]]
+    system_id: str, profile, files: list[tuple[str, bytes]],
+    org_id: str = "",
 ) -> dict:
     """Shared extraction path: visitor uploads and demo server copies (J2)."""
     from core.infer import meta_client
@@ -1575,7 +1785,8 @@ async def _extract_documents(
         digest = setup_extract.sha256_bytes(data)
         stored = uploads / f"{digest[:12]}_{filename}"
         stored.write_bytes(data)
-        await hub.broadcast(
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="setup_progress",
                 payload={
@@ -1583,7 +1794,7 @@ async def _extract_documents(
                     "stage": "uploaded",
                     "doc": filename,
                 },
-            )
+            ),
         )
         try:
             doc = await asyncio.to_thread(
@@ -1597,7 +1808,8 @@ async def _extract_documents(
         if doc.needs_manual:
             needs_manual.append(filename)
             continue
-        await hub.broadcast(
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="setup_progress",
                 payload={
@@ -1605,7 +1817,7 @@ async def _extract_documents(
                     "stage": "extracting",
                     "doc": filename,
                 },
-            )
+            ),
         )
         try:
             raw = await asyncio.to_thread(
@@ -1635,9 +1847,12 @@ async def _extract_documents(
         raise HTTPException(
             status_code=502, detail=f"extracted profile invalid: {exc}"
         ) from exc
-    stored_profile = setup_store.save_profile(updated)
+    stored_profile = await _profile_save(updated, org_id)
+    # Conflicts/feedback/uploads stay on disk in all modes, gated by the
+    # org-verified profile lookup above (system ids are unguessable).
     setup_store.save_conflicts(system_id, conflicts)
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="setup_progress",
             payload={
@@ -1645,7 +1860,7 @@ async def _extract_documents(
                 "stage": "extracted",
                 "conflicts": len(conflicts),
             },
-        )
+        ),
     )
     return {
         "profile": stored_profile.model_dump(mode="json"),
@@ -1656,9 +1871,9 @@ async def _extract_documents(
 
 
 @app.get("/api/systems/{system_id}/profile")
-async def get_profile(system_id: str) -> dict:
+async def get_profile(system_id: str, request: Request) -> dict:
     """Draft profile plus unresolved extraction conflicts (wizard review)."""
-    profile = setup_store.get_profile(system_id)
+    profile = await _profile_get(system_id, _read_org(request))
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     return {
@@ -1673,9 +1888,12 @@ async def get_profile(system_id: str) -> dict:
 
 
 @app.put("/api/systems/{system_id}/profile")
-async def put_profile(system_id: str, payload: SystemProfile) -> dict:
+async def put_profile(
+    system_id: str, request: Request, payload: SystemProfile
+) -> dict:
     """Human edits; any edit returns the system to draft (re-confirm)."""
-    current = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    current = await _profile_get(system_id, ctx.org_id)
     if current is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     if payload.system_id != system_id:
@@ -1687,7 +1905,7 @@ async def put_profile(system_id: str, payload: SystemProfile) -> dict:
         SystemProfile.model_validate(updated.model_dump(mode="json"))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    stored = setup_store.save_profile(updated)
+    stored = await _profile_save(updated, ctx.org_id)
     return stored.model_dump(mode="json")
 
 
@@ -1700,11 +1918,14 @@ class ConfirmIn(BaseModel):
 
 
 @app.post("/api/systems/{system_id}/profile/confirm")
-async def confirm_profile(system_id: str, payload: ConfirmIn) -> dict:
+async def confirm_profile(
+    system_id: str, request: Request, payload: ConfirmIn
+) -> dict:
     """Resolve conflicts, stamp the human, move draft → confirmed."""
     from datetime import datetime, timezone
 
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     if profile.status != "draft":
@@ -1777,9 +1998,10 @@ async def confirm_profile(system_id: str, payload: ConfirmIn) -> dict:
         confirmed = SystemProfile.model_validate(data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    stored = setup_store.save_profile(confirmed)
+    stored = await _profile_save(confirmed, ctx.org_id)
     setup_store.save_conflicts(system_id, [])
-    await hub.broadcast(
+    await emit_for(
+        ctx.org_id,
         SimEvent(
             kind="setup_progress",
             payload={
@@ -1787,15 +2009,16 @@ async def confirm_profile(system_id: str, payload: ConfirmIn) -> dict:
                 "stage": "confirmed",
                 "version": stored.version,
             },
-        )
+        ),
     )
     return stored.model_dump(mode="json")
 
 
 @app.post("/api/systems/{system_id}/arm")
-async def arm_system(system_id: str) -> dict:
+async def arm_system(system_id: str, request: Request) -> dict:
     """Confirmed → armed: watchers start acting on this system."""
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     if profile.status != "confirmed":
@@ -1803,22 +2026,24 @@ async def arm_system(system_id: str) -> dict:
             status_code=409,
             detail=f"only confirmed systems arm (now {profile.status})",
         )
-    stored = setup_store.save_profile(
-        profile.model_copy(update={"status": "armed"})
+    stored = await _profile_save(
+        profile.model_copy(update={"status": "armed"}), ctx.org_id
     )
-    await hub.broadcast(
+    await emit_for(
+        ctx.org_id,
         SimEvent(
             kind="setup_progress",
             payload={"system_id": system_id, "stage": "armed"},
-        )
+        ),
     )
     return stored.model_dump(mode="json")
 
 
 @app.post("/api/systems/{system_id}/disarm")
-async def disarm_system(system_id: str) -> dict:
+async def disarm_system(system_id: str, request: Request) -> dict:
     """Armed → confirmed: watchers stop acting; setup can run again."""
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     if profile.status != "armed":
@@ -1826,28 +2051,31 @@ async def disarm_system(system_id: str) -> dict:
             status_code=409,
             detail=f"only armed systems disarm (now {profile.status})",
         )
-    stored = setup_store.save_profile(
-        profile.model_copy(update={"status": "confirmed"})
+    stored = await _profile_save(
+        profile.model_copy(update={"status": "confirmed"}), ctx.org_id
     )
-    await hub.broadcast(
+    await emit_for(
+        ctx.org_id,
         SimEvent(
             kind="setup_progress",
             payload={"system_id": system_id, "stage": "disarmed"},
-        )
+        ),
     )
     return stored.model_dump(mode="json")
 
 
 @app.delete("/api/systems/{system_id}")
-async def delete_system_endpoint(system_id: str) -> dict:
+async def delete_system_endpoint(system_id: str, request: Request) -> dict:
     """Delete a system and everything setup stored for it."""
-    if not setup_store.delete_system(system_id):
+    ctx = _need(request, "admin")
+    if not await _profile_delete(system_id, ctx.org_id):
         raise HTTPException(status_code=404, detail="unknown system_id")
-    await hub.broadcast(
+    await emit_for(
+        ctx.org_id,
         SimEvent(
             kind="setup_progress",
             payload={"system_id": system_id, "stage": "deleted"},
-        )
+        ),
     )
     return {"deleted": system_id}
 
@@ -1990,7 +2218,7 @@ async def demo_documents(system_id: str) -> dict:
         # guide yields loose expected-behaviour signatures that make
         # the gate suppress the hero deadlock storm. The hand-verified
         # reading acts correctly, and the UI says which one it shows.
-        stored = _load_sample_profile(system_id, profile, "shop")
+        stored = await _load_sample_profile(system_id, profile, "shop")
         await hub.broadcast(
             SimEvent(
                 kind="setup_progress",
@@ -2045,7 +2273,7 @@ async def demo_documents(system_id: str) -> dict:
             }
         return {**body, "fallback": False}
     sample = "shop" if profile.kind == "software" else "coldchain"
-    stored = _load_sample_profile(system_id, profile, sample)
+    stored = await _load_sample_profile(system_id, profile, sample)
     await hub.broadcast(
         SimEvent(
             kind="setup_progress",
@@ -2149,7 +2377,7 @@ async def demo_learn(
     if previous is not None and not previous.done():
         previous.cancel()
     duration = payload.duration_s if payload is not None else 120.0
-    started = await start_baseline(
+    started = await _start_baseline(
         system_id, BaselineStartIn(duration_s=duration)
     )
     task = asyncio.get_running_loop().create_task(
@@ -2175,11 +2403,14 @@ def _device_mode_for(profile) -> str:
 
 
 @app.post("/api/systems/{system_id}/mode")
-async def set_system_mode(system_id: str, payload: ModeIn) -> dict:
+async def set_system_mode(
+    system_id: str, request: Request, payload: ModeIn
+) -> dict:
     """Human/pipeline mode set; unknown names are rejected (P4)."""
     from core.setup import modes as setup_modes
 
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     if payload.mode and all(
@@ -2196,11 +2427,11 @@ async def set_system_mode(system_id: str, payload: ModeIn) -> dict:
 
 
 @app.get("/api/systems/{system_id}/mode")
-async def get_system_mode(system_id: str) -> dict:
+async def get_system_mode(system_id: str, request: Request) -> dict:
     """Effective mode from manual/device sources, with overrun flag."""
     from core.setup import modes as setup_modes
 
-    profile = setup_store.get_profile(system_id)
+    profile = await _profile_get(system_id, _read_org(request))
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     state = setup_modes.current_mode(
@@ -2253,7 +2484,8 @@ async def _baseline_progress(system_id: str) -> None:
     if percent - session.get("last_pct", 0.0) < 5.0:
         return
     session["last_pct"] = percent
-    await hub.broadcast(
+    await emit_for(
+        session.get("org_id", ""),
         SimEvent(
             kind="baseline_progress",
             payload={
@@ -2261,7 +2493,7 @@ async def _baseline_progress(system_id: str) -> None:
                 "percent": round(percent, 1),
                 "patterns": learner.patterns_learned(),
             },
-        )
+        ),
     )
 
 
@@ -2278,18 +2510,21 @@ async def _finish_baseline(
         and session["started_at"] != expected_start
     ):
         return None
-    profile = setup_store.get_profile(system_id)
+    org_id = session.get("org_id", "")
+    profile = await _profile_get(system_id, org_id)
     baseline_learners.pop(system_id, None)
     baseline_sessions.pop(system_id, None)
     if profile is None:
         return None
     finished = learner.finish()
-    stored = setup_store.save_profile(
+    stored = await _profile_save(
         profile.model_copy(
             update={"baseline": finished, "status": session["return_to"]}
-        )
+        ),
+        org_id,
     )
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="baseline_progress",
             payload={
@@ -2299,7 +2534,7 @@ async def _finish_baseline(
                 + len(finished.sensor_bands),
                 "stage": "finished",
             },
-        )
+        ),
     )
     return stored.model_dump(mode="json")
 
@@ -2344,8 +2579,10 @@ async def _finish_baseline_after(
                 return  # superseded by a newer run, or finished early
             await _baseline_progress(system_id)
         blocked = _baseline_blocked(system_id)
+        org_id = baseline_sessions.get(system_id, {}).get("org_id", "")
         if blocked is not None:
-            await hub.broadcast(
+            await emit_for(
+                org_id,
                 SimEvent(
                     kind="baseline_progress",
                     payload={
@@ -2355,13 +2592,15 @@ async def _finish_baseline_after(
                         "stage": "blocked",
                         "reason": blocked,
                     },
-                )
+                ),
             )
             return
         await _finish_baseline(system_id, expected_start=started_at)
     except Exception as exc:
         logger.exception("baseline learning failed for %s", system_id)
-        await hub.broadcast(
+        org_id = baseline_sessions.get(system_id, {}).get("org_id", "")
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="baseline_progress",
                 payload={
@@ -2371,17 +2610,27 @@ async def _finish_baseline_after(
                     "stage": "blocked",
                     "reason": f"learning failed: {exc}",
                 },
-            )
+            ),
         )
         return
 
 
 @app.post("/api/systems/{system_id}/baseline/start")
-async def start_baseline(system_id: str, payload: BaselineStartIn) -> dict:
+async def start_baseline(
+    system_id: str, request: Request, payload: BaselineStartIn
+) -> dict:
     """Start baseline learning; the system observes but never acts (P7)."""
+    ctx = _need(request, "admin")
+    return await _start_baseline(system_id, payload, ctx.org_id)
+
+
+async def _start_baseline(
+    system_id: str, payload: BaselineStartIn, org_id: str = ""
+) -> dict:
+    """Internal start (the demo driver calls this directly, org "")."""
     from core.setup.baseline import BaselineLearner
 
-    profile = setup_store.get_profile(system_id)
+    profile = await _profile_get(system_id, org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     learner = BaselineLearner(system_id)
@@ -2394,13 +2643,15 @@ async def start_baseline(system_id: str, payload: BaselineStartIn) -> dict:
         "duration_s": payload.duration_s,
         "return_to": previous if previous != "learning" else "confirmed",
         "last_pct": 0.0,
+        "org_id": org_id,
     }
     baseline_sessions[system_id] = session
     if profile.status != "learning":
-        setup_store.save_profile(
-            profile.model_copy(update={"status": "learning"})
+        await _profile_save(
+            profile.model_copy(update={"status": "learning"}), org_id
         )
-    await hub.broadcast(
+    await emit_for(
+        org_id,
         SimEvent(
             kind="baseline_progress",
             payload={
@@ -2409,7 +2660,7 @@ async def start_baseline(system_id: str, payload: BaselineStartIn) -> dict:
                 "patterns": 0,
                 "stage": "started",
             },
-        )
+        ),
     )
     asyncio.get_running_loop().create_task(
         _finish_baseline_after(
@@ -2425,9 +2676,10 @@ async def start_baseline(system_id: str, payload: BaselineStartIn) -> dict:
 
 
 @app.post("/api/systems/{system_id}/baseline/finish")
-async def finish_baseline(system_id: str) -> dict:
+async def finish_baseline(system_id: str, request: Request) -> dict:
     """Stop learning early and compile the baseline (demo + tests)."""
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     blocked = _baseline_blocked(system_id)
@@ -2440,12 +2692,19 @@ async def finish_baseline(system_id: str) -> dict:
 
 
 @app.get("/api/systems/{system_id}/baseline")
-async def get_baseline(system_id: str) -> dict:
+async def get_baseline(system_id: str, request: Request) -> dict:
     """Learning session (if any) plus the stored baseline (wizard step 4)."""
-    profile = setup_store.get_profile(system_id)
+    org_id = _read_org(request)
+    profile = await _profile_get(system_id, org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     session = baseline_sessions.get(system_id)
+    if (
+        _hosted()
+        and session is not None
+        and session.get("org_id", "") != org_id
+    ):
+        session = None
     learner = baseline_learners.get(system_id)
     percent = 0.0
     patterns = 0
@@ -2474,11 +2733,19 @@ async def get_baseline(system_id: str) -> dict:
 
 
 @app.post("/api/systems/{system_id}/baseline/observe")
-async def observe_baseline(system_id: str, payload: BaselineObserveIn) -> dict:
+async def observe_baseline(
+    system_id: str, request: Request, payload: BaselineObserveIn
+) -> dict:
     """Feed logs / sensors / shop metrics to an active learner (P7)."""
+    ctx = _need(request, "admin")
     learner = baseline_learners.get(system_id)
     if learner is None:
         raise HTTPException(status_code=400, detail="not learning")
+    if _hosted() and (
+        baseline_sessions.get(system_id, {}).get("org_id", "")
+        != ctx.org_id
+    ):
+        raise HTTPException(status_code=404, detail="unknown system_id")
     for line in payload.logs:
         learner.observe_log(line)
     for sensor in payload.sensors:
@@ -2526,11 +2793,14 @@ def _feedback_hard_limit_breach(profile, metrics: dict) -> Optional[str]:
 
 
 @app.post("/api/systems/{system_id}/feedback")
-async def create_feedback(system_id: str, payload: FeedbackIn) -> dict:
+async def create_feedback(
+    system_id: str, request: Request, payload: FeedbackIn
+) -> dict:
     """Park a 'this is normal' vote as pending (P8); review confirms it."""
     from datetime import datetime, timezone
 
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     breach = _feedback_hard_limit_breach(profile, payload.metrics)
@@ -2556,19 +2826,20 @@ async def create_feedback(system_id: str, payload: FeedbackIn) -> dict:
 
 
 @app.get("/api/systems/{system_id}/feedback")
-async def list_feedback(system_id: str) -> dict:
+async def list_feedback(system_id: str, request: Request) -> dict:
     """Pending + decided feedback items for the profile review (P8)."""
-    if setup_store.get_profile(system_id) is None:
+    if await _profile_get(system_id, _read_org(request)) is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     return {"feedback": setup_store.get_feedback(system_id)}
 
 
 @app.post("/api/systems/{system_id}/feedback/{fid}/confirm")
-async def confirm_feedback(system_id: str, fid: str) -> dict:
+async def confirm_feedback(system_id: str, fid: str, request: Request) -> dict:
     """Confirm a pending item: it becomes an expected behaviour (P8)."""
     from core.schemas.profile import ExpectedBehaviour, Provenance
 
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     items = setup_store.get_feedback(system_id)
@@ -2593,7 +2864,7 @@ async def confirm_feedback(system_id: str, fid: str) -> dict:
             quote=f"marked normal by {item.get('created_by') or 'operator'}",
         ),
     )
-    stored = setup_store.save_profile(
+    stored = await _profile_save(
         profile.model_copy(
             update={
                 "expected_behaviours": [
@@ -2601,7 +2872,8 @@ async def confirm_feedback(system_id: str, fid: str) -> dict:
                     behaviour,
                 ]
             }
-        )
+        ),
+        ctx.org_id,
     )
     item["status"] = "confirmed"
     setup_store.save_feedback(system_id, items)
@@ -2609,9 +2881,10 @@ async def confirm_feedback(system_id: str, fid: str) -> dict:
 
 
 @app.delete("/api/systems/{system_id}/feedback/{fid}")
-async def reject_feedback(system_id: str, fid: str) -> dict:
+async def reject_feedback(system_id: str, fid: str, request: Request) -> dict:
     """Reject a pending item; it stays on record as rejected (P8)."""
-    if setup_store.get_profile(system_id) is None:
+    ctx = _need(request, "admin")
+    if await _profile_get(system_id, ctx.org_id) is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
     items = setup_store.get_feedback(system_id)
     item = next((entry for entry in items if entry.get("id") == fid), None)
@@ -2669,20 +2942,30 @@ class CandidateIn(BaseModel):
 
 
 @app.post("/api/incidents/candidate")
-async def post_incident_candidate(payload: CandidateIn) -> dict:
+async def post_incident_candidate(
+    payload: CandidateIn, request: Request
+) -> dict:
     """The gate (P5): suppress / observe / act for one watcher candidate.
 
     Checks the system's profile in order; on `act` a run starts with the
     full gate decision attached (`run["gate"]`). Never 404s on an unknown
     system: watchers keep posting and the gate asks for setup instead.
     """
+    ctx = _need(request, "member")
+    return await _post_incident_candidate(payload, ctx.org_id)
+
+
+async def _post_incident_candidate(
+    payload: CandidateIn, org_id: str = ""
+) -> dict:
+    """Internal gate (the ingest pipeline calls this directly, with org)."""
     from core.setup import gate as setup_gate
     from core.setup import modes as setup_modes
     from core.setup.context import profile_summary
     from core.setup.modes import ModeState
 
     system_id = _resolve_system_id(payload.system_id)
-    profile = setup_store.get_profile(system_id)
+    profile = await _profile_get(system_id, org_id)
     if profile is None:
         state = ModeState()
     else:
@@ -2724,10 +3007,13 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
         **decision.payload(),
         "rule": payload.rule,
         "signature": payload.signature,
+        "org_id": org_id,
     }
     _mark_learning_incident(system_id, body)
     _record_gate_decision(system_id, body)
-    await hub.broadcast(SimEvent(kind="gate_decision", payload=body))
+    await emit_for(
+        org_id, SimEvent(kind="gate_decision", payload=body)
+    )
     if decision.decision != "act":
         return {"decision": body, "run_id": None}
     reference = (
@@ -2749,10 +3035,11 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
         )
         result = await _run_appliance_from_telemetry(
             telemetry, "gate", reference=reference, gate=body,
-            profile=profile,
+            profile=profile, org_id=org_id,
         )
         run_id = next(reversed(appliance_runs))
         appliance_runs[run_id]["gate"] = body
+        appliance_runs[run_id]["org_id"] = org_id
         return {"decision": body, "run_id": run_id, "status": result.status}
     request = RunRequest(
         log_text=payload.window or payload.signature or payload.rule,
@@ -2761,9 +3048,14 @@ async def post_incident_candidate(payload: CandidateIn) -> dict:
         reference=reference,
         gate=body,
     )
-    result = await run_agent(request)
+    if org_id:
+        result = await _run_agent_impl(request, org_id)
+    else:
+        # Untagged (sim/demo) gate runs keep the public entry point.
+        result = await run_agent(request)
     run_id = next(reversed(software_runs))
     software_runs[run_id]["gate"] = body
+    software_runs[run_id]["org_id"] = org_id
     return {"decision": body, "run_id": run_id, "status": result.status}
 
 
@@ -2771,7 +3063,8 @@ class SampleIn(BaseModel):
     sample: str = Field(pattern=r"^(shop|coldchain)$")
 
 
-def _load_sample_profile(system_id: str, profile, sample: str):
+async def _load_sample_profile(system_id: str, profile, sample: str,
+                               org_id: str = ""):
     """Load a pre-read sample profile as this system's draft (J2 reuse)."""
     sample_path = (
         Path(__file__).resolve().parent.parent.parent
@@ -2799,18 +3092,23 @@ def _load_sample_profile(system_id: str, profile, sample: str):
             "environment": profile.environment,
         }
     )
-    stored = setup_store.save_profile(draft)
+    stored = await _profile_save(draft, org_id)
     setup_store.save_conflicts(system_id, [])
     return stored
 
 
 @app.post("/api/systems/{system_id}/profile/sample")
-async def load_sample_profile(system_id: str, payload: SampleIn) -> dict:
+async def load_sample_profile(
+    system_id: str, request: Request, payload: SampleIn
+) -> dict:
     """Skip extraction in the demo: load a pre-confirmed sample as draft."""
-    profile = setup_store.get_profile(system_id)
+    ctx = _need(request, "admin")
+    profile = await _profile_get(system_id, ctx.org_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="unknown system_id")
-    stored = _load_sample_profile(system_id, profile, payload.sample)
+    stored = await _load_sample_profile(
+        system_id, profile, payload.sample, ctx.org_id
+    )
     return stored.model_dump(mode="json")
 
 
@@ -2958,7 +3256,27 @@ async def deadlock_sample() -> dict[str, str]:
 
 @app.websocket("/api/ws")
 async def stream_events(websocket: WebSocket) -> None:
-    await hub.connect(websocket)
+    from core.commerce import auth as auth_module
+    from core.commerce import repo as repo_module
+
+    org_id = "demo"
+    token = websocket.query_params.get("token", "").strip()
+    if token and os.environ.get("DATABASE_URL", "").strip():
+        try:
+            ctx = await asyncio.to_thread(
+                auth_module.resolve_ws_token,
+                repo_module.get_store(),
+                token,
+                websocket.query_params.get("org", "").strip(),
+            )
+            org_id = ctx.org_id or "demo"
+        except auth_module.AuthError as exc:
+            await websocket.close(
+                code=4401 if exc.status == 401 else 4403,
+                reason=exc.detail[:120],
+            )
+            return
+    await hub.connect(websocket, org_id)
     try:
         while True:
             await websocket.receive_text()

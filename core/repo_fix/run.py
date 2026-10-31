@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -50,12 +51,35 @@ PYTEST = ADAPTER.suite_cmd([])
 PR_LABEL = "telemetry-agent"
 MAX_BODY_CHARS = 4000
 
-#: Fingerprints with a run in flight right now.
+#: (org_id, fingerprint) pairs with a run in flight right now.
+#: Self-hosted uses "" for the org (same behaviour as the old bare set).
 _active: set = set()
 
-#: fingerprint -> last epoch seconds we commented on its PR.
+#: (org_id, fingerprint) -> last epoch seconds we commented on its PR.
 _last_repeat_comment: Dict[str, float] = {}
 REPEAT_COMMENT_EVERY_S = 3600.0
+
+
+def _hosted() -> bool:
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
+def _usage(org_id: str, kind: str, **fields: Any) -> None:
+    """Best-effort usage hook (never breaks the pipeline)."""
+    if not org_id or not _hosted():
+        return
+    try:
+        from core.commerce import usage as usage_module
+
+        usage_module.record_usage(org_id, kind, **fields)
+    except Exception as exc:
+        log.warning("usage hook skipped: %s", exc)
+
+
+def _pg(org_id: str):
+    from core.commerce import repo as repo_module
+
+    return repo_module.get_store().scoped(org_id)
 
 
 def branch_for(fingerprint: str) -> str:
@@ -99,8 +123,14 @@ def keywords_for(exc_type: str, exc_value: str, frames: List[Any]) -> List[str]:
     return ordered[:10]
 
 
+def _profile_for(system_id: str, org_id: str) -> Any:
+    from core.commerce import repo as repo_module
+
+    return repo_module.get_profile(system_id, org_id)
+
+
 def should_trigger(
-    profile: Any, decision: Dict[str, Any]
+    profile: Any, decision: Dict[str, Any], org_id: str = ""
 ) -> Optional[Dict[str, Any]]:
     """Trigger context for a production traceback, or None to skip."""
     if profile is None or not is_production(profile):
@@ -126,10 +156,10 @@ def should_trigger(
     adapter_name = found[0].name
     language = found[1].language
     fingerprint = decision.get("fingerprint", "") or ""
-    if not fingerprint or fingerprint in _active:
+    if not fingerprint or (org_id, fingerprint) in _active:
         return None
     resolved = github_conn.connection_repo(
-        getattr(profile, "system_id", "")
+        getattr(profile, "system_id", ""), org_id
     )
     if resolved is None:
         return None
@@ -144,32 +174,50 @@ def should_trigger(
         # stays sync for the frozen trigger tests.
         "adapter_name": adapter_name,
         "language": language,
+        "org_id": org_id,
     }
+
+
+def _allowance_allows(org_id: str) -> tuple:
+    """(allowed, reason): free-allowance gate before spending (hosted)."""
+    try:
+        from core.commerce import allowance as allowance_module
+
+        status = allowance_module.allowance(org_id)
+        return bool(status.allowed_fix_run), status.reason or ""
+    except Exception as exc:
+        log.warning("allowance check skipped: %s", exc)
+        return True, ""
 
 
 async def maybe_trigger(
     system_id: str,
     decisions: List[Dict[str, Any]],
     commit: str,
+    org_id: str = "",
 ) -> List[str]:
     """Fire-and-forget repo runs for triggerable decisions; run_ids."""
-    from core.setup import store as setup_store
-
-    profile = setup_store.get_profile(system_id)
+    profile = _profile_for(system_id, org_id)
     started: List[str] = []
     for decision in decisions:
         decision = {**decision, "commit": commit}
-        ctx = should_trigger(profile, decision)
+        ctx = should_trigger(profile, decision, org_id)
         if ctx is None:
             continue
+        if _hosted() and org_id:
+            allowed, reason = _allowance_allows(org_id)
+            if not allowed:
+                _record_blocked(system_id, decision, reason, org_id)
+                continue
         run_id = uuid4().hex[:12]
-        _active.add(ctx["fingerprint"])
+        _active.add((org_id, ctx["fingerprint"]))
         # J-R4: a confirmed production incident proposes a rollback window
         # (approve-to-run: it expires unless a human approves). Best effort:
         # policy/paused/rate refusals just mean no window opens.
         try:
             await mitigate_actions.propose(
-                system_id, run_id, "rollback", auto_apply=False
+                system_id, run_id, "rollback", auto_apply=False,
+                org_id=org_id,
             )
         except Exception as exc:
             log.warning("rollback proposal skipped: %s", exc)
@@ -184,6 +232,39 @@ async def maybe_trigger(
         task.add_done_callback(_log_task_error)
         started.append(run_id)
     return started
+
+
+def _record_blocked(
+    system_id: str, decision: Dict[str, Any], reason: str, org_id: str
+) -> None:
+    """Gate-style decision + audit when the allowance blocks a run."""
+    try:
+        from apps.api.main import _record_gate_decision
+
+        _record_gate_decision(
+            system_id,
+            {
+                "decision": "suppress",
+                "reason": reason or "free allowance reached",
+                "fingerprint": decision.get("fingerprint", ""),
+                "org_id": org_id,
+            },
+        )
+    except Exception as exc:
+        log.warning("blocked-run decision not recorded: %s", exc)
+    try:
+        mitigate_actions.audit(
+            {
+                "system_id": system_id,
+                "action": "allowance_blocked",
+                "status": "suppressed",
+                "detail": reason or "free allowance reached",
+                "decided_by": "allowance",
+            },
+            org_id,
+        )
+    except Exception as exc:
+        log.warning("blocked-run audit skipped: %s", exc)
 
 
 def _log_task_error(task: "asyncio.Task") -> None:
@@ -201,8 +282,9 @@ def _emit(
     status: str,
     message: str,
     detail: str = "",
+    org_id: str = "",
 ) -> None:
-    from apps.api.main import _record_step, hub
+    from apps.api.main import _record_step, emit_for
     from core.schemas.events import AgentStep
 
     entry = AgentStep(
@@ -221,7 +303,7 @@ def _emit(
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    loop.create_task(hub.broadcast(entry))
+    loop.create_task(emit_for(org_id, entry))
 
 
 def _remember_run(run_id: str, entry: Dict[str, Any]) -> None:
@@ -296,15 +378,24 @@ async def run_repo_fix(
     diagnose_fn: Optional[Callable[..., Diagnosis]] = None,
     adapter_name: str = "python",
     language: str = "python",
+    org_id: str = "",
 ) -> Dict[str, Any]:
     """Full pipeline; always resolves the run entry (never raises)."""
-    from apps.api.main import hub
+    from apps.api.main import emit_for
     from core.schemas.events import SimEvent
 
     repo = repo_info["repo"]
     base = repo_info.get("base", "")
     token = repo_info.get("token", "")
     adapter = _adapter_by_name(adapter_name) or ADAPTER
+    if _hosted() and org_id:
+        _create_run_row(
+            run_id, system_id, fingerprint, language, org_id
+        )
+        _usage(
+            org_id, "fix_run", system_id=system_id, run_id=run_id,
+            unit="run_started", language=language,
+        )
     outcome: Dict[str, Any] = {"run_id": run_id, "status": "FAIL"}
     try:
         outcome = await _run(
@@ -321,6 +412,7 @@ async def run_repo_fix(
             sandbox_factory=sandbox_factory,
             diagnose_fn=diagnose_fn,
             adapter=adapter,
+            org_id=org_id,
         )
     except Exception as exc:
         reason = f"{type(exc).__name__}: {exc}"
@@ -330,12 +422,15 @@ async def run_repo_fix(
                 status="FAIL", stdout="", stderr=reason[:2000],
                 attempts=0, model_used="", run_id=run_id, repo=repo,
             ),
+            org_id,
+            language,
         )
         outcome = {"run_id": run_id, "status": "FAIL", "reason": reason}
     finally:
-        _active.discard(fingerprint)
+        _active.discard((org_id, fingerprint))
     if outcome.get("pr_url"):
-        await hub.broadcast(
+        await emit_for(
+            org_id,
             SimEvent(
                 kind="pr_opened",
                 payload={
@@ -344,9 +439,30 @@ async def run_repo_fix(
                     "pr_url": outcome["pr_url"],
                     "repo": repo,
                 },
-            )
+            ),
         )
     return outcome
+
+
+def _create_run_row(
+    run_id: str, system_id: str, fingerprint: str, language: str,
+    org_id: str,
+) -> None:
+    try:
+        _pg(org_id).create_run(
+            org_id,
+            {
+                "id": run_id,
+                "system_id": system_id,
+                "domain": "software",
+                "kind": "repo_fix",
+                "status": "running",
+                "language": language,
+                "fingerprint": fingerprint,
+            },
+        )
+    except Exception as exc:
+        log.warning("run row not created: %s", exc)
 
 
 def _finish(
@@ -356,6 +472,8 @@ def _finish(
     fingerprint: str,
     gate: Dict[str, Any],
     result: ExecutionResult,
+    org_id: str = "",
+    language: str = "python",
 ) -> None:
     _remember_run(
         run_id,
@@ -366,13 +484,37 @@ def _finish(
             "fingerprint": fingerprint,
             "result": result,
             "gate": gate,
+            "org_id": org_id,
         },
     )
     _emit(
         run_id, "done", result.attempts, result.model_used,
         "ok" if result.status == "PASS" else "error",
         result.pr_url or result.stderr[:200],
+        org_id=org_id,
     )
+    if not (_hosted() and org_id):
+        return
+    unit = {
+        "PASS": "run_pass", "NO_ACTION": "run_draft",
+    }.get(result.status, "run_failed")
+    _usage(
+        org_id, "fix_run", system_id=system_id, run_id=run_id,
+        unit=unit, language=language,
+    )
+    try:
+        _pg(org_id).update_run(
+            org_id,
+            run_id,
+            {
+                "status": result.status,
+                "language": language,
+                "pr_url": result.pr_url or "",
+                "finished": True,
+            },
+        )
+    except Exception as exc:
+        log.warning("run row not updated: %s", exc)
 
 
 async def _run(
@@ -390,6 +532,7 @@ async def _run(
     sandbox_factory: Optional[Callable[[bytes], Any]],
     diagnose_fn: Optional[Callable[..., Diagnosis]],
     adapter: Any,
+    org_id: str,
 ) -> Dict[str, Any]:
     import httpx
 
@@ -426,6 +569,7 @@ async def _run(
             sandbox_factory=sandbox_factory,
             diagnose_fn=diagnose_fn,
             adapter=adapter,
+            org_id=org_id,
         )
     finally:
         if owned:
@@ -449,6 +593,7 @@ async def _pipeline(
     sandbox_factory: Optional[Callable[[bytes], Any]],
     diagnose_fn: Optional[Callable[..., Diagnosis]],
     adapter: Any,
+    org_id: str,
 ) -> Dict[str, Any]:
     from core.verify import repo_sandbox
 
@@ -458,13 +603,14 @@ async def _pipeline(
     branch = branch_for(fingerprint)
 
     # 1. Locate ---------------------------------------------------------
-    _emit(run_id, "diagnose", 0, "", "ok", "locating suspect files")
+    _emit(run_id, "diagnose", 0, "", "ok", "locating suspect files",
+          org_id=org_id)
     try:
         commit_info = await asyncio.to_thread(
             repo_snapshot.resolve_commit, repo, token, commit, base, http
         )
     except repo_snapshot.SnapshotFailed as exc:
-        return _fail(run_id, system_id, repo, fingerprint, gate, str(exc))
+        return _fail(run_id, system_id, repo, fingerprint, gate, str(exc), org_id, adapter.name)
     sha = commit_info["sha"]
     tree = await asyncio.to_thread(
         repo_locate.fetch_tree, repo, token, sha, http
@@ -481,6 +627,7 @@ async def _pipeline(
             run_id, system_id, repo, fingerprint, gate,
             f"trace language {adapter.name} does not match"
             f" repo {repo} (detect score 0)",
+            org_id, adapter.name,
         )
     await _configure_adapter(repo, token, sha, paths, http, adapter)
     located = repo_locate.match_frames(parsed.frames, paths, adapter.map_frame)
@@ -541,10 +688,12 @@ async def _pipeline(
             ),
             "no suspect files readable at the failing commit", "",
             adapter, test_relpath,
+            org_id, adapter.name,
         )
 
     # Diagnose (Muse Spark, existing client) -----------------------------
-    _emit(run_id, "diagnose", 1, "meta:muse-spark", "ok", "diagnosing")
+    _emit(run_id, "diagnose", 1, "meta:muse-spark", "ok", "diagnosing",
+          org_id=org_id)
     telemetry = (
         f"production traceback from {repo}@{sha[:12]}:\n{traceback_text}\n\n"
         + "\n\n".join(
@@ -558,10 +707,12 @@ async def _pipeline(
         return _fail(
             run_id, system_id, repo, fingerprint, gate,
             f"diagnosis failed: {exc}",
+            org_id, adapter.name,
         )
 
     # 2. Snapshot + sandbox ----------------------------------------------
-    _emit(run_id, "diagnose", 1, "", "ok", "snapshotting repo")
+    _emit(run_id, "diagnose", 1, "", "ok", "snapshotting repo",
+          org_id=org_id)
     try:
         tarball = await asyncio.to_thread(
             repo_snapshot.fetch_tarball, repo, token, sha, http
@@ -572,6 +723,7 @@ async def _pipeline(
             sha, gate, http, github_pr, diagnosis,
             "repo snapshot exceeds 50 MB", "",
             adapter, test_relpath,
+            org_id, adapter.name,
         )
     filtered = await asyncio.to_thread(repo_snapshot.filter_snapshot, tarball)
     opener = sandbox_factory or repo_sandbox.open_repo_sandbox
@@ -586,6 +738,7 @@ async def _pipeline(
         return _fail(
             run_id, system_id, repo, fingerprint, gate,
             f"no sandbox available: {exc}",
+            org_id, adapter.name,
         )
     try:
         return await _verify_and_fix(
@@ -607,13 +760,32 @@ async def _pipeline(
             test_relpath=test_relpath,
             branch=branch,
             adapter=adapter,
+            org_id=org_id,
         )
     finally:
         await asyncio.to_thread(sandbox.terminate)
 
 
-async def _sandbox_exec(sandbox: Any, cmd: List[str], **kwargs: Any) -> Dict[str, Any]:
-    return await asyncio.to_thread(sandbox.exec, cmd, **kwargs)
+async def _sandbox_exec(
+    sandbox: Any,
+    cmd: List[str],
+    *,
+    org_id: str = "",
+    language: str = "",
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    started = time.time()
+    try:
+        return await asyncio.to_thread(sandbox.exec, cmd, **kwargs)
+    finally:
+        if org_id and _hosted():
+            _usage(
+                org_id, "sandbox_time",
+                quantity=max(0.0, time.time() - started),
+                unit="seconds",
+                provider=str(getattr(sandbox, "backend", "") or ""),
+                language=language or None,
+            )
 
 
 def _reader(sandbox: Any) -> Callable[[str], Optional[str]]:
@@ -664,16 +836,26 @@ async def _configure_adapter(
 
 
 async def _install_deps(
-    run_id: str, sandbox: Any, paths: List[str], adapter: Any
+    run_id: str,
+    sandbox: Any,
+    paths: List[str],
+    adapter: Any,
+    org_id: str = "",
+    language: str = "",
 ) -> Optional[str]:
     """Install snapshot deps; None on success, else the failure output."""
-    _emit(run_id, "verify", 0, "", "ok", "installing dependencies")
+    _emit(
+        run_id, "verify", 0, "", "ok", "installing dependencies",
+        org_id=org_id,
+    )
     for cmd in adapter.install_cmds(paths):
         result = await _sandbox_exec(
             sandbox,
             cmd,
             timeout=adapter.install_timeout_s,
             network=True,
+            org_id=org_id,
+            language=language,
         )
         if result["returncode"] != 0:
             return str(result["stderr"] or result["stdout"])
@@ -711,20 +893,27 @@ async def _verify_and_fix(
     test_relpath: str,
     branch: str,
     adapter: Any,
+    org_id: str,
 ) -> Dict[str, Any]:
-    install_error = await _install_deps(run_id, sandbox, paths, adapter)
+    install_error = await _install_deps(
+        run_id, sandbox, paths, adapter, org_id, adapter.name
+    )
     if install_error is not None:
         return await _draft(
             run_id, system_id, repo, base, token, fingerprint, sha,
             gate, http, github_pr, diagnosis,
             f"dependencies would not install:\n{install_error[-800:]}", "",
             adapter, test_relpath,
+            org_id, adapter.name,
         )
-    _emit(run_id, "verify", 0, "", "ok", "running baseline suite")
+    _emit(run_id, "verify", 0, "", "ok", "running baseline suite",
+          org_id=org_id)
     baseline_raw = await _sandbox_exec(
         sandbox,
         adapter.suite_cmd(paths),
         timeout=adapter.suite_timeout_s,
+        org_id=org_id,
+        language=adapter.name,
     )
     baseline = adapter.parse_results(
         str(baseline_raw["stdout"]),
@@ -737,6 +926,7 @@ async def _verify_and_fix(
             gate, http, github_pr, diagnosis,
             "no tests collected in the snapshot", "",
             adapter, test_relpath,
+            org_id, adapter.name,
         )
 
     # 4. Reproduce --------------------------------------------------------
@@ -750,6 +940,7 @@ async def _verify_and_fix(
         _emit(
             run_id, "generate", attempt, "", "ok",
             "writing repro test",
+            org_id=org_id,
         )
         try:
             candidate, model_used = await asyncio.to_thread(
@@ -772,6 +963,8 @@ async def _verify_and_fix(
             sandbox,
             adapter.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
+            org_id=org_id,
+            language=adapter.name,
         )
         output = str(ran["stdout"]) + "\n" + str(ran["stderr"])
         ran_result = adapter.parse_results(
@@ -790,13 +983,15 @@ async def _verify_and_fix(
             "could not write a test that fails on the original code",
             "",
             adapter, test_relpath,
+            org_id, adapter.name,
         )
 
     # 5+6. Patch + prove ---------------------------------------------------
     patch_note = ""
     for attempt in range(1, PATCH_ATTEMPTS + 1):
         attempts += 1
-        _emit(run_id, "generate", attempt, "", "ok", "writing patch")
+        _emit(run_id, "generate", attempt, "", "ok", "writing patch",
+          org_id=org_id)
         try:
             files, model_used, patch_note = await asyncio.to_thread(
                 repo_generate.generate_patch,
@@ -820,6 +1015,8 @@ async def _verify_and_fix(
             sandbox,
             adapter.single_test_cmd(test_relpath, paths),
             timeout=REPRO_TIMEOUT_S,
+            org_id=org_id,
+            language=adapter.name,
         )
         rerun_output = str(rerun["stdout"]) + "\n" + str(rerun["stderr"])
         if rerun["returncode"] != 0:
@@ -829,6 +1026,8 @@ async def _verify_and_fix(
             sandbox,
             adapter.suite_cmd(paths),
             timeout=adapter.suite_timeout_s,
+            org_id=org_id,
+            language=adapter.name,
         )
         proved = adapter.parse_results(
             str(proved_raw["stdout"]),
@@ -865,6 +1064,8 @@ async def _verify_and_fix(
             model_used=model_used,
             sandbox_backend=sandbox.backend,
             branch=branch,
+            org_id=org_id,
+            language=adapter.name,
         )
     return await _draft(
         run_id, system_id, repo, base, token, fingerprint, sha,
@@ -872,6 +1073,7 @@ async def _verify_and_fix(
         "patch attempts did not prove (repro must pass, no new failures)",
         repro_code,
         adapter, test_relpath,
+        org_id, adapter.name,
     )
 
 
@@ -899,15 +1101,21 @@ async def _open_or_comment(
     model_used: str,
     sandbox_backend: str,
     branch: str,
+    org_id: str = "",
+    language: str = "python",
 ) -> Dict[str, Any]:
-    _emit(run_id, "verify", attempts, "", "ok", "opening pull request")
+    _emit(
+        run_id, "verify", attempts, "", "ok", "opening pull request",
+        org_id=org_id,
+    )
     existing = await asyncio.to_thread(
         github_pr.open_pr_for_branch, repo, branch, token, http
     )
     if existing is not None:
         # Chatty errors must not spam the PR: one repeat comment/hour/fp.
         now = time.time()
-        if now - _last_repeat_comment.get(fingerprint, 0.0) >= REPEAT_COMMENT_EVERY_S:
+        key = (org_id, fingerprint)
+        if now - _last_repeat_comment.get(key, 0.0) >= REPEAT_COMMENT_EVERY_S:
             await asyncio.to_thread(
                 github_pr.comment_on_pr,
                 repo,
@@ -918,7 +1126,11 @@ async def _open_or_comment(
                 token,
                 http,
             )
-            _last_repeat_comment[fingerprint] = now
+            _last_repeat_comment[key] = now
+            _usage(
+                org_id, "pr", system_id=system_id, run_id=run_id,
+                unit="pr_comment", language=language,
+            )
         pr_url = existing["html_url"]
     else:
         pr_files = {item["path"]: item["content"] for item in files}
@@ -945,6 +1157,10 @@ async def _open_or_comment(
             client=http,
             labels=[PR_LABEL],
         )
+        _usage(
+            org_id, "pr", system_id=system_id, run_id=run_id,
+            unit="pr_opened", language=language,
+        )
     result = ExecutionResult(
         status="PASS",
         stdout=f"suite {suite['passed']} passed, {suite['failed']} failed, "
@@ -964,7 +1180,10 @@ async def _open_or_comment(
             runner=sandbox_backend,
         ),
     )
-    _finish(run_id, system_id, repo, fingerprint, gate, result)
+    _finish(
+        run_id, system_id, repo, fingerprint, gate, result, org_id,
+        language,
+    )
     return {"run_id": run_id, "status": "PASS", "pr_url": pr_url}
 
 
@@ -984,9 +1203,11 @@ async def _draft(
     repro_code: str,
     adapter: Any = None,
     test_relpath: str = "",
+    org_id: str = "",
+    language: str = "python",
 ) -> Dict[str, Any]:
     """Draft PR with diagnosis (+ repro test when one exists)."""
-    _emit(run_id, "verify", 0, "", "ok", "opening draft PR")
+    _emit(run_id, "verify", 0, "", "ok", "opening draft PR", org_id=org_id)
     branch = branch_for(fingerprint)
     existing = await asyncio.to_thread(
         github_pr.open_pr_for_branch, repo, branch, token, http
@@ -1037,7 +1258,15 @@ async def _draft(
         run_id=run_id,
         repo=repo,
     )
-    _finish(run_id, system_id, repo, fingerprint, gate, result)
+    if existing is None:
+        _usage(
+            org_id, "pr", system_id=system_id, run_id=run_id,
+            unit="pr_opened", language=language,
+        )
+    _finish(
+        run_id, system_id, repo, fingerprint, gate, result, org_id,
+        language,
+    )
     return {"run_id": run_id, "status": "NO_ACTION", "pr_url": pr_url}
 
 
@@ -1048,10 +1277,15 @@ def _fail(
     fingerprint: str,
     gate: Dict[str, Any],
     reason: str,
+    org_id: str = "",
+    language: str = "python",
 ) -> Dict[str, Any]:
     result = ExecutionResult(
         status="FAIL", stdout="", stderr=reason[:2000],
         attempts=0, model_used="", run_id=run_id, repo=repo,
     )
-    _finish(run_id, system_id, repo, fingerprint, gate, result)
+    _finish(
+        run_id, system_id, repo, fingerprint, gate, result, org_id,
+        language,
+    )
     return {"run_id": run_id, "status": "FAIL", "reason": reason}
