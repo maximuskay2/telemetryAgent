@@ -284,5 +284,37 @@ class SoftwareLoopTests(unittest.TestCase):
         self.assertIsNone(result.pr_url)
 
 
+class VerifySafetyTests(unittest.TestCase):
+    def test_broken_backend_aborts_fast_with_report(self) -> None:
+        events = []
+        with _patch_env(MODEL_API_KEY="z"), \
+                patch("core.agent.loop.meta_client.diagnose",
+                      return_value=DIAGNOSIS), \
+                patch("core.infer.meta_client.generate_patch",
+                      return_value=PATCH) as gen, \
+                patch("core.agent.loop.verify_patch",
+                      side_effect=RuntimeError("Docker is not installed")):
+            result = run_software_loop(TELEMETRY, on_event=events.append)
+        self.assertEqual(result.status, "FAIL")
+        self.assertIn("Docker is not installed", result.stderr)
+        gen.assert_called_once()
+        verify_events = [e for e in events if e.get("step") == "verify"]
+        self.assertEqual(len(verify_events), 1)
+        self.assertEqual(verify_events[0]["status"], "FAIL")
+
+    def test_bad_model_output_retries_then_fails(self) -> None:
+        with _patch_env(MODEL_API_KEY="z"), \
+                patch("core.agent.loop.meta_client.diagnose",
+                      return_value=DIAGNOSIS), \
+                patch("core.infer.meta_client.generate_patch",
+                      return_value=PATCH) as gen, \
+                patch("core.agent.loop.verify_patch",
+                      side_effect=ValueError("empty patch")):
+            result = run_software_loop(TELEMETRY, max_attempts=2)
+        self.assertEqual(result.status, "FAIL")
+        self.assertIn("empty patch", result.stderr)
+        self.assertEqual(gen.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

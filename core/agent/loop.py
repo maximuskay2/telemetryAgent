@@ -202,6 +202,10 @@ def _runbook_providers() -> list:
     return providers
 
 
+class _VerifyUnavailable(Exception):
+    """Verification backend broken: fail the run with a report, never hang."""
+
+
 def run_software_loop(
     telemetry: SoftwareTelemetry,
     max_attempts: int = 3,
@@ -296,6 +300,22 @@ def run_software_loop(
             )
 
     def verify(patch) -> VerificationResult:
+        try:
+            return _verify_inner(patch)
+        except ValueError as exc:
+            # Bad model output (empty patch/test): retryable, next
+            # attempt gets the feedback.
+            return VerificationResult(
+                passed=False,
+                feedback=f"verification error: {exc}",
+            )
+        except Exception as exc:
+            # Broken backend (no Modal, no Docker, sandbox down):
+            # deterministic, so abort fast with a report instead of
+            # burning the remaining attempts.
+            raise _VerifyUnavailable(str(exc)) from exc
+
+    def _verify_inner(patch) -> VerificationResult:
         if harness:
             head = verify_patch(patch.patch_code, harness)
             if not head["passed"]:
@@ -355,8 +375,23 @@ def run_software_loop(
             verification=_state_verification(state),
         )
 
-    outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,
-                       max_attempts, emit, early_stop)
+    loop_started = time.perf_counter()
+    try:
+        outcome = run_loop(telemetry, diagnose, generate_fix, verify, act, escalate,
+                           max_attempts, emit, early_stop)
+    except _VerifyUnavailable as exc:
+        emit({"step": "verify", "attempt": 1, "status": "FAIL",
+              "duration_ms": _ms(loop_started),
+              "detail": _truncate(str(exc))})
+        return ExecutionResult(
+            status="FAIL",
+            stdout="",
+            stderr=str(exc),
+            attempts=1,
+            model_used=state["model"],
+            run_id=run_id,
+            verification=_state_verification(state),
+        )
     if isinstance(outcome, ExecutionResult):
         return outcome
     feedback = outcome.get("feedback") or ""
