@@ -213,22 +213,45 @@ dashboard, kept for the video).
   `hardware/sim_device.py`, or the firmware in `hardware/wokwi/` on
   [wokwi.com](https://wokwi.com). Step-by-step: [§ E](#e-wokwi--the-esp32-without-hardware).
 
-### A.6 Mobile app
+### A.6 Mobile app (download the APK)
+
+Users do **not** need Flutter. Download the Android APK and pair it to
+the demo or to production:
+
+- File: [YOUR-WEB/downloads/telemetry-agent.apk](https://web-production-926b3.up.railway.app/downloads/telemetry-agent.apk)
+- In the product: **How to → Download APK** (`/guide#phone`)
+- Android only. The phone will warn that the file is not from Play
+  Store — that is expected.
+
+**Demo (no account)**
+
+1. Finish the live-demo walkthrough so Mission Control opens.
+2. Install the APK. Open the app.
+3. Tap **Pair** on Mission Control and scan the QR (it carries the API
+   URL).
+4. Token: leave blank on the public demo. On a local API, type
+   `MOBILE_API_TOKEN` from `.env` (blank if unset). Local phones need
+   the same Wi-Fi and `API_HOST=0.0.0.0`.
+5. The phone shows the report. Approve, cancel, or do nothing. If no
+   one answers, it acts — you already gave that permission.
+
+**Production (signed in)**
+
+1. Install the same APK.
+2. **Devices** → label the phone → **Get pairing code** (10 minutes).
+3. In the app, claim that code (API URL is the public API or your
+   instance).
+4. Revoke the phone on Devices to stop its approvals at once.
+
+Developers who want to run from source:
 
 ```bash
 cd apps/mobile && flutter pub get && flutter run
+# or: ./scripts/build-apk.sh
 ```
 
-On the Pair screen enter the API URL + token from `.env`:
-
-- Android emulator: `http://10.0.2.2:8001` (host loopback).
-- Physical phone: your Mac's LAN IP, e.g. `http://192.168.x.x:8001` —
-  start the API with `--host 0.0.0.0`.
-- Self-hosted token: `MOBILE_API_TOKEN` (blank when unset).
-- Hosted: pair from **Devices** (a 10-minute code), then claim it in
-  the app.
-- Public self-hosted API: `https://api-production-0c9a.up.railway.app`;
-  ask the team for its mobile token (it isn't published).
+Android emulator API URL: `http://10.0.2.2:8001`. Physical phone: your
+Mac’s LAN IP.
 
 ### A.7 Checks
 
@@ -527,12 +550,16 @@ python3 hardware/sim_device.py --api YOUR-API --device fridge-01 \
 
 ### C.6 Pair your phone, start watching
 
-- **Hosted:** **Devices** → label the phone → 10-minute code → claim in
-  the app. Revoke there to stop approvals immediately.
-- **Self-hosted:** scan the QR (API URL) and type `MOBILE_API_TOKEN`.
+Download the APK first (same file as the demo — see [A.6](#a6-mobile-app-download-the-apk)
+or `/guide#phone`).
 
-Then **Start watching**. There is no app-store build yet:
-`cd apps/mobile && flutter run` (see A.6).
+- **Hosted / signed-in:** **Devices** → label the phone → 10-minute
+  code → claim it in the app. Revoke there to stop approvals immediately.
+- **Self-hosted / local demo:** scan the Mission Control **Pair** QR
+  (API URL), then type `MOBILE_API_TOKEN` if that instance set one.
+
+Then **Start watching**. There is no Play Store listing. The APK is the
+install.
 
 ### C.7 Day 2: what an incident looks like
 
@@ -576,7 +603,9 @@ Pause-all freezes the world in one tap. **Disconnect** kills that key;
   - Hosted: one org’s data is not visible to another. Self-hosted: one
     instance = one team.
   - No push notifications when the app is fully closed (FCM descoped).
-  - The mobile app is installed from source, not an app store.
+  - The mobile app is an Android APK (not on the Play Store). Download
+    it from How to (`/downloads/telemetry-agent.apk`); pair it to the demo or to
+    production.
 
 ---
 

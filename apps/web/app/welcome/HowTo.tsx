@@ -118,6 +118,51 @@ export default function HowTo() {
         </article>
       </div>
 
+      <section
+        id="phone"
+        aria-labelledby="phone-title"
+        className="mt-3 rounded-lg border border-border bg-surface p-5"
+      >
+        <p className="text-xs font-medium tracking-wide text-brand-cyan uppercase">
+          Phone
+        </p>
+        <h3 id="phone-title" className="mt-1 text-base font-semibold">
+          Download the Android app
+        </h3>
+        <p className="mt-2 text-xs leading-relaxed text-text-muted">
+          One APK for both doors. Install it, then pair it to the demo
+          shop or to your production system. Android only for now. Your
+          phone may warn that the file is from outside the Play Store —
+          that is expected.
+        </p>
+        <a
+          href="/downloads/telemetry-agent.apk"
+          className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          Download APK
+        </a>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-semibold">Pair to the live demo</p>
+            <ol className="mt-2 list-decimal space-y-1.5 ps-5 text-xs leading-relaxed text-text-muted">
+              <li>Finish the demo walkthrough so Mission Control opens.</li>
+              <li>Tap <span className="font-medium text-text">Pair</span> in the top bar and scan the QR.</li>
+              <li>If the app asks for a token, leave it blank on the public demo, or type the token the person running a local API gave you.</li>
+              <li>The phone shows the same report. Approve, cancel, or do nothing — if no one answers, it acts because you already gave permission.</li>
+            </ol>
+          </div>
+          <div>
+            <p className="text-sm font-semibold">Pair to production</p>
+            <ol className="mt-2 list-decimal space-y-1.5 ps-5 text-xs leading-relaxed text-text-muted">
+              <li>Sign in. Open <span className="font-medium text-text">Devices</span>.</li>
+              <li>Label the phone and tap <span className="font-medium text-text">Get pairing code</span> (10 minutes).</li>
+              <li>In the app, enter the API URL if asked, then claim that code.</li>
+              <li>The phone is now tied to your organization. Revoke it on Devices to stop approvals at once.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
       <div className="mt-3 rounded-lg border border-border bg-surface p-5">
         <h3 className="text-sm font-semibold">What you will see on Mission Control</h3>
         <ul className="mt-3 list-disc space-y-1.5 ps-5 text-xs leading-relaxed text-text-muted">
@@ -131,8 +176,8 @@ export default function HowTo() {
             charge.
           </li>
           <li>
-            Home and Live demo stay one click away. You can come back to
-            this guide any time.
+            Home and Live demo stay one click away. Pair the Android app
+            (Download APK above) to see the same report on your phone.
           </li>
         </ul>
       </div>

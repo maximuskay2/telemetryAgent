@@ -21,6 +21,9 @@ function MenuLinks() {
       <Link href="/guide" className={menuClass(pathname === "/guide")}>
         How to
       </Link>
+      <Link href="/guide#phone" className={menuClass(false)}>
+        Get the app
+      </Link>
       <Link href="/support" className={menuClass(pathname === "/support")}>
         Support
       </Link>
@@ -51,6 +54,9 @@ export default function WelcomeHeader() {
               <>
                 <Link href="/guide" className={menuClass(false)}>
                   How to
+                </Link>
+                <Link href="/guide#phone" className={menuClass(false)}>
+                  Get the app
                 </Link>
                 <Link href="/support" className={menuClass(false)}>
                   Support

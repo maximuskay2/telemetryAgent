@@ -67,8 +67,15 @@ export default function SupportPage() {
             className="rounded font-medium text-brand-cyan underline outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
           >
             Read the how-to
-          </Link>{" "}
-          or{" "}
+          </Link>
+          ,{" "}
+          <Link
+            href="/guide#phone"
+            className="rounded font-medium text-brand-cyan underline outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            download the Android app
+          </Link>
+          , or{" "}
           <Link
             href="/start"
             className="rounded font-medium text-brand-cyan underline outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"

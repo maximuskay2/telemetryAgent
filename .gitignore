@@ -16,3 +16,4 @@ demo/target-service/logs/
 demo/shop/logs/
 demo/shop/.runtime/
 data/
+apps/mobile/build/

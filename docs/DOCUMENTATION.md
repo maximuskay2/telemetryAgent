@@ -600,8 +600,14 @@ sandboxes are slower (~150–200 s) than most others (~20–40 s).
 - iOS: best effort (time-sensitive notification + in-app alarm). FCM
   push for a fully closed app is not built.
 
-Run: `cd apps/mobile && flutter run` (device on the same Wi-Fi; start
-the demo with `API_HOST=0.0.0.0`).
+**Download (users):** Android APK — `/downloads/telemetry-agent.apk` on
+the site (also [public web](https://web-production-926b3.up.railway.app/downloads/telemetry-agent.apk))
+or **How to → Download APK** (`/guide#phone`). Pair to the **demo**
+(Mission Control **Pair** QR) or to **production** (**Devices** pairing
+code). Rebuild with `./scripts/build-apk.sh`.
+
+**From source:** `cd apps/mobile && flutter run` (device on the same
+Wi-Fi; start the demo with `API_HOST=0.0.0.0`).
 
 ---
 

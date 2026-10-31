@@ -74,6 +74,12 @@ export default function AccountChrome({ children }: { children: ReactNode }) {
               How to
             </Link>
             <Link
+              href="/guide#phone"
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Get the app
+            </Link>
+            <Link
               href="/support"
               className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
             >

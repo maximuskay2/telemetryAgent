@@ -3,17 +3,29 @@
 Flutter companion to the Mission Control dashboard: veto alarms that fire
 over the lock screen, a live feed, and per-incident reports.
 
-## Run
+## Download (users)
+
+Android APK (not on the Play Store):
+
+https://web-production-926b3.up.railway.app/downloads/telemetry-agent.apk
+
+Or **How to → Download APK** on the site (`/guide#phone`).
+
+- **Demo:** finish the walkthrough → Mission Control **Pair** → scan the QR.
+- **Production:** sign in → **Devices** → pairing code → claim it in the app.
+
+## Run from source
 
 ```sh
 cd apps/mobile
 flutter pub get
 flutter run
+# or from the repo root: ./scripts/build-apk.sh
 ```
 
 The phone and the API must share Wi-Fi (start the demo with
 `API_HOST=0.0.0.0`). Pair from the dashboard's QR: scan it in the app and
-type the mobile token from `.env`.
+type the mobile token from `.env` (blank when unset).
 
 ## What's inside
 
