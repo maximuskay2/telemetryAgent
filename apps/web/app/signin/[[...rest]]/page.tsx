@@ -4,7 +4,7 @@
 // Catch-all so Clerk path routing can own /signin/* (factor-one, sso-callback).
 "use client";
 
-import { SignIn } from "@clerk/nextjs";
+import { SignIn, useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -13,6 +13,56 @@ import ThemeToggle from "../../components/ThemeToggle";
 import { safeNext } from "../../lib/nextPath";
 import { useSession } from "../../lib/session";
 import { Card } from "../../ui";
+
+/** Clerk-owned pane (only mounted when the provider exists). */
+function ClerkPane({ next }: { next: string }) {
+  const { status, signOut } = useSession();
+  const { isLoaded, isSignedIn } = useAuth();
+  // Clerk has a session but our API session failed: rendering <SignIn/>
+  // here makes Clerk bounce to `next` forever, so show a way out instead.
+  if (isLoaded && isSignedIn && status === "signed-out") {
+    return (
+      <Card title="Sign-in didn't finish">
+        <p className="text-sm text-text-muted">
+          You&apos;re signed in, but the API rejected the session or is
+          unreachable. Try again, or sign out and back in.
+        </p>
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-sm font-medium text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="cursor-pointer rounded-lg border border-border px-3 py-2 text-sm text-text outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            Sign out
+          </button>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <div className="flex justify-center">
+      <SignIn
+        routing="path"
+        path="/signin"
+        forceRedirectUrl={next}
+        appearance={{
+          variables: {
+            colorPrimary: "#0866FF",
+            borderRadius: "12px",
+            fontFamily: "Optimistic, Helvetica, Arial, sans-serif",
+          },
+        }}
+      />
+    </div>
+  );
+}
 
 function SignInInner() {
   const { status, devMode, clerkMode, signInDev, signInToken } = useSession();
@@ -70,20 +120,7 @@ function SignInInner() {
         <ThemeToggle />
       </div>
       {clerkMode ? (
-        <div className="flex justify-center">
-          <SignIn
-            routing="path"
-            path="/signin"
-            forceRedirectUrl={next}
-            appearance={{
-              variables: {
-                colorPrimary: "#0866FF",
-                borderRadius: "12px",
-                fontFamily: "Optimistic, Helvetica, Arial, sans-serif",
-              },
-            }}
-          />
-        </div>
+        <ClerkPane next={next} />
       ) : (
         <Card title="Sign in">
           {devMode && (

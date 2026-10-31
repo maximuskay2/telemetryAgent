@@ -75,6 +75,16 @@ describe("gated product flow", () => {
     assert.ok(!signin.includes('router.push("/")'));
   });
 
+  it("sign-in breaks the Clerk-signed-in/API-rejected redirect loop", () => {
+    const signin = read("signin/[[...rest]]/page.tsx");
+    assert.ok(signin.includes("useAuth"), "reads the Clerk session");
+    assert.ok(
+      signin.includes('isSignedIn && status === "signed-out"'),
+      "detects stuck sessions instead of re-rendering <SignIn/>",
+    );
+    assert.ok(signin.includes("Try again"), "offers a way out");
+  });
+
   it("demo Mission Control does not embed members/devices/usage icons", () => {
     const nav = read("commerce/AccountNav.tsx");
     assert.ok(nav.includes("Connect production") || nav.includes("Your production"));
