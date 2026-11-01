@@ -11,8 +11,8 @@ import {
   checkAccessCode,
   getAccessCode,
   getConnectDoor,
-  setConnectAuthProvider,
 } from "./api";
+import { setSessionAuthProvider } from "../lib/sessionAuth";
 import ConnectionsPanel from "./ConnectionsPanel";
 import { ErrorLine, Field, StepNav, inputCls } from "./ui";
 import Wizard from "./Wizard";
@@ -77,7 +77,7 @@ function ConnectDoor({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setConnectAuthProvider(getSessionAuth);
+    setSessionAuthProvider(getSessionAuth);
   }, [getSessionAuth]);
 
   useEffect(() => {

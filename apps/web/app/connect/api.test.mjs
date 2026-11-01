@@ -13,7 +13,9 @@ const appDir = join(here, "..");
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
+const moduleCache = {};
 function loadTs(relativePath) {
+  if (moduleCache[relativePath]) return moduleCache[relativePath];
   const source = readFileSync(join(appDir, relativePath), "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
@@ -24,6 +26,7 @@ function loadTs(relativePath) {
   const module = { exports: {} };
   const localRequire = (request) => {
     if (request === "../lib/api") return loadTs("lib/api.ts");
+    if (request === "../lib/sessionAuth") return loadTs("lib/sessionAuth.ts");
     if (request === "../types/production") return {};
     return require(request);
   };
@@ -32,6 +35,7 @@ function loadTs(relativePath) {
     module.exports,
     localRequire,
   );
+  moduleCache[relativePath] = module.exports;
   return module.exports;
 }
 
@@ -61,7 +65,8 @@ describe("connect api auth", () => {
 
   it("sends the session token and org once provided", async () => {
     const seen = stubFetch();
-    api.setConnectAuthProvider(() => ({ token: "jwt123", orgId: "org1" }));
+    const { setSessionAuthProvider } = loadTs("lib/sessionAuth.ts");
+    setSessionAuthProvider(() => ({ token: "jwt123", orgId: "org1" }));
     await api.createSystem({ name: "n", kind: "software" });
     const headers = seen[0][1].headers;
     assert.equal(headers.Authorization, "Bearer jwt123");

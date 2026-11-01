@@ -36,13 +36,18 @@ describe("first-sign-in org", () => {
     assert.ok(session.includes("getSessionAuth"), "exposes token + org");
     const page = read("connect/page.tsx");
     assert.ok(
-      page.includes("setConnectAuthProvider(getSessionAuth)"),
-      "/connect wires the session into its API client",
+      page.includes("setSessionAuthProvider(getSessionAuth)"),
+      "/connect wires the session into its API clients",
     );
     const setup = read("setup/page.tsx");
     assert.ok(
       setup.includes("getSessionAuth()"),
       "/setup sends the session with system calls",
+    );
+    const setupApi = read("lib/setupApi.ts");
+    assert.ok(
+      setupApi.includes("sessionAuthHeaders()"),
+      "setupApi carries the session (wizard profile reads)",
     );
   });
 });

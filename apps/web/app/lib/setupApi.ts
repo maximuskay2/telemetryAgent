@@ -1,6 +1,7 @@
 "use client";
 
 import { apiUrl, responseDetail } from "./api";
+import { sessionAuthHeaders } from "./sessionAuth";
 
 /** localStorage flag set once a visitor finishes the demo or production walkthrough. */
 export const ONBOARDED_KEY = "ta_onboarded";
@@ -14,7 +15,10 @@ export function markOnboarded(): void {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, init);
+  const response = await fetch(`${apiUrl}${path}`, {
+    ...init,
+    headers: { ...sessionAuthHeaders(), ...(init?.headers ?? {}) },
+  });
   if (!response.ok) throw new Error(await responseDetail(response));
   return (await response.json()) as T;
 }
