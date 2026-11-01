@@ -90,11 +90,15 @@ export function StepNav({
   onNext,
   nextLabel = "Continue",
   nextDisabled = false,
+  onSkip,
+  skipLabel = "Skip for now",
 }: {
   onBack?: () => void;
   onNext: () => void;
   nextLabel?: string;
   nextDisabled?: boolean;
+  onSkip?: () => void;
+  skipLabel?: string;
 }) {
   return (
     <div className="flex items-center gap-2 pt-1">
@@ -106,6 +110,11 @@ export function StepNav({
       <Button tone="primary" onClick={onNext} disabled={nextDisabled}>
         {nextLabel}
       </Button>
+      {onSkip && (
+        <Button tone="ghost" onClick={onSkip}>
+          {skipLabel}
+        </Button>
+      )}
     </div>
   );
 }

@@ -92,6 +92,17 @@ describe("gated product flow", () => {
     assert.ok(steps.includes("Pull requests = Read"));
   });
 
+  it("connect hosting step guides webhooks and can be skipped", () => {
+    const steps = read("connect/ConnSteps.tsx");
+    assert.ok(steps.includes("X-Telemetry-Signature"), "signing contract");
+    assert.ok(steps.includes("whsec_"), "secret is user-invented");
+    assert.ok(steps.includes('onSkip={() => onDone("", "")}'), "skippable");
+    assert.ok(
+      steps.includes("work without hosting"),
+      "says what works without it",
+    );
+  });
+
   it("demo Mission Control does not embed members/devices/usage icons", () => {
     const nav = read("commerce/AccountNav.tsx");
     assert.ok(nav.includes("Connect production") || nav.includes("Your production"));

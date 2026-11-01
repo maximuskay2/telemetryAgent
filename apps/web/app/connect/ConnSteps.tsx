@@ -310,7 +310,7 @@ export function StepHosting({
   onDone: (hostingId: string, kind: string) => void;
   onBack: () => void;
 }) {
-  const [choice, setChoice] = useState<"railway" | "webhook">("railway");
+  const [choice, setChoice] = useState<"railway" | "webhook">("webhook");
   const [token, setToken] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [url, setUrl] = useState("");
@@ -350,8 +350,12 @@ export function StepHosting({
   return (
     <Card title={`Step ${num} · Hosting`}>
       <div className="space-y-3">
+        <p className="text-[13px] text-text-muted">
+          Optional: only automatic rollback and restart need it. Watching,
+          diagnosis, and fix pull requests work without hosting.
+        </p>
         <div className="flex gap-4 text-sm text-text">
-          {(["railway", "webhook"] as const).map((kind) => (
+          {(["webhook", "railway"] as const).map((kind) => (
             <label key={kind} className="inline-flex items-center gap-1.5">
               <input
                 type="radio"
@@ -360,7 +364,7 @@ export function StepHosting({
                 disabled={conn != null || busy}
                 onChange={() => setChoice(kind)}
               />
-              {kind === "railway" ? "Railway" : "Webhook"}
+              {kind === "railway" ? "Railway" : "Webhook (any host)"}
             </label>
           ))}
         </div>
@@ -394,7 +398,10 @@ export function StepHosting({
           </>
         ) : (
           <>
-            <Field label="Deploy webhook URL">
+            <Field
+              label="Deploy webhook URL"
+              hint="An HTTPS endpoint you run (serverless function, tiny service)."
+            >
               <input
                 className={inputCls}
                 value={url}
@@ -403,16 +410,46 @@ export function StepHosting({
                 onChange={(e) => setUrl(e.target.value)}
               />
             </Field>
-            <Field label="Webhook secret" hint="Sent as the auth header.">
+            <Field
+              label="Webhook secret"
+              hint="Shared secret: we HMAC-sign every call; your endpoint verifies it."
+            >
               <input
                 className={inputCls}
                 type="password"
                 autoComplete="off"
                 value={secret}
                 disabled={conn != null || busy}
+                placeholder="whsec_… (invent one, paste it here and into your code)"
                 onChange={(e) => setSecret(e.target.value)}
               />
             </Field>
+            <details className="rounded-lg border border-border bg-surface-2 p-3 text-xs text-text-muted">
+              <summary className="cursor-pointer font-medium text-text">
+                What your endpoint must do
+              </summary>
+              <ol className="mt-2 list-decimal space-y-1 pl-4">
+                <li>
+                  Accept POST with a JSON body like{" "}
+                  <code>
+                    {"{"}&quot;action&quot;: &quot;rollback&quot;,
+                    &quot;system_id&quot;: &quot;…&quot;, &quot;run_id&quot;:
+                    &quot;…&quot;{"}"}
+                  </code>
+                  . Action is only ever <code>ping</code> (this test),{" "}
+                  <code>rollback</code>, or <code>restart</code>.
+                </li>
+                <li>
+                  Verify <code>X-Telemetry-Signature</code> (
+                  <code>sha256=</code> + HMAC-SHA256 of the raw body with
+                  your secret) and answer 2xx within 15 seconds.
+                </li>
+                <li>
+                  On <code>rollback</code>/<code>restart</code>, redeploy or
+                  restart your own service, then answer 2xx.
+                </li>
+              </ol>
+            </details>
           </>
         )}
         {conn == null ? (
@@ -421,6 +458,7 @@ export function StepHosting({
             onNext={connectAndTest}
             nextLabel={busy ? "Testing…" : "Connect + Test ping"}
             nextDisabled={busy || !ready}
+            onSkip={() => onDone("", "")}
           />
         ) : (
           <>
