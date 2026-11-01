@@ -208,6 +208,20 @@ class WsIsolationTests(unittest.TestCase):
                 "B's socket leaked into A's channel",
             )
 
+    def test_demo_flag_also_joins_demo_channel(self) -> None:
+        import apps.api.main as api_main
+
+        with self.client.websocket_connect(
+            f"/api/ws?token={self.token_b}&demo=1"
+        ):
+            channels = api_main.hub._channels
+            self.assertTrue(channels.get(self.org_b))
+            self.assertTrue(
+                channels.get("demo"),
+                "demo=1 socket missed the public demo channel",
+            )
+            self.assertFalse(channels.get(self.org_a))
+
     def test_cross_org_join_is_refused(self) -> None:
         from starlette.testclient import WebSocketDisconnect
 

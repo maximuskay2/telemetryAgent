@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../lib/api";
+import { sessionAuthHeaders } from "../lib/sessionAuth";
 import { toGateDecision, type GateDecision, type LogEvent } from "../types/api";
 import { gateFeed } from "./useFeed";
 
@@ -28,7 +29,9 @@ export function useGate() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/gate/decisions?limit=200`);
+        const response = await fetch(`${apiUrl}/api/gate/decisions?limit=200`, {
+          headers: { ...sessionAuthHeaders() },
+        });
         if (!response.ok) return;
         const body = (await response.json()) as {
           decisions?: unknown[];

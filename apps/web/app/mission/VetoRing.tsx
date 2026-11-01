@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
+import { sessionAuthHeaders } from "../lib/sessionAuth";
 import type { VetoAction } from "../types/api";
 import { useMission } from "./state";
 
@@ -118,7 +119,11 @@ export default function VetoRing() {
         `${apiUrl}/api/actions/${encodeURIComponent(open.runId)}/${approve ? "approve" : "disapprove"}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+            ...sessionAuthHeaders(),
+          },
           body: JSON.stringify({ device: "dashboard" }),
         },
       );

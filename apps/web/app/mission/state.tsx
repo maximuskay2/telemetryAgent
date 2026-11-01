@@ -11,6 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
+import { useSession } from "../lib/session";
+import {
+  sessionAuthHeaders,
+  setSessionAuthProvider,
+} from "../lib/sessionAuth";
 import type { IncidentState, LogEvent, StreamEvent, VetoAction } from "../types/api";
 import { useActions } from "../hooks/useActions";
 import { useAgentStream } from "../hooks/useAgentStream";
@@ -106,7 +111,12 @@ export function MissionProvider({ children }: { children: ReactNode }) {
   const gate = useGate();
   const actions = useActions();
   const systems = useSystems();
+  const { getSessionAuth } = useSession();
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setSessionAuthProvider(getSessionAuth);
+  }, [getSessionAuth]);
   const [baselinePct, setBaselinePct] = useState<Record<string, number>>({});
   const [warnFixMs, setWarnFixMs] = useState<number | null>(null);
   const [runningModels, setRunningModels] = useState<string[]>([]);
@@ -531,7 +541,7 @@ export function MissionProvider({ children }: { children: ReactNode }) {
         }
         const response = await fetch(`${apiUrl}/api/systems/${gateCtx.system_id}/feedback`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...sessionAuthHeaders() },
           body: JSON.stringify({
             fingerprint: gateCtx.fingerprint,
             signature: gateCtx.signature,

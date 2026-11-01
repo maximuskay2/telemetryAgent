@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "../lib/api";
+import { useSession } from "../lib/session";
 import { parseEvent, type StreamEvent } from "../types/api";
 
 /**
@@ -18,6 +19,9 @@ export function useAgentStream({
 }) {
   const [connection, setConnection] = useState("connecting");
   const [reconnectKey, setReconnectKey] = useState(0);
+  const { status, getSessionAuth } = useSession();
+  const authRef = useRef(getSessionAuth);
+  authRef.current = getSessionAuth;
   const handlerRef = useRef(onEvent);
   handlerRef.current = onEvent;
   const errorRef = useRef(onError);
@@ -33,7 +37,12 @@ export function useAgentStream({
       const batch = queue.splice(0, queue.length);
       for (const event of batch) handlerRef.current(event);
     };
-    const socket = new WebSocket(wsUrl());
+    const { token, orgId } = authRef.current();
+    const url =
+      token && orgId
+        ? `${wsUrl()}?token=${encodeURIComponent(token)}&org=${encodeURIComponent(orgId)}&demo=1`
+        : wsUrl();
+    const socket = new WebSocket(url);
     socket.onopen = () => setConnection("connected");
     socket.onclose = () => {
       setConnection("disconnected");
@@ -61,7 +70,8 @@ export function useAgentStream({
       window.cancelAnimationFrame(raf);
       socket.close();
     };
-  }, [reconnectKey]);
+    // Reconnect once the session lands; token refreshes reuse the socket.
+  }, [reconnectKey, status]);
 
   return { connection };
 }

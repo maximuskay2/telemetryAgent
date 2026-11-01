@@ -2,15 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../lib/api";
+import { useSession } from "../lib/session";
 import type { SystemSummary } from "../types/api";
 
 export function useSystems() {
   const [systems, setSystems] = useState<SystemSummary[]>([]);
   const [systemsLoaded, setSystemsLoaded] = useState(false);
+  const { getSessionAuth } = useSession();
 
   const refreshSystems = useCallback(async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/systems`);
+      const { token, orgId } = getSessionAuth();
+      const response = await fetch(`${apiUrl}/api/systems`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(orgId ? { "X-Org-Id": orgId } : {}),
+        },
+      });
       if (!response.ok) return;
       const body = (await response.json()) as {
         systems?: {
@@ -44,7 +52,7 @@ export function useSystems() {
     } catch {
       // API down; the banner stays hidden until systems load.
     }
-  }, []);
+  }, [getSessionAuth]);
 
   useEffect(() => {
     refreshSystems();

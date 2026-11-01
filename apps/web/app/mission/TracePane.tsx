@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { EmptyState } from "../ui";
 import { apiUrl } from "../lib/api";
+import { sessionAuthHeaders } from "../lib/sessionAuth";
 import type { RunDetail } from "../types/api";
 import { modelProvider } from "./lib/models";
 import { useMission } from "./state";
@@ -82,8 +83,9 @@ export default function TracePane() {
     setDetail(null);
     if (!entry || entry.runId.startsWith("pending-")) return;
     let cancelled = false;
-    fetch(`${apiUrl}/api/runs/${encodeURIComponent(entry.runId)}`)
-      .then((response) => (response.ok ? response.json() : null))
+    fetch(`${apiUrl}/api/runs/${encodeURIComponent(entry.runId)}`, {
+      headers: { ...sessionAuthHeaders() },
+    }).then((response) => (response.ok ? response.json() : null))
       .then((body) => {
         if (!cancelled && body) setDetail(body as RunDetail);
       })

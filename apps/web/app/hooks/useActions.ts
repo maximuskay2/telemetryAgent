@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { apiUrl } from "../lib/api";
+import { sessionAuthHeaders } from "../lib/sessionAuth";
 import type { LogEvent, VetoAction } from "../types/api";
 import { feedItem } from "./useFeed";
 
@@ -63,7 +64,9 @@ export function useActions() {
       if (fetchedRuns.current.has(runId)) return;
       fetchedRuns.current.add(runId);
       try {
-        const response = await fetch(`${apiUrl}/api/runs/${runId}`);
+        const response = await fetch(`${apiUrl}/api/runs/${runId}`, {
+          headers: { ...sessionAuthHeaders() },
+        });
         if (!response.ok) return;
         const body = (await response.json()) as { decision?: unknown };
         if (body.decision && typeof body.decision === "object") {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { IncidentEntry } from "../hooks/useIncidentList";
 import { apiUrl, responseDetail } from "../lib/api";
+import { sessionAuthHeaders } from "../lib/sessionAuth";
 import type { GateCheck, RunDetail, RunVerification } from "../types/api";
 import { lineDiff } from "./lib/diff";
 import { modelProvider } from "./lib/models";
@@ -94,8 +95,9 @@ export default function IncidentDrawer({
     let cancelled = false;
     setLoading(true);
     setError("");
-    fetch(`${apiUrl}/api/runs/${encodeURIComponent(entry.runId)}`)
-      .then(async (response) => {
+    fetch(`${apiUrl}/api/runs/${encodeURIComponent(entry.runId)}`, {
+      headers: { ...sessionAuthHeaders() },
+    }).then(async (response) => {
         if (response.status === 404) throw new Error("expired");
         if (!response.ok) throw new Error(await responseDetail(response));
         return (await response.json()) as RunDetail;

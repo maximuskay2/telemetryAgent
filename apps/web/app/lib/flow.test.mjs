@@ -92,6 +92,41 @@ describe("gated product flow", () => {
     assert.ok(steps.includes("Pull requests = Read"));
   });
 
+  it("mission control loads connected production systems", () => {
+    const systems = read("hooks/useSystems.ts");
+    assert.ok(systems.includes("getSessionAuth"), "lists with the session");
+    assert.ok(systems.includes("X-Org-Id"), "org-scoped list");
+    const left = read("mission/LeftPane.tsx");
+    assert.ok(left.includes("ProdTile"), "renders production tiles");
+    assert.ok(left.includes("DEMO_SYSTEM_IDS"), "demo tiles stay demo-only");
+    const tile = read("mission/ProdTile.tsx");
+    assert.ok(tile.includes("/connect?system="), "links connections");
+    assert.ok(tile.includes("/setup?system="), "links setup");
+  });
+
+  it("mission control streams and reads with the session", () => {
+    const stream = read("hooks/useAgentStream.ts");
+    assert.ok(stream.includes("?token="), "socket joins the org channel");
+    assert.ok(stream.includes("demo=1"), "socket keeps the demo channel");
+    const state = read("mission/state.tsx");
+    assert.ok(
+      state.includes("setSessionAuthProvider(getSessionAuth)"),
+      "mission wires the shared session",
+    );
+    for (const file of [
+      "mission/TracePane.tsx",
+      "mission/IncidentDrawer.tsx",
+      "hooks/useActions.ts",
+      "mission/VetoRing.tsx",
+      "hooks/useGate.ts",
+    ]) {
+      assert.ok(
+        read(file).includes("sessionAuthHeaders()"),
+        `${file} carries the session`,
+      );
+    }
+  });
+
   it("connect runs hosting last among setup steps, before the promise", () => {
     const wizard = read("connect/Wizard.tsx");
     const titles = wizard.slice(

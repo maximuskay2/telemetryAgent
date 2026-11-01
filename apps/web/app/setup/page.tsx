@@ -161,7 +161,7 @@ export default function SetupPage() {
   // review form
   const [confirmedBy, setConfirmedBy] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
-  const { getSessionAuth } = useSession();
+  const { getSessionAuth, status: sessionStatus } = useSession();
 
   async function api(path: string, init?: RequestInit): Promise<unknown> {
     const { token, orgId } = getSessionAuth();
@@ -210,7 +210,16 @@ export default function SetupPage() {
       loadProfile(id).catch((err: Error) => setError(err.message));
       setStep("review");
     }
-    const socket = new WebSocket(`${apiUrl.replace(/^http/, "ws")}/api/ws`);
+  }, []);
+
+  useEffect(() => {
+    const { token, orgId } = getSessionAuth();
+    const wsBase = `${apiUrl.replace(/^http/, "ws")}/api/ws`;
+    const socket = new WebSocket(
+      token && orgId
+        ? `${wsBase}?token=${encodeURIComponent(token)}&org=${encodeURIComponent(orgId)}&demo=1`
+        : wsBase,
+    );
     socketRef.current = socket;
     socket.onmessage = (event) => {
       try {
@@ -257,7 +266,8 @@ export default function SetupPage() {
       }
     };
     return () => socket.close();
-  }, []);
+    // Reconnect once the session lands so org setup events arrive.
+  }, [sessionStatus]);
 
   // Poll the learning session while the bar is active: the socket normally
   // drives it, but a dropped socket must not leave the bar stuck at 0%.

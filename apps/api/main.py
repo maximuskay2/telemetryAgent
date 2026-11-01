@@ -3816,6 +3816,9 @@ async def stream_events(websocket: WebSocket) -> None:
             )
             return
     await hub.connect(websocket, org_id)
+    if org_id != "demo" and websocket.query_params.get("demo", "") == "1":
+        # Mission Control shows both worlds; the demo channel is public.
+        hub._channel("demo").add(websocket)
     try:
         while True:
             await websocket.receive_text()
