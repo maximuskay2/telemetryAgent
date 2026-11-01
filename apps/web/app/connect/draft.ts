@@ -107,3 +107,54 @@ export function draftStepTitle(
 ): string {
   return titles[draft.index] ?? "Setup";
 }
+
+export type ServerSystem = {
+  system_id: string;
+  name: string;
+  kind: string;
+  status: string;
+};
+
+export type ResumeEntry =
+  | { origin: "draft"; draft: WizardDraft }
+  | { origin: "server"; system: ServerSystem };
+
+/** Demo systems never resume through the production wizard (mirrors
+ * mission/LeftPane DEMO_SYSTEM_IDS; self-hosted lists them too). */
+const DEMO_SYSTEM_IDS = new Set(["autoparts-shop", "coldchain-1"]);
+
+/**
+ * One resume list from local drafts + the account's server systems.
+ * A local draft wins on its exact step; a server system without one
+ * resumes from its first step. Drafts for armed or vanished systems
+ * are stale and drop out. systems === null (offline/failed fetch)
+ * keeps every local draft so entry never blanks.
+ */
+export function mergeResumeEntries(
+  drafts: DraftMap,
+  systems: ServerSystem[] | null,
+): ResumeEntry[] {
+  const entries: ResumeEntry[] = [];
+  if (systems === null) {
+    return Object.values(drafts)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((draft) => ({ origin: "draft", draft }) as ResumeEntry);
+  }
+  const byId = new Map(systems.map((s) => [s.system_id, s]));
+  const kept = new Set<string>();
+  for (const draft of Object.values(drafts).sort(
+    (a, b) => b.updatedAt - a.updatedAt,
+  )) {
+    const server = byId.get(draft.data.systemId);
+    if (!server || server.status === "armed") continue;
+    kept.add(draft.data.systemId);
+    entries.push({ origin: "draft", draft });
+  }
+  for (const system of systems) {
+    if (DEMO_SYSTEM_IDS.has(system.system_id)) continue;
+    if (system.status === "armed") continue;
+    if (kept.has(system.system_id)) continue;
+    entries.push({ origin: "server", system });
+  }
+  return entries;
+}

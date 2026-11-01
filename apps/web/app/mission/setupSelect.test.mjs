@@ -31,6 +31,17 @@ describe("mission gate", () => {
     assert.ok(select.includes("STEP_LABELS"));
   });
 
+  it("unifies drafts with the account's server systems", () => {
+    const select = read("mission/SetupSelect.tsx");
+    assert.ok(select.includes("mergeResumeEntries"));
+    assert.ok(select.includes("not armed yet"));
+    const panes = read("mission/Panes.tsx");
+    assert.ok(
+      panes.includes("<SetupSelect systems={systems} />"),
+      "gate feeds server systems to the selector",
+    );
+  });
+
   it("keeps the tour bounce to the guided setup", () => {
     const select = read("mission/SetupSelect.tsx");
     assert.ok(select.includes('get("tour") === "1"'));
@@ -40,7 +51,8 @@ describe("mission gate", () => {
   it("deep-resumes wizard drafts from the gate", () => {
     const wizard = read("connect/Wizard.tsx");
     assert.ok(wizard.includes('get("resume")'));
-    assert.ok(wizard.includes("resumeDraft(found)"));
+    assert.ok(wizard.includes("resumeDraft(local)"));
+    assert.ok(wizard.includes("resumeServer(server)"));
   });
 
   it("persists manual setup progress as drafts", () => {

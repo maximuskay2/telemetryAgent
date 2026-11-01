@@ -8,6 +8,7 @@ import {
   clearDraft,
   draftStepTitle,
   loadDrafts,
+  mergeResumeEntries,
   SOFTWARE_STEP_TITLES,
   type DraftMap,
   type WizardDraft,
@@ -21,14 +22,16 @@ import {
   type SetupDraft,
   type SetupDraftMap,
 } from "../setup/draft";
+import type { SystemSummary } from "../types/api";
 import { Button, Card } from "../ui";
 
 /**
  * Mission gate: Mission Control opens only once a system is armed and
  * watching. Until then this screen lists every unfinished setup —
- * guided (/connect) and manual (/setup) drafts side by side.
+ * guided (/connect) and manual (/setup) drafts side by side, unified
+ * with the account's server systems so setups follow the account.
  */
-export default function SetupSelect() {
+export default function SetupSelect({ systems }: { systems: SystemSummary[] }) {
   const router = useRouter();
   const { status } = useSession();
   const [guided, setGuided] = useState<DraftMap>(() => loadDrafts());
@@ -44,12 +47,21 @@ export default function SetupSelect() {
     }
   }, [router]);
 
-  const guidedEntries = Object.values(guided).sort(
-    (a, b) => b.updatedAt - a.updatedAt,
+  const guidedEntries = mergeResumeEntries(
+    guided,
+    signedIn ? systems : null,
   );
-  const manualEntries = Object.values(manual).sort(
-    (a, b) => b.updatedAt - a.updatedAt,
-  );
+  const manualEntries = Object.values(manual)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    // Hide manual drafts for systems that armed or vanished elsewhere;
+    // anonymous visitors keep whatever this browser holds.
+    .filter((draft) => {
+      if (!signedIn) return true;
+      const server = systems.find(
+        (s) => s.system_id === draft.data.systemId,
+      );
+      return server !== undefined && server.status !== "armed";
+    });
 
   function discardGuided(draft: WizardDraft) {
     clearDraft(draft.data.systemId);
@@ -73,7 +85,41 @@ export default function SetupSelect() {
       {guidedEntries.length > 0 && (
         <Card title="Guided setup drafts">
           <ul className="flex flex-col gap-2">
-            {guidedEntries.map((draft) => {
+            {guidedEntries.map((entry) => {
+              if (entry.origin === "server") {
+                const system = entry.system;
+                return (
+                  <li
+                    key={system.system_id}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface-2 px-3 py-2"
+                  >
+                    <span className="text-sm font-medium text-text">
+                      {system.name}
+                    </span>
+                    <span className="font-mono text-xs text-text-faint">
+                      {system.system_id}
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      · {system.kind} · not armed yet ({system.status})
+                    </span>
+                    <span className="inline-flex gap-2">
+                      <Link
+                        href={`/connect?resume=${encodeURIComponent(system.system_id)}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
+                      >
+                        Continue
+                      </Link>
+                      <Link
+                        href={`/setup?system=${encodeURIComponent(system.system_id)}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-text outline-none hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand"
+                      >
+                        Manual setup
+                      </Link>
+                    </span>
+                  </li>
+                );
+              }
+              const draft = entry.draft;
               const titles =
                 draft.data.kind === "appliance"
                   ? APPLIANCE_STEP_TITLES

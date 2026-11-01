@@ -16,16 +16,19 @@ import {
 } from "../lib/setupApi";
 import { Button, Card } from "../ui";
 import ApkQr from "../welcome/ApkQr";
-import { createSystem, pairingUrl } from "./api";
+import { createSystem, listSystems, pairingUrl } from "./api";
 import { StepDevice, StepHosting, StepLogs, StepRepo } from "./ConnSteps";
 import {
   APPLIANCE_STEP_TITLES,
   clearDraft,
   draftStepTitle,
   loadDrafts,
+  mergeResumeEntries,
   saveDraft,
   SOFTWARE_STEP_TITLES,
   type DraftMap,
+  type ResumeEntry,
+  type ServerSystem,
   type WizardDraft,
 } from "./draft";
 import {
@@ -509,26 +512,57 @@ const SOFTWARE_TITLES = SOFTWARE_STEP_TITLES;
 const APPLIANCE_TITLES = APPLIANCE_STEP_TITLES;
 
 function DraftPicker({
-  drafts,
+  entries,
   onResume,
   onDiscard,
   onNew,
 }: {
-  drafts: DraftMap;
-  onResume: (draft: WizardDraft) => void;
+  entries: ResumeEntry[];
+  onResume: (entry: ResumeEntry) => void;
   onDiscard: (systemId: string) => void;
   onNew: () => void;
 }) {
-  const entries = Object.values(drafts).sort((a, b) => b.updatedAt - a.updatedAt);
   return (
     <Card title="Continue setup">
       <div className="space-y-3">
         <p className="text-[13px] text-text-muted">
-          Unfinished connections stay as drafts. Pick one up where it
-          stopped, or start fresh.
+          Unfinished setups live on — this browser&apos;s drafts plus your
+          account&apos;s systems that aren&apos;t armed yet. Pick one up
+          where it stopped, or start fresh.
         </p>
         <ul className="space-y-2">
-          {entries.map((draft) => {
+          {entries.map((entry) => {
+            if (entry.origin === "server") {
+              const system = entry.system;
+              return (
+                <li
+                  key={system.system_id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface-2 px-3 py-2"
+                >
+                  <span className="text-sm font-medium text-text">
+                    {system.name}
+                  </span>
+                  <span className="font-mono text-xs text-text-faint">
+                    {system.system_id}
+                  </span>
+                  <span className="text-xs text-text-muted">
+                    · {system.kind} · not armed yet ({system.status})
+                  </span>
+                  <span className="inline-flex gap-2">
+                    <Button tone="primary" onClick={() => onResume(entry)}>
+                      Continue
+                    </Button>
+                    <Link
+                      href={`/setup?system=${encodeURIComponent(system.system_id)}`}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-2 text-sm font-medium text-text outline-none hover:bg-surface-2/70 focus-visible:ring-2 focus-visible:ring-brand"
+                    >
+                      Manual setup
+                    </Link>
+                  </span>
+                </li>
+              );
+            }
+            const draft = entry.draft;
             const titles =
               draft.data.kind === "appliance"
                 ? APPLIANCE_TITLES
@@ -549,7 +583,7 @@ function DraftPicker({
                   {draftStepTitle(draft, titles)}
                 </span>
                 <span className="inline-flex gap-2">
-                  <Button tone="primary" onClick={() => onResume(draft)}>
+                  <Button tone="primary" onClick={() => onResume(entry)}>
                     Continue
                   </Button>
                   <Button
@@ -576,6 +610,26 @@ export default function Wizard() {
   const [data, setData] = useState<WizardData | null>(null);
   const [drafts, setDrafts] = useState<DraftMap>(() => loadDrafts());
   const [picking, setPicking] = useState(true);
+  // Account systems (null until loaded or failed): unfinished ones join
+  // the resume list so setups follow the account, not the browser.
+  const [serverSystems, setServerSystems] = useState<ServerSystem[] | null>(
+    null,
+  );
+  const entries = mergeResumeEntries(drafts, serverSystems);
+
+  useEffect(() => {
+    let cancelled = false;
+    listSystems()
+      .then((systems) => {
+        if (!cancelled) setServerSystems(systems);
+      })
+      .catch(() => {
+        // Offline: local drafts still show (merge null-branch).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const kind = data?.kind ?? "software";
   const titles = kind === "software" ? SOFTWARE_TITLES : APPLIANCE_TITLES;
   const num = index + 1;
@@ -605,14 +659,40 @@ export default function Wizard() {
     setPicking(false);
   }
 
+  // Server-only resume: the system exists, no local step — start at
+  // the first step after System instead of creating a duplicate.
+  function resumeServer(system: ServerSystem) {
+    setData({
+      systemId: system.system_id,
+      kind: system.kind === "appliance" ? "appliance" : "software",
+      name: system.name,
+      repoPerms: null,
+      hostingKind: null,
+    });
+    setIndex(1);
+    setPicking(false);
+  }
+
+  function resumeEntry(entry: ResumeEntry) {
+    if (entry.origin === "server") resumeServer(entry.system);
+    else resumeDraft(entry.draft);
+  }
+
   // Deep resume from the mission gate (?resume=<systemId>).
   const resumeParam = useSearchParams().get("resume");
   useEffect(() => {
-    if (!resumeParam) return;
-    const found = loadDrafts()[resumeParam];
-    if (found) resumeDraft(found);
+    if (!resumeParam || data) return;
+    const local = loadDrafts()[resumeParam];
+    if (local) {
+      resumeDraft(local);
+      return;
+    }
+    const server = serverSystems?.find(
+      (s) => s.system_id === resumeParam,
+    );
+    if (server && server.status !== "armed") resumeServer(server);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeParam]);
+  }, [resumeParam, serverSystems, data]);
 
   function discardDraft(systemId: string) {
     clearDraft(systemId);
@@ -634,8 +714,7 @@ export default function Wizard() {
 
   // Entry with unfinished runs: the drafts ARE the first screen — no
   // create-flow stepper above them. Continue a draft or start new.
-  const showPicker =
-    data == null && picking && Object.keys(drafts).length > 0;
+  const showPicker = data == null && picking && entries.length > 0;
 
   return (
     <div className="space-y-4">
@@ -660,8 +739,8 @@ export default function Wizard() {
       {index === 0 &&
         (showPicker ? (
           <DraftPicker
-            drafts={drafts}
-            onResume={resumeDraft}
+            entries={entries}
+            onResume={resumeEntry}
             onDiscard={discardDraft}
             onNew={() => setPicking(false)}
           />

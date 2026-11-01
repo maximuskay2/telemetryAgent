@@ -137,6 +137,46 @@ export async function rotateConnection(
   });
 }
 
+export type AccountSystem = {
+  system_id: string;
+  name: string;
+  kind: string;
+  status: string;
+};
+
+/** The account's systems (session auth): unfinished ones are resumable. */
+export async function listSystems(): Promise<AccountSystem[]> {
+  const body = await req<{
+    systems?: {
+      system_id?: unknown;
+      name?: unknown;
+      kind?: unknown;
+      status?: unknown;
+    }[];
+  }>("/api/systems");
+  return (body.systems ?? [])
+    .filter(
+      (
+        s,
+      ): s is {
+        system_id: string;
+        name: string;
+        kind: string;
+        status: string;
+      } =>
+        typeof s.system_id === "string" &&
+        typeof s.name === "string" &&
+        typeof s.kind === "string" &&
+        typeof s.status === "string",
+    )
+    .map((s) => ({
+      system_id: s.system_id,
+      name: s.name,
+      kind: s.kind,
+      status: s.status,
+    }));
+}
+
 export async function pairingUrl(): Promise<string> {
   const response = await fetch(`${apiUrl}/api/pairing`);
   if (!response.ok) throw new Error(await responseDetail(response));

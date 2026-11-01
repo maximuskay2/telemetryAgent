@@ -178,6 +178,23 @@ describe("gated product flow", () => {
     );
   });
 
+  it("connect unifies browser drafts with account systems", () => {
+    const wizard = read("connect/Wizard.tsx");
+    assert.ok(wizard.includes("listSystems()"), "loads the account");
+    assert.ok(
+      wizard.includes("mergeResumeEntries(drafts, serverSystems)"),
+      "merges drafts with server systems",
+    );
+    assert.ok(
+      wizard.includes("resumeServer(entry.system)"),
+      "server entries resume without re-creating",
+    );
+    assert.ok(
+      wizard.includes("not armed yet"),
+      "server entries show their status",
+    );
+  });
+
   it("connect hosting step guides webhooks and can be skipped", () => {
     const steps = read("connect/ConnSteps.tsx");
     assert.ok(steps.includes("X-Telemetry-Signature"), "signing contract");

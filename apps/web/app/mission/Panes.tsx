@@ -86,7 +86,7 @@ export default function MissionPanes() {
   // Nothing armed and watching: draft selection comes before Mission
   // Control — guided and manual setups resume from here.
   if (systemsLoaded && !systems.some((s) => s.status === "armed")) {
-    return <SetupSelect />;
+    return <SetupSelect systems={systems} />;
   }
 
   return (

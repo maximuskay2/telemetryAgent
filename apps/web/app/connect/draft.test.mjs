@@ -95,3 +95,53 @@ describe("connect drafts", () => {
     );
   });
 });
+
+describe("resume entries", () => {
+  const DRAFTS = {
+    "acme-1": { data: DATA, index: 3, updatedAt: 2 },
+    stale: {
+      data: { ...DATA, systemId: "stale", name: "Stale" },
+      index: 1,
+      updatedAt: 1,
+    },
+  };
+  const server = (id, status) => ({
+    system_id: id,
+    name: id,
+    kind: "software",
+    status,
+  });
+
+  it("keeps local drafts on their exact step", () => {
+    const entries = draft.mergeResumeEntries(DRAFTS, [
+      server("acme-1", "draft"),
+    ]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].origin, "draft");
+    assert.equal(entries[0].draft.index, 3);
+  });
+
+  it("adds server systems without a local draft", () => {
+    const entries = draft.mergeResumeEntries({}, [
+      server("acme-9", "confirmed"),
+    ]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].origin, "server");
+    assert.equal(entries[0].system.system_id, "acme-9");
+  });
+
+  it("drops armed, vanished, and demo systems", () => {
+    const entries = draft.mergeResumeEntries(DRAFTS, [
+      server("acme-1", "armed"),
+      server("coldchain-1", "draft"),
+      server("autoparts-shop", "draft"),
+    ]);
+    assert.deepEqual(entries, []);
+  });
+
+  it("keeps every local draft when the server is unreachable", () => {
+    const entries = draft.mergeResumeEntries(DRAFTS, null);
+    assert.equal(entries.length, 2);
+    assert.ok(entries.every((e) => e.origin === "draft"));
+  });
+});
