@@ -306,6 +306,40 @@ class SystemsApiTests(unittest.TestCase):
                         listed.json()["systems"][0]["system_id"], system_id
                     )
 
+    def test_visitor_upload_to_demo_keeps_demo_identity(self) -> None:
+        # Guided-demo visitors may teach with their own manuals; a rename
+        # or wiped environment in the extraction must not un-demo the
+        # system (anonymous demo access depends on the tag).
+        renamed = {"name": "Renamed By Manual", "environment": {}}
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                "os.environ", {"TA_DATA_DIR": tmp, "DATABASE_URL": ""}
+            ):
+                with TestClient(app) as client:
+                    boot = client.post("/api/demo/bootstrap")
+                    self.assertEqual(boot.status_code, 200)
+                    system_id = boot.json()["freezer"]["system_id"]
+                    with patch.object(
+                        extract, "fill_profile_from_text",
+                        return_value=renamed,
+                    ), patch.object(
+                        extract, "merge_partials",
+                        return_value=(renamed, []),
+                    ):
+                        upload = client.post(
+                            f"/api/systems/{system_id}/documents",
+                            files=[(
+                                "files",
+                                ("mine.md", b"# my manual", "text/markdown"),
+                            )],
+                        )
+                    self.assertEqual(upload.status_code, 200)
+                    profile = upload.json()["profile"]
+                    self.assertEqual(profile["name"], "Cold-chain Freezer")
+                    self.assertEqual(
+                        profile["environment"], {"demo": "true"}
+                    )
+
     def test_upload_limits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with patch.dict("os.environ", {"TA_DATA_DIR": tmp}):

@@ -79,11 +79,13 @@ export function ReviewSection({
   rows,
   fields,
   onChange,
+  hint,
 }: {
   title: string;
   rows: Record<string, unknown>[];
   fields: ReviewField[];
   onChange?: (rows: Record<string, unknown>[]) => void;
+  hint?: string;
 }) {
   return (
     <Card
@@ -94,6 +96,7 @@ export function ReviewSection({
         </span>
       }
     >
+      {hint && <p className="mb-2 text-xs text-text-muted">{hint}</p>}
       <div className="flex flex-col gap-2">
         {rows.length === 0 && (
           <EmptyState
@@ -188,6 +191,20 @@ const SECTION_TITLES: Record<string, string> = {
   hard_limits: "Hard limits (never suppressible)",
 };
 
+/** What belongs in each section — shown wherever rows are typed by hand. */
+export const SECTION_HINTS: Record<string, string> = {
+  normal_ranges:
+    "Steady-state bands, e.g. holding 2–8 °C or error_rate 0–0.01. Inside is normal; outside starts an incident.",
+  expected_behaviours:
+    "Known-good events that look scary, e.g. defrost cycle or cold cache — with how long each may last and what effect is allowed.",
+  modes:
+    "Named states with a max stay, e.g. defrost 20 min. Overstaying the max is a failure.",
+  failure_definitions:
+    "Named failures: a metric, an op, a threshold, and how long it must hold before it counts.",
+  hard_limits:
+    "Safety floor the gate checks first and never suppresses, e.g. temperature never above 10 °C.",
+};
+
 /** Read-only full review table for the journey's "see everything" view. */
 export function ReviewTables({ profile }: { profile: SetupProfile }) {
   return (
@@ -203,6 +220,7 @@ export function ReviewTables({ profile }: { profile: SetupProfile }) {
             >[]) ?? []
           }
           fields={SECTION_FIELDS[section]}
+          hint={SECTION_HINTS[section]}
         />
       ))}
     </div>

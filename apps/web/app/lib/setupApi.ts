@@ -124,6 +124,36 @@ export async function demoDocuments(
   });
 }
 
+export type UploadResult = {
+  profile: SetupProfile;
+  conflicts: SetupConflict[];
+  rejected: string[];
+  needs_manual: string[];
+};
+
+/** Visitor manuals for one system: files and/or a pasted note. Demo
+ * systems accept this without sign-in; the server keeps their identity. */
+export async function uploadSystemDocuments(
+  systemId: string,
+  files: File[],
+  paste?: { name: string; text: string },
+): Promise<UploadResult> {
+  const data = new FormData();
+  for (const file of files) data.append("files", file, file.name);
+  if (paste && paste.text.trim()) {
+    data.append(
+      "files",
+      new File([paste.text], paste.name || "note.md", {
+        type: "text/markdown",
+      }),
+    );
+  }
+  return req(`/api/systems/${encodeURIComponent(systemId)}/documents`, {
+    method: "POST",
+    body: data,
+  });
+}
+
 /** J3: 30 s learning window with gentle traffic, server-side (API default). */
 export async function demoLearn(systemId: string): Promise<{
   system_id: string;

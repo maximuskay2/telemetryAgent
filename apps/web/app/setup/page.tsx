@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
 import { useSession } from "../lib/session";
-import { ReviewSection } from "./ReviewTable";
+import { ReviewSection, SECTION_HINTS } from "./ReviewTable";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -876,6 +876,7 @@ export default function SetupPage() {
           )}
           <ReviewSection
             title="Normal ranges"
+            hint={SECTION_HINTS.normal_ranges}
             rows={profile.normal_ranges ?? []}
             fields={[
               { key: "metric", label: "Metric" },
@@ -887,6 +888,7 @@ export default function SetupPage() {
           />
           <ReviewSection
             title="Expected behaviours"
+            hint={SECTION_HINTS.expected_behaviours}
             rows={profile.expected_behaviours ?? []}
             fields={[
               { key: "name", label: "Name" },
@@ -903,6 +905,7 @@ export default function SetupPage() {
           />
           <ReviewSection
             title="Modes"
+            hint={SECTION_HINTS.modes}
             rows={profile.modes ?? []}
             fields={[
               { key: "mode", label: "Mode" },
@@ -916,6 +919,7 @@ export default function SetupPage() {
           />
           <ReviewSection
             title="Failure definitions"
+            hint={SECTION_HINTS.failure_definitions}
             rows={profile.failure_definitions ?? []}
             fields={[
               { key: "name", label: "Name" },
@@ -932,6 +936,7 @@ export default function SetupPage() {
           />
           <ReviewSection
             title="Hard limits (never suppressible)"
+            hint={SECTION_HINTS.hard_limits}
             rows={profile.hard_limits ?? []}
             fields={[
               { key: "metric", label: "Metric" },

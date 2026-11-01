@@ -13,6 +13,7 @@ import {
   demoStartWatching,
   demoStatus,
   getDemoProfile,
+  uploadSystemDocuments,
   type DemoStatus,
   type DocumentsResult,
   type SetupProfile,
@@ -127,6 +128,110 @@ function Ring({ pct, label }: { pct: number; label: string }) {
         </text>
       </svg>
       <span className="text-xs text-text-muted">{label}</span>
+    </div>
+  );
+}
+
+const PASTE_EXAMPLE: Record<Side, string> = {
+  shop: "e.g. Order error rate must stay under 1% in any 5-minute window. Deploys run 02:00–03:00 and may restart the web service. Error rate over 50% is never normal.",
+  freezer:
+    "e.g. Holding temperature 2–8 °C. Defrost runs up to 20 min. Never above 10 °C.",
+};
+
+/** Teach one demo system with a visitor's own manual (stage 2). */
+function OwnManualForm({
+  side,
+  systemId,
+  onExtracted,
+}: {
+  side: Side;
+  systemId: string;
+  onExtracted: (result: DocumentsResult) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [paste, setPaste] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function upload() {
+    const files = Array.from(fileRef.current?.files ?? []);
+    if (files.length === 0 && !paste.trim()) {
+      setError("Pick a file or paste a note first.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await uploadSystemDocuments(systemId, files, {
+        name: "note.md",
+        text: paste,
+      });
+      const bits: string[] = [];
+      if (result.rejected.length > 0) {
+        bits.push(`${result.rejected.length} value(s) skipped`);
+      }
+      if (result.needs_manual.length > 0) {
+        bits.push(`needs manual entry: ${result.needs_manual.join(", ")}`);
+      }
+      setNotice(
+        bits.length > 0 ? bits.join(" · ") : "✓ Added to what it knows.",
+      );
+      onExtracted({ ...result, fallback: false });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <Button tone="ghost" onClick={() => setOpen(!open)}>
+        {open ? "Hide your own manual" : "Use your own manual"}
+      </Button>
+      {open && (
+        <div className="mt-2 rounded-lg border border-border p-2.5">
+          <p className="text-xs text-text-muted">
+            A spec PDF, an ops-guide .md, or a rating-plate photo — anything
+            that says what normal means: ranges, behaviours, modes,
+            failures, hard limits.
+          </p>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.txt,.md"
+            aria-label="Your manual files"
+            className="mt-2 block w-full text-xs text-text-muted"
+          />
+          <textarea
+            rows={3}
+            value={paste}
+            onChange={(event) => setPaste(event.target.value)}
+            placeholder={PASTE_EXAMPLE[side]}
+            aria-label="Or paste the working principle"
+            className="mt-2 w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-text outline-none placeholder:text-text-faint focus:border-brand"
+          />
+          {error && (
+            <p className="mt-1 text-xs text-crit" role="alert">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p className="mt-1 text-xs text-text-muted" role="status">
+              {notice}
+            </p>
+          )}
+          <div className="mt-2">
+            <Button tone="primary" disabled={busy} onClick={upload}>
+              {busy ? "Reading…" : "Upload & extract"}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -411,6 +516,20 @@ export default function GuidedSetupPage() {
           </p>
         )}
 
+        {current === 2 && row.status !== "armed" && (
+          <OwnManualForm
+            side={side}
+            systemId={row.system_id}
+            onExtracted={(extracted) => {
+              setDocs((prev) => ({ ...prev, [side]: extracted }));
+              setProfiles((prev) => ({
+                ...prev,
+                [side]: extracted.profile,
+              }));
+            }}
+          />
+        )}
+
         {profile && (profile.normal_ranges?.length ?? 0) > 0 && (
           <ul className="mt-2 flex list-none flex-col gap-1 p-0">
             {profileFacts(profile).map((fact) => (
@@ -633,8 +752,9 @@ export default function GuidedSetupPage() {
                       </Button>
                     </div>
                     <p className="text-xs text-text-muted">
-                      The demo reads our copies. To upload your own manuals
-                      or review every extracted field, use{" "}
+                      The demo reads our copies — or expand “Use your own
+                      manual” on either system to teach it with your PDF,
+                      .md, or photo. To review every extracted field, use{" "}
                       <Link
                         href="/setup"
                         className="rounded text-brand-cyan underline outline-none focus-visible:ring-2 focus-visible:ring-brand"

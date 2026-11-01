@@ -2191,6 +2191,20 @@ async def _extract_documents(
             status_code=502, detail=f"extracted profile invalid: {exc}"
         ) from exc
     stored_profile = await _profile_save(updated, org_id)
+    if profile.environment.get("demo") == "true" and (
+        stored_profile.name != profile.name
+        or stored_profile.environment != profile.environment
+    ):
+        # Visitor uploads teach a demo system but must not un-demo it:
+        # anonymous demo access depends on the name + tag (D1 identity).
+        stored_profile = setup_store.save_profile(
+            stored_profile.model_copy(
+                update={
+                    "name": profile.name,
+                    "environment": profile.environment,
+                }
+            )
+        )
     # Conflicts/feedback/uploads stay on disk in all modes, gated by the
     # org-verified profile lookup above (system ids are unguessable).
     setup_store.save_conflicts(system_id, conflicts)
