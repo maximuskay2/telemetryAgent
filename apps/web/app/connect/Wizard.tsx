@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   armSystem,
@@ -12,6 +12,7 @@ import {
   getProfile,
   markOnboarded,
   putProfile,
+  uploadSystemDocuments,
   type SetupProfile,
 } from "../lib/setupApi";
 import { Button, Card } from "../ui";
@@ -152,6 +153,21 @@ function StepName({
 
 type LimitRow = { metric: string; op: string; threshold: string };
 
+const TEACH_PASTE_EXAMPLE: Record<string, string> = {
+  software:
+    "e.g. Order error rate must stay under 1% in any 5-minute window. Deploys run 02:00–03:00 and may restart the web service. Error rate over 50% is never normal.",
+  appliance:
+    "e.g. Holding temperature 2–8 °C. Defrost runs up to 20 min. Never above 10 °C.",
+};
+
+function limitsFrom(profile: SetupProfile): LimitRow[] {
+  return (profile.hard_limits ?? []).map((l) => ({
+    metric: String(l["metric"] ?? ""),
+    op: String(l["op"] ?? ">"),
+    threshold: String(l["threshold"] ?? ""),
+  }));
+}
+
 function StepTeach({
   num,
   systemId,
@@ -169,6 +185,10 @@ function StepTeach({
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paste, setPaste] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,13 +198,7 @@ function StepTeach({
         const p = envelope.profile;
         setProfile(p);
         setContact(p.owner_contact ?? "");
-        setRows(
-          (p.hard_limits ?? []).map((l) => ({
-            metric: String(l["metric"] ?? ""),
-            op: String(l["op"] ?? ">"),
-            threshold: String(l["threshold"] ?? ""),
-          })),
-        );
+        setRows(limitsFrom(p));
         setStatus(p.status);
       },
       (err: unknown) => {
@@ -197,6 +211,55 @@ function StepTeach({
       cancelled = true;
     };
   }, [systemId]);
+
+  async function uploadManual() {
+    const files = Array.from(fileRef.current?.files ?? []);
+    if (files.length === 0 && !paste.trim()) {
+      setError("Pick a file or paste a note first.");
+      return;
+    }
+    setExtracting(true);
+    setError(null);
+    setNotice("");
+    try {
+      const result = await uploadSystemDocuments(systemId, files, {
+        name: "note.md",
+        text: paste,
+      });
+      const p = result.profile;
+      setProfile(p);
+      setStatus(p.status);
+      setRows(limitsFrom(p));
+      const learned: string[] = [];
+      const counts: [string, number][] = [
+        ["range", p.normal_ranges?.length ?? 0],
+        ["behaviour", p.expected_behaviours?.length ?? 0],
+        ["mode", p.modes?.length ?? 0],
+        ["failure", p.failure_definitions?.length ?? 0],
+        ["limit", p.hard_limits?.length ?? 0],
+      ];
+      for (const [label, n] of counts) {
+        if (n > 0) learned.push(`${n} ${label}${n === 1 ? "" : "s"}`);
+      }
+      const bits = [
+        learned.length > 0 ? `✓ Learned ${learned.join(" · ")}.` : "",
+        result.rejected.length > 0
+          ? `${result.rejected.length} value(s) skipped.`
+          : "",
+        result.needs_manual.length > 0
+          ? `Needs manual entry: ${result.needs_manual.join(", ")}.`
+          : "",
+        result.conflicts.length > 0
+          ? `${result.conflicts.length} conflict(s) — see Advanced setup.`
+          : "",
+      ].filter(Boolean);
+      setNotice(bits.join(" ") || "✓ Read, nothing new to add.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   async function save() {
     if (!profile) return;
@@ -249,8 +312,8 @@ function StepTeach({
       <div className="space-y-3">
         <p className="text-[13px] text-text-muted">
           Status: <span className="font-medium text-text">{status || "…"}</span>
-          . Set hard limits here, or upload manuals and review what the
-          agent extracted in{" "}
+          . Upload a manual below and the agent fills the values, or type
+          hard limits by hand. Full table review lives in{" "}
           <Link
             href={`/setup?system=${encodeURIComponent(systemId)}`}
             className="rounded text-brand-cyan underline outline-none focus-visible:ring-2 focus-visible:ring-brand"
@@ -259,6 +322,50 @@ function StepTeach({
           </Link>
           .
         </p>
+        <div className="rounded-lg border border-border p-3">
+          <p className="text-[13px] font-medium text-text">
+            Read a manual
+          </p>
+          <p className="mt-0.5 text-xs text-text-muted">
+            A spec PDF, an ops-guide .md, or a rating-plate photo —
+            anything that says what normal means: ranges, behaviours,
+            modes, failures, hard limits.
+          </p>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept=".pdf,.png,.jpg,.jpeg,.txt,.md"
+            aria-label="Manual files"
+            className="mt-2 block w-full text-xs text-text-muted"
+          />
+          <textarea
+            rows={3}
+            value={paste}
+            onChange={(event) => setPaste(event.target.value)}
+            placeholder={
+              TEACH_PASTE_EXAMPLE[profile?.kind ?? "software"] ??
+              TEACH_PASTE_EXAMPLE.software
+            }
+            aria-label="Or paste the working principle"
+            className="mt-2 w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 font-mono text-xs text-text outline-none placeholder:text-text-faint focus:border-brand"
+          />
+          {notice && (
+            <p className="mt-1 text-xs text-text-muted" role="status">
+              {notice}
+            </p>
+          )}
+          <div className="mt-2">
+            <button
+              type="button"
+              disabled={extracting || !profile}
+              onClick={uploadManual}
+              className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-[13px] font-semibold text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+            >
+              {extracting ? "Reading…" : "Upload & extract"}
+            </button>
+          </div>
+        </div>
         <Field label="Owner contact">
           <input
             className={inputCls}

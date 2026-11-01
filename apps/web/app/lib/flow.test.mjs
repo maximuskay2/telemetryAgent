@@ -178,6 +178,27 @@ describe("gated product flow", () => {
     );
   });
 
+  it("connect teach step reads manuals or takes typed limits", () => {
+    const wizard = read("connect/Wizard.tsx");
+    assert.ok(wizard.includes("Read a manual"), "upload block offered");
+    assert.ok(
+      wizard.includes('accept=".pdf,.png,.jpg,.jpeg,.txt,.md"'),
+      "pdf, photo, md, text accepted",
+    );
+    assert.ok(
+      wizard.includes("Or paste the working principle"),
+      "paste path offered",
+    );
+    assert.ok(
+      wizard.includes("uploadSystemDocuments(systemId"),
+      "extracts through the documents endpoint",
+    );
+    assert.ok(
+      wizard.includes("+ Add limit"),
+      "hand-typed limits stay available",
+    );
+  });
+
   it("connect unifies browser drafts with account systems", () => {
     const wizard = read("connect/Wizard.tsx");
     assert.ok(wizard.includes("listSystems()"), "loads the account");
