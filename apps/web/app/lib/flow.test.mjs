@@ -92,6 +92,25 @@ describe("gated product flow", () => {
     assert.ok(steps.includes("Pull requests = Read"));
   });
 
+  it("connect runs hosting last among setup steps, before the promise", () => {
+    const wizard = read("connect/Wizard.tsx");
+    const titles = wizard.slice(
+      wizard.indexOf("SOFTWARE_TITLES"),
+      wizard.indexOf("APPLIANCE_TITLES"),
+    );
+    const order = ["System", "Logs", "Repo", "Teach", "Hosting", "Promise"];
+    const positions = order.map((title) => titles.indexOf(`"${title}"`));
+    assert.ok(
+      positions.every((pos) => pos >= 0),
+      "all setup steps listed",
+    );
+    assert.deepEqual(
+      [...positions].sort((a, b) => a - b),
+      positions,
+      "hosting comes after teach, before the promise",
+    );
+  });
+
   it("connect hosting step guides webhooks and can be skipped", () => {
     const steps = read("connect/ConnSteps.tsx");
     assert.ok(steps.includes("X-Telemetry-Signature"), "signing contract");

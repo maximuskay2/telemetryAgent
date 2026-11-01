@@ -498,8 +498,8 @@ const SOFTWARE_TITLES = [
   "System",
   "Logs",
   "Repo",
-  "Hosting",
   "Teach",
+  "Hosting",
   "Promise",
   "Pair",
   "Start",
@@ -581,7 +581,7 @@ export default function Wizard() {
           }}
         />
       )}
-      {data != null && kind === "software" && index === 3 && (
+      {data != null && kind === "software" && index === 4 && (
         <StepHosting
           num={num}
           systemId={data.systemId}
