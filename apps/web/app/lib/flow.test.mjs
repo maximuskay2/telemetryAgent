@@ -85,6 +85,13 @@ describe("gated product flow", () => {
     assert.ok(signin.includes("Try again"), "offers a way out");
   });
 
+  it("connect repo step explains where the GitHub token comes from", () => {
+    const steps = read("connect/ConnSteps.tsx");
+    assert.ok(steps.includes("github.com/settings/personal-access-tokens"));
+    assert.ok(steps.includes("Contents = Read and write"));
+    assert.ok(steps.includes("Pull requests = Read"));
+  });
+
   it("demo Mission Control does not embed members/devices/usage icons", () => {
     const nav = read("commerce/AccountNav.tsx");
     assert.ok(nav.includes("Connect production") || nav.includes("Your production"));

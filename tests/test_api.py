@@ -1221,5 +1221,33 @@ class RunningRunTests(unittest.TestCase):
         self.assertEqual(run_id, "run-new")
 
 
+class UnhandledToJsonTests(unittest.TestCase):
+    """Route crashes return 500 JSON (with CORS headers), never a dead
+    connection — dead connections surface in browsers as CORS errors."""
+
+    def test_crash_becomes_500_json(self) -> None:
+        import asyncio
+        import json
+
+        from starlette.requests import Request
+
+        handler = app.exception_handlers.get(Exception)
+        self.assertIsNotNone(handler)
+        request = Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/connections",
+                "headers": [],
+            }
+        )
+        with patch("apps.api.main.logger"):
+            response = asyncio.run(
+                handler(request, RuntimeError("boom"))  # type: ignore[misc]
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(json.loads(response.body), {"detail": "server error"})
+
+
 if __name__ == "__main__":
     unittest.main()

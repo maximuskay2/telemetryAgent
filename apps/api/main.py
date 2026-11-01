@@ -383,6 +383,16 @@ def cors_origin_regex() -> str:
 app = FastAPI(title="Telemetry Agent API", version="0.1.0", lifespan=lifespan)
 
 
+@app.exception_handler(Exception)
+async def _unhandled_to_json(request: Request, exc: Exception):
+    """Never kill a response mid-flight: crashes used to surface in the
+    browser as CORS errors (no ACAO headers on a dead connection)."""
+    logger.exception(
+        "unhandled %s %s: %r", request.method, request.url.path, exc
+    )
+    return JSONResponse(status_code=500, content={"detail": "server error"})
+
+
 def _start_embedded_shop_watcher() -> None:
     """Tail the in-process shop log and post candidates to this API."""
     import threading

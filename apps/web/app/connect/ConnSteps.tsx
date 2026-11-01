@@ -222,7 +222,10 @@ export function StepRepo({
             onChange={(e) => setBaseBranch(e.target.value)}
           />
         </Field>
-        <Field label="GitHub token" hint="Needs contents:read; PRs need more.">
+        <Field
+          label="GitHub token"
+          hint="Fine-grained token: Contents + Pull requests, read and write."
+        >
           <input
             className={inputCls}
             type="password"
@@ -232,6 +235,36 @@ export function StepRepo({
             onChange={(e) => setToken(e.target.value)}
           />
         </Field>
+        <details className="rounded-lg border border-border bg-surface-2 p-3 text-xs text-text-muted">
+          <summary className="cursor-pointer font-medium text-text">
+            How to create the token
+          </summary>
+          <ol className="mt-2 list-decimal space-y-1 pl-4">
+            <li>
+              Open{" "}
+              <a
+                href="https://github.com/settings/personal-access-tokens"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-cyan"
+              >
+                github.com/settings/personal-access-tokens
+              </a>{" "}
+              → Generate new token.
+            </li>
+            <li>Give it repository access to only this repo.</li>
+            <li>
+              Permissions: Contents = Read and write, Pull requests = Read
+              and write.
+            </li>
+            <li>Paste the token here (it starts with github_pat_).</li>
+          </ol>
+          <p className="mt-2">
+            The test reads the repo, checks the branch, then proves write
+            access by pushing and deleting a probe branch. Fixes arrive as
+            pull requests opened by this token.
+          </p>
+        </details>
         {conn == null ? (
           <StepNav
             onBack={onBack}
