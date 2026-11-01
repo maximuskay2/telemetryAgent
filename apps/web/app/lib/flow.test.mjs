@@ -59,6 +59,7 @@ describe("gated product flow", () => {
   it("production pages require auth", () => {
     for (const page of [
       "connect/page.tsx",
+      "dashboard/page.tsx",
       "members/page.tsx",
       "devices/page.tsx",
       "usage/page.tsx",
@@ -68,7 +69,7 @@ describe("gated product flow", () => {
     }
   });
 
-  it("sign-in returns to next, defaulting to /connect, not Mission Control", () => {
+  it("sign-in returns to next, defaulting to /dashboard, not Mission Control", () => {
     const signin = read("signin/[[...rest]]/page.tsx");
     assert.ok(signin.includes("safeNext"));
     assert.ok(!signin.includes('forceRedirectUrl="/"'));

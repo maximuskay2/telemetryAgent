@@ -3,6 +3,7 @@
 "use client";
 
 import { useState } from "react";
+import { signInHref } from "../lib/nextPath";
 import {
   CommerceError,
   Device,
@@ -24,7 +25,7 @@ export function ApiErrorView({ error }: { error: unknown }) {
       <Card title="Sign in required">
         <p className="text-sm text-text-muted">
           This page needs an account.{" "}
-          <a href="/signin?next=/connect" className="text-brand-cyan">
+          <a href={signInHref()} className="text-brand-cyan">
             Sign in
           </a>
         </p>

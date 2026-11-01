@@ -9,6 +9,7 @@ import { useSession } from "../lib/session";
 import { OrgSwitcher } from "./components";
 
 const NAV = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/connect", label: "Connect" },
   { href: "/members", label: "Members" },
   { href: "/devices", label: "Devices" },
@@ -47,7 +48,7 @@ export default function AccountChrome({ children }: { children: ReactNode }) {
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
           <Link
-            href="/welcome"
+            href="/dashboard"
             className="flex items-center gap-1.5 rounded outline-none focus-visible:ring-2 focus-visible:ring-brand"
           >
             <Logo size={18} />
@@ -86,10 +87,10 @@ export default function AccountChrome({ children }: { children: ReactNode }) {
               Support
             </Link>
             <Link
-              href="/start"
+              href="/"
               className="rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-muted outline-none hover:text-text focus-visible:ring-2 focus-visible:ring-brand"
             >
-              Live demo
+              Mission Control
             </Link>
             {orgs.length > 0 && (
               <OrgSwitcher

@@ -11,7 +11,7 @@ export default function DemoCta() {
   const { status } = useSession();
   const [awake, setAwake] = useState<boolean | null>(null);
   const productionHref =
-    status === "signed-in" ? "/connect" : signInHref("/connect");
+    status === "signed-in" ? "/dashboard" : signInHref("/connect");
 
   useEffect(() => {
     let cancelled = false;

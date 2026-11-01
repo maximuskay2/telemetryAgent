@@ -38,6 +38,10 @@ function compileTs(sourcePath) {
     compileTs(join(appDir, "lib/api.ts")),
   );
   writeFileSync(
+    join(workdir, "nextpath-stub.cjs"),
+    compileTs(join(appDir, "lib/nextPath.ts")),
+  );
+  writeFileSync(
     join(workdir, "ui-stub.cjs"),
     "const React = require('react');" +
       "exports.Card = ({ title, children }) => React.createElement('section', null," +
@@ -50,6 +54,9 @@ function compileTs(sourcePath) {
       return join(workdir, "commerce-stub.cjs");
     }
     if (request === "./api") return join(workdir, "api-stub.cjs");
+    if (request === "../lib/nextPath") {
+      return join(workdir, "nextpath-stub.cjs");
+    }
     if (request === "../ui") return join(workdir, "ui-stub.cjs");
     return original.call(this, request, ...rest);
   };
@@ -103,7 +110,7 @@ describe("ApiErrorView", () => {
       }),
     );
     assert.match(html, /Sign in required/);
-    assert.match(html, /href="\/signin\?next=\/connect"/);
+    assert.match(html, /href="\/signin\?next=%2Fdashboard"/);
   });
 
   it("403 explains roles", () => {

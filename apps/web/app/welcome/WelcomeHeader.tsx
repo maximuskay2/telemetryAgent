@@ -71,14 +71,14 @@ export default function WelcomeHeader() {
           </Link>
           {signedIn ? (
             <Link
-              href="/connect"
+              href="/dashboard"
               className="rounded-lg bg-brand px-2.5 py-1.5 text-xs font-medium text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
             >
               Your production
             </Link>
           ) : (
             <Link
-              href={signInHref("/connect")}
+              href={signInHref()}
               className="rounded-lg bg-brand px-2.5 py-1.5 text-xs font-medium text-on-brand outline-none hover:bg-brand/90 focus-visible:ring-2 focus-visible:ring-brand"
             >
               Sign in

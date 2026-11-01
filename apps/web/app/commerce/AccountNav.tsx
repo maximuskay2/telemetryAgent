@@ -21,7 +21,7 @@ export default function AccountNav() {
   }
   return (
     <>
-      <Link href="/connect" className={LINK}>
+      <Link href="/dashboard" className={LINK}>
         Your production
       </Link>
       <button

@@ -58,10 +58,10 @@ export default function InvitePage() {
             Joined as {done.role}.{" "}
             <button
               type="button"
-              onClick={() => router.push("/connect")}
+              onClick={() => router.push("/dashboard")}
               className="cursor-pointer text-brand-cyan outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
-              Open Mission Control
+              Open your dashboard
             </button>
           </p>
         </Card>

@@ -9,13 +9,13 @@ const src = readFileSync(
   "utf8",
 );
 
-function safeNext(raw, fallback = "/connect") {
+function safeNext(raw, fallback = "/dashboard") {
   if (!raw) return fallback;
   if (!raw.startsWith("/") || raw.startsWith("//")) return fallback;
   return raw;
 }
 
-function signInHref(next = "/connect") {
+function signInHref(next = "/dashboard") {
   return `/signin?next=${encodeURIComponent(safeNext(next))}`;
 }
 
@@ -25,10 +25,10 @@ describe("safeNext", () => {
     assert.ok(src.includes("export function signInHref"));
   });
 
-  it("defaults to /connect", () => {
-    assert.equal(safeNext(null), "/connect");
-    assert.equal(safeNext(""), "/connect");
-    assert.equal(safeNext(undefined), "/connect");
+  it("defaults to /dashboard", () => {
+    assert.equal(safeNext(null), "/dashboard");
+    assert.equal(safeNext(""), "/dashboard");
+    assert.equal(safeNext(undefined), "/dashboard");
   });
 
   it("keeps in-app paths", () => {
@@ -37,14 +37,20 @@ describe("safeNext", () => {
   });
 
   it("rejects open redirects", () => {
-    assert.equal(safeNext("https://evil.example"), "/connect");
-    assert.equal(safeNext("//evil.example"), "/connect");
-    assert.equal(safeNext("signin"), "/connect");
+    assert.equal(safeNext("https://evil.example"), "/dashboard");
+    assert.equal(safeNext("//evil.example"), "/dashboard");
+    assert.equal(safeNext("signin"), "/dashboard");
+  });
+
+  it("pins the real default in nextPath.ts", () => {
+    assert.ok(src.includes('fallback = "/dashboard"'));
+    assert.ok(src.includes('next = "/dashboard"'));
   });
 });
 
 describe("signInHref", () => {
   it("sends production through /signin", () => {
     assert.equal(signInHref("/connect"), "/signin?next=%2Fconnect");
+    assert.equal(signInHref(), "/signin?next=%2Fdashboard");
   });
 });

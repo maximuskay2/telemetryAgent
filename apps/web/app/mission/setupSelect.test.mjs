@@ -62,3 +62,14 @@ describe("mission gate", () => {
     assert.ok(setup.includes("loadSetupDrafts"));
   });
 });
+
+describe("mission topology", () => {
+  it("hides demo tiles for signed-in users, tour excepted", () => {
+    const pane = read("mission/LeftPane.tsx");
+    assert.ok(pane.includes("useSession"));
+    assert.ok(pane.includes('status !== "signed-in"'));
+    assert.ok(pane.includes("showDemo"));
+    assert.ok(pane.includes('get("tour") === "1"'));
+    assert.ok(pane.includes("{showDemo && ("));
+  });
+});
