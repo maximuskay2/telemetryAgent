@@ -72,4 +72,48 @@ describe("connect api auth", () => {
     assert.equal(headers.Authorization, "Bearer jwt123");
     assert.equal(headers["X-Org-Id"], "org1");
   });
+
+  it("retries once with a fresh token after a 401", async () => {
+    const seen = [];
+    let calls = 0;
+    globalThis.fetch = async (url, init) => {
+      seen.push(init.headers);
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 401, json: async () => ({}) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ system_id: "sys1", name: "n", kind: "software" }),
+      };
+    };
+    const { setSessionAuthProvider, setSessionAuthRefresher } = loadTs(
+      "lib/sessionAuth.ts",
+    );
+    setSessionAuthProvider(() => ({ token: "stale", orgId: "org1" }));
+    setSessionAuthRefresher(async () => "fresh123");
+    await api.createSystem({ name: "n", kind: "software" });
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0].Authorization, "Bearer stale");
+    assert.equal(seen[1].Authorization, "Bearer fresh123");
+    setSessionAuthRefresher(async () => null);
+  });
+
+  it("surfaces the 401 when refresh is impossible", async () => {
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: "sign-in required" }),
+    });
+    const { setSessionAuthProvider, setSessionAuthRefresher } = loadTs(
+      "lib/sessionAuth.ts",
+    );
+    setSessionAuthProvider(() => ({ token: null, orgId: null }));
+    setSessionAuthRefresher(async () => null);
+    await assert.rejects(
+      api.createSystem({ name: "n", kind: "software" }),
+      /sign-in required/,
+    );
+  });
 });

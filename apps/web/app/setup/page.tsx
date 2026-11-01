@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
 import { useSession } from "../lib/session";
+import { refreshSessionAuth } from "../lib/sessionAuth";
 import { ReviewSection, SECTION_HINTS } from "./ReviewTable";
 import {
   clearSetupDraft,
@@ -163,14 +164,28 @@ export default function SetupPage() {
 
   async function api(path: string, init?: RequestInit): Promise<unknown> {
     const { token, orgId } = getSessionAuth();
-    const response = await fetch(`${apiUrl}${path}`, {
-      ...init,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(orgId ? { "X-Org-Id": orgId } : {}),
-        ...(init?.headers ?? {}),
-      },
-    });
+    const method = init?.method ?? "GET";
+    if (!token && method !== "GET" && profile?.environment?.demo !== "true") {
+      // Never fire a mutation with no credentials: the 401 teaches
+      // nothing — say what to do instead. Demo systems stay public.
+      throw new Error("Sign in to change production systems.");
+    }
+    const send = (freshToken?: string | null) => {
+      const bearer = freshToken ?? token;
+      return fetch(`${apiUrl}${path}`, {
+        ...init,
+        headers: {
+          ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+          ...(orgId ? { "X-Org-Id": orgId } : {}),
+          ...(init?.headers ?? {}),
+        },
+      });
+    };
+    let response = await send();
+    if (response.status === 401) {
+      const fresh = await refreshSessionAuth();
+      if (fresh) response = await send(fresh);
+    }
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(detail || `API returned ${response.status}`);

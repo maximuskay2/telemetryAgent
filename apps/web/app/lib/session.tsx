@@ -11,9 +11,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { setSessionAuthRefresher } from "./sessionAuth";
 import {
   CommerceApi,
   CommerceClient,
@@ -403,14 +405,44 @@ function ClerkSessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn]);
 
-  // Clerk session tokens are short-lived: refresh while signed in.
+  // Fresh tokens for the 401-retry path (skipCache beats the 50 s
+  // interval when a request lands in an expiry gap).
+  const refreshFails = useRef(0);
+  useEffect(() => {
+    setSessionAuthRefresher(async () => {
+      if (override || !isSignedIn) return null;
+      try {
+        const jwt = await getToken({ skipCache: true });
+        if (!jwt) return null;
+        refreshFails.current = 0;
+        setClerkToken(jwt);
+        return jwt;
+      } catch {
+        return null;
+      }
+    });
+  }, [getToken, override, isSignedIn]);
+
+  // Clerk session tokens are short-lived: refresh while signed in. A
+  // dead session must not masquerade as signed in: after two straight
+  // failures RequireAuth sends the user to re-sign instead of 401ing
+  // every mutation while the UI looks fine.
   useEffect(() => {
     if (override || !isSignedIn) return;
     const timer = setInterval(() => {
       getToken().then((jwt) => {
-        if (jwt) setClerkToken(jwt);
+        if (jwt) {
+          refreshFails.current = 0;
+          setClerkToken(jwt);
+        } else if (++refreshFails.current >= 2) {
+          setClerkToken(null);
+          setStatus("signed-out");
+        }
       }).catch(() => {
-        // Keep the current token; the next request 401s honestly.
+        if (++refreshFails.current >= 2) {
+          setClerkToken(null);
+          setStatus("signed-out");
+        }
       });
     }, 50000);
     return () => clearInterval(timer);

@@ -1,7 +1,7 @@
 "use client";
 
 import { apiUrl, responseDetail } from "./api";
-import { sessionAuthHeaders } from "./sessionAuth";
+import { refreshSessionAuth, sessionAuthHeaders } from "./sessionAuth";
 
 /** localStorage flag set once a visitor finishes the demo or production walkthrough. */
 export const ONBOARDED_KEY = "ta_onboarded";
@@ -15,10 +15,22 @@ export function markOnboarded(): void {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: { ...sessionAuthHeaders(), ...(init?.headers ?? {}) },
-  });
+  const send = (freshToken?: string | null) => {
+    const auth = sessionAuthHeaders();
+    if (freshToken) auth.Authorization = `Bearer ${freshToken}`;
+    return fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: { ...auth, ...(init?.headers ?? {}) },
+    });
+  };
+  let response = await send();
+  if (response.status === 401) {
+    // Stale-token gap (short-lived Clerk JWTs): one retry with a
+    // freshly minted token. A 401 never executes server-side, so the
+    // retry can't double-apply a mutation.
+    const fresh = await refreshSessionAuth();
+    if (fresh) response = await send(fresh);
+  }
   if (!response.ok) throw new Error(await responseDetail(response));
   return (await response.json()) as T;
 }

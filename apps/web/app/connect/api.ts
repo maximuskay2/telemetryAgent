@@ -1,7 +1,7 @@
 // Production connections API client (N-R4). Reads only; generated keys are
 // shown once by the caller and never stored in the browser.
 import { apiUrl, responseDetail } from "../lib/api";
-import { sessionAuthHeaders } from "../lib/sessionAuth";
+import { refreshSessionAuth, sessionAuthHeaders } from "../lib/sessionAuth";
 import type {
   ConnectionCreated,
   ConnectionKind,
@@ -27,15 +27,26 @@ export function setAccessCode(code: string): void {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const code = getAccessCode();
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...sessionAuthHeaders(),
-      ...(code ? { "X-Connect-Code": code } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
+  const send = (freshToken?: string | null) => {
+    const auth = sessionAuthHeaders();
+    if (freshToken) auth.Authorization = `Bearer ${freshToken}`;
+    return fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...auth,
+        ...(code ? { "X-Connect-Code": code } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  };
+  let response = await send();
+  if (response.status === 401) {
+    // Stale-token gap: one retry with a freshly minted token before
+    // treating this as a bad access code or a dead session.
+    const fresh = await refreshSessionAuth();
+    if (fresh) response = await send(fresh);
+  }
   if (response.status === 401 && path.startsWith("/api/connections")) {
     setAccessCode("");
     throw new AccessCodeError(await responseDetail(response));
