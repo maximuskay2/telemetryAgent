@@ -109,6 +109,10 @@ def _listed_models() -> list[str]:
         name = getattr(item, "id", None) or getattr(item, "name", None)
         if name:
             ids.append(str(name))
+    if not ids:
+        # Blind window (Meta flaps 200-empty at times): never cache it —
+        # the next call refetches instead of locking the process out.
+        return []
     _listed_cache = ids
     return ids
 

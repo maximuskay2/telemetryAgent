@@ -290,6 +290,33 @@ class DefaultModelFnTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0], meta_client.diagnosis_model())
 
+    def test_empty_catalog_is_not_cached(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        import core.infer.meta_client as meta_client
+
+        pages = [
+            SimpleNamespace(data=[]),
+            SimpleNamespace(
+                data=[SimpleNamespace(id="muse-spark-1.3", name=None)]
+            ),
+        ]
+        fake = SimpleNamespace(
+            models=SimpleNamespace(list=Mock(side_effect=pages))
+        )
+        old = meta_client._listed_cache
+        try:
+            meta_client._listed_cache = None
+            with patch.object(meta_client, "_client", return_value=fake):
+                self.assertEqual(meta_client._listed_models(), [])
+                self.assertEqual(
+                    meta_client._listed_models(), ["muse-spark-1.3"]
+                )
+                self.assertEqual(fake.models.list.call_count, 2)
+        finally:
+            meta_client._listed_cache = old
+
     def test_reports_when_no_model_id_left(self) -> None:
         import core.infer.meta_client as meta_client
         from core.setup import extract as extract_module
