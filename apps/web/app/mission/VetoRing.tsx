@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, responseDetail } from "../lib/api";
+import { demoAuthHeaders, ensureDemoDeviceToken } from "../lib/demoSession";
 import { sessionAuthHeaders } from "../lib/sessionAuth";
 import type { VetoAction } from "../types/api";
 import { useMission } from "./state";
@@ -115,14 +116,19 @@ export default function VetoRing() {
     setFailed("");
     setLate(null);
     try {
+      // Anonymous demo runs need a device session to decide; signed-in
+      // and operator headers (spread later) still win when present.
+      const session = sessionAuthHeaders();
+      if (!session.Authorization) await ensureDemoDeviceToken();
       const response = await fetch(
         `${apiUrl}/api/actions/${encodeURIComponent(open.runId)}/${approve ? "approve" : "disapprove"}`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...demoAuthHeaders(),
             ...authHeaders(),
-            ...sessionAuthHeaders(),
+            ...session,
           },
           body: JSON.stringify({ device: "dashboard" }),
         },

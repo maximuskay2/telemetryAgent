@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { wsUrl } from "../lib/api";
+import { declareDemoWatch } from "../lib/demoSession";
 import { useSession } from "../lib/session";
 import { parseEvent, type StreamEvent } from "../types/api";
 
@@ -42,6 +43,11 @@ export function useAgentStream({
       token && orgId
         ? `${wsUrl()}?token=${encodeURIComponent(token)}&org=${encodeURIComponent(orgId)}&demo=1`
         : wsUrl();
+    if (!token || !orgId) {
+      // Anonymous dashboard: pair this tab and declare the demo watch so
+      // the API knows which device is watching which demo systems.
+      void declareDemoWatch(["shop", "freezer"]);
+    }
     const socket = new WebSocket(url);
     socket.onopen = () => setConnection("connected");
     socket.onclose = () => {

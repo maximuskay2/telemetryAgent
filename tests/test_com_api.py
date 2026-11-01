@@ -142,10 +142,23 @@ class ResolveUnitTests(unittest.TestCase):
     def test_authorize_action_run(self) -> None:
         from core.commerce import auth as auth_module
 
-        # Demo entries (no org tag) stay public.
-        auth_module.authorize_action_run(auth_module.AuthContext(), {})
+        # Demo entries (no org tag) need a device session or a sign-in.
+        with self.assertRaises(auth_module.AuthError) as raised:
+            auth_module.authorize_action_run(auth_module.AuthContext(), {})
+        self.assertEqual(raised.exception.status, 401)
         auth_module.authorize_action_run(
-            auth_module.AuthContext(), {"org_id": "demo"}
+            auth_module.AuthContext(auth_mode="demo", device_id="demo_x"),
+            {},
+        )
+        auth_module.authorize_action_run(
+            auth_module.AuthContext(auth_mode="demo", device_id="demo_x"),
+            {"org_id": "demo"},
+        )
+        auth_module.authorize_action_run(
+            auth_module.AuthContext(
+                user_id=self.user["id"], auth_mode="session"
+            ),
+            {},
         )
         member = auth_module.AuthContext(
             org_id=self.org["id"],
@@ -528,6 +541,80 @@ class CommerceRoutesTests(unittest.TestCase):
             "by_org", "by_language", "top_spenders", "provider_credit"
         ):
             self.assertIn(key, admin.json())
+
+    def test_demo_device_register_watch_list(self) -> None:
+        created = self.client.post(
+            "/api/demo/devices", json={"label": "Kayode's Pixel"}
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        body = created.json()
+        self.assertTrue(body["device_token"].startswith("ta_demo_"))
+        headers = {"Authorization": f"Bearer {body['device_token']}"}
+        watch = self.client.put(
+            "/api/demo/devices/watch",
+            json={"systems": ["autoparts-shop", "coldchain-1"]},
+            headers=headers,
+        )
+        self.assertEqual(watch.status_code, 200, watch.text)
+        self.assertEqual(
+            watch.json()["watching"], ["autoparts-shop", "coldchain-1"]
+        )
+        listed = self.client.get("/api/demo/devices")
+        rows = listed.json()["devices"]
+        mine = next(
+            row for row in rows if row["device_id"] == body["device_id"]
+        )
+        self.assertEqual(mine["label"], "Kayode's Pixel")
+        self.assertNotIn("token_hash", mine)
+
+        denied = self.client.put(
+            "/api/demo/devices/watch", json={"systems": []}
+        )
+        self.assertEqual(denied.status_code, 401)
+
+    def test_demo_veto_needs_a_device_session(self) -> None:
+        import time
+
+        import apps.api.main as api_main
+        from core.actions.auto_action import PendingAction
+
+        created = self.client.post(
+            "/api/demo/devices", json={"label": "veto phone"}
+        )
+        token = created.json()["device_token"]
+        run_id = "r-demo-veto"
+        api_main.software_runs[run_id] = {
+            "target": "inventory",
+            "result": None,
+            "status": "running",
+            "org_id": "",
+        }
+        api_main.pending_actions[run_id] = PendingAction(
+            run_id=run_id,
+            domain="software",
+            action="test",
+            opened_at=time.time(),
+            deadline=time.time() + 60,
+            state="pending",
+            ready=True,
+        )
+        try:
+            denied = self.client.post(
+                f"/api/actions/{run_id}/approve",
+                json={"device": "dashboard"},
+            )
+            self.assertEqual(denied.status_code, 401)
+            allowed = self.client.post(
+                f"/api/actions/{run_id}/approve",
+                json={"device": "dashboard"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            # Past auth: the device session records the decision.
+            self.assertEqual(allowed.status_code, 200)
+            self.assertNotEqual(allowed.json()["state"], "pending")
+        finally:
+            api_main.software_runs.pop(run_id, None)
+            api_main.pending_actions.pop(run_id, None)
 
     def test_retry_same_repo_reuses_connection(self) -> None:
         from cryptography.fernet import Fernet

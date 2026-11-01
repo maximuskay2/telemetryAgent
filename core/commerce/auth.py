@@ -59,6 +59,7 @@ ENFORCED_PREFIXES = (
 ORG_HEADER = "X-Org-Id"
 DEVICE_PREFIX = models.DEVICE_KEY_PREFIX
 INGEST_PREFIX = "ta_live_"
+DEMO_DEVICE_PREFIX = "ta_demo_"
 
 
 class AuthError(Exception):
@@ -75,8 +76,9 @@ class AuthContext:
     org_id: str = ""
     user_id: str = ""
     role: str = ""
-    auth_mode: str = "open"  # session|device|ingest|open
+    auth_mode: str = "open"  # session|device|ingest|demo|open
     email: str = ""
+    device_id: str = ""
 
 
 def is_public(path: str) -> bool:
@@ -256,6 +258,16 @@ def resolve_request(store, path: str, headers) -> AuthContext:
             role=str(membership.get("role", "")),
             auth_mode="device",
         )
+    if token.startswith(DEMO_DEVICE_PREFIX):
+        row = store.get_demo_device_by_hash(
+            connection_store.hash_key(token)
+        )
+        if row is None:
+            if enforced:
+                raise AuthError(401, "unknown demo device token")
+            return ctx
+        store.touch_demo_device(row["id"])
+        return AuthContext(auth_mode="demo", device_id=row["id"])
     if token.startswith(INGEST_PREFIX):
         # Ingest keys authenticate ingest/device-key routes only, which are
         # public and resolve the key themselves. Anywhere else: reject.
@@ -366,6 +378,14 @@ def resolve_ws_token(
             role=str(membership.get("role", "")),
             auth_mode="device",
         )
+    if token.startswith(DEMO_DEVICE_PREFIX):
+        row = store.get_demo_device_by_hash(
+            connection_store.hash_key(token)
+        )
+        if row is None:
+            raise AuthError(401, "unknown demo device token")
+        store.touch_demo_device(row["id"])
+        return AuthContext(auth_mode="demo", device_id=row["id"])
     identity = verify_session_token(token)
     user = provision_user(
         store, identity["external_id"], identity["email"]
@@ -389,13 +409,16 @@ def resolve_ws_token(
 def authorize_action_run(ctx: AuthContext, entry: Dict[str, Any]) -> None:
     """Gate approve/disapprove/pause/execute on an in-memory run entry.
 
-    Entries without an org (sim/demo runs) stay public per the §8.3 demo
-    channel. Entries tagged org_id (org runs; the pipeline tags them at
-    C-J3) need member+. A foreign org's run looks unknown (404, no ID
-    oracle — C-J4); only same-org role failures stay 403.
+    Entries without an org (sim/demo runs) need a device session or a
+    sign-in: anonymous demo decisions are refused so every veto traces
+    to a device. Entries tagged org_id (org runs; the pipeline tags
+    them at C-J3) need member+. A foreign org's run looks unknown
+    (404, no ID oracle — C-J4); only same-org role failures stay 403.
     """
     org_id = str(entry.get("org_id", "") or "")
     if not org_id or org_id == models.DEMO_ORG_ID:
+        if not ctx.user_id and not ctx.device_id:
+            raise AuthError(401, "pair a device to decide")
         return
     if not ctx.user_id:
         raise AuthError(401, "sign-in required")

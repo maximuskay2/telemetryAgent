@@ -101,6 +101,52 @@ class ConnectionNotifier extends AsyncNotifier<Connection?> {
     }
   }
 
+  /// Demo pairing (no account): register this phone as a demo device,
+  /// connect with its token, and declare the watched systems so the API
+  /// knows which device watches what. Returns an error, or null.
+  Future<String?> demoAndConnect({
+    required String apiUrl,
+    required String deviceName,
+    http.Client? client,
+  }) async {
+    final probe = AgentApi(
+      connection: Connection(apiUrl: apiUrl, token: '', deviceName: ''),
+      client: client,
+    );
+    try {
+      final registered = await probe.registerDemoDevice(deviceName);
+      if (registered.deviceToken.isEmpty) {
+        return 'Demo pairing failed — try again.';
+      }
+      final connection = Connection(
+        apiUrl: apiUrl,
+        token: registered.deviceToken,
+        deviceName: deviceName,
+      );
+      final ok = await saveAndConnect(connection, client: client);
+      if (!ok) return 'No agent at that URL — same Wi-Fi? API running?';
+      final api = AgentApi(connection: connection, client: client);
+      try {
+        final systems = await api.systems();
+        final ids = systems
+            .map((s) => s.systemId)
+            .where((id) => id.isNotEmpty)
+            .toList();
+        await api.declareWatch(ids.isEmpty ? ['demo'] : ids);
+      } catch (_) {
+        // Watch declaration is telemetry; the session still decides.
+      } finally {
+        api.close();
+      }
+      return null;
+    } on ApiError catch (error) {
+      showToast('Demo pairing failed — ${error.message}', error: true);
+      return error.message;
+    } finally {
+      probe.close();
+    }
+  }
+
   /// Per-user sign-in (C-N4): claim a web pairing code, then connect
   /// with the device token. Returns an error message, or null on success.
   Future<String?> claimAndConnect({

@@ -47,6 +47,42 @@ class AgentApi {
     );
   }
 
+  /// Pair a demo device (no account): a label in, a `ta_demo_` token
+  /// out. Returns (deviceId, deviceToken); throws [ApiError] on failure.
+  Future<({String deviceId, String deviceToken})> registerDemoDevice(
+      String label) async {
+    final response = await _client
+        .post(
+          _uri('/api/demo/devices'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'label': label}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw ApiError(
+          'Demo pairing failed (${response.statusCode}).');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (
+      deviceId: body['device_id'] as String? ?? '',
+      deviceToken: body['device_token'] as String? ?? '',
+    );
+  }
+
+  /// Declare which systems this device watches (demo sessions).
+  Future<void> declareWatch(List<String> systems) async {
+    final response = await _client
+        .put(
+          _uri('/api/demo/devices/watch'),
+          headers: _headers,
+          body: jsonEncode({'systems': systems}),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw ApiError('Watch failed (${response.statusCode}).');
+    }
+  }
+
   Uri _uri(String path) =>
       Uri.parse(connection.apiUrl).replace(path: path);
 

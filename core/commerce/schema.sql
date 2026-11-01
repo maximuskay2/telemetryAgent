@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS device_tokens (
     revoked_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS demo_devices (
+    id text PRIMARY KEY,
+    label text NOT NULL DEFAULT '',
+    token_hash text UNIQUE NOT NULL,
+    watching jsonb NOT NULL DEFAULT '[]',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_seen_at timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS pairing_codes (
     code_hash text PRIMARY KEY,
     org_id text NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,

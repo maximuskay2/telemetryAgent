@@ -149,6 +149,36 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                   },
             child: Text(_busy ? 'Claiming…' : 'Claim code & connect'),
           ),
+          const SizedBox(height: 24),
+          const Text(
+            'No account? Pair as a demo device to watch the shared demo — '
+            'your vetoes stay attributed to this phone.',
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    setState(() {
+                      _busy = true;
+                      _error = null;
+                    });
+                    final problem = await ref
+                        .read(connectionProvider.notifier)
+                        .demoAndConnect(
+                          apiUrl: _url.text.trim(),
+                          deviceName: _device.text.trim().isEmpty
+                              ? 'phone'
+                              : _device.text.trim(),
+                        );
+                    if (!mounted) return;
+                    setState(() {
+                      _busy = false;
+                      _error = problem;
+                    });
+                  },
+            child: Text(_busy ? 'Pairing…' : 'Try the demo'),
+          ),
         ],
       ),
     );

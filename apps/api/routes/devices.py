@@ -255,7 +255,7 @@ async def execute_option(
 ) -> OptionExecuted:
     domain, entry = _find_run(run_id)
     if _hosted():
-        # Hosted (C-J2): demo runs public, org runs need member+.
+        # Hosted (C-J2): demo runs need a device session, org runs member+.
         from core.commerce import auth as auth_module
 
         if entry is not None:

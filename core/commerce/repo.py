@@ -20,6 +20,7 @@ import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from core.commerce import db as db_module
 from core.commerce import models
@@ -164,6 +165,31 @@ class BaseStore:
         raise NotImplementedError
 
     def touch_device_token(self, token_id: str) -> None:
+        raise NotImplementedError
+
+    def create_demo_device(self, label: str) -> tuple:
+        """(public row dict, token shown once)."""
+        raise NotImplementedError
+
+    def get_demo_device(
+        self, device_id: str
+    ) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def get_demo_device_by_hash(
+        self, token_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def touch_demo_device(self, device_id: str) -> None:
+        raise NotImplementedError
+
+    def set_demo_device_watch(
+        self, device_id: str, systems: list
+    ) -> Optional[Dict[str, Any]]:
+        raise NotImplementedError
+
+    def list_demo_devices(self) -> List[Dict[str, Any]]:
         raise NotImplementedError
 
     def create_pairing_code(
@@ -877,6 +903,78 @@ class PostgresBackend(BaseStore):
                 "WHERE id = %s",
                 (token_id,),
             )
+
+    # -- demo devices: per-device demo sessions, no org ----------------------
+    def create_demo_device(self, label: str) -> tuple:
+        """(row dict, token shown once, `ta_demo_…`)."""
+        from core.connections import store as connection_store
+
+        token = f"ta_demo_{secrets.token_urlsafe(24)}"
+        device_id = f"demo_{uuid4().hex[:12]}"
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO demo_devices (id, label, token_hash) "
+                "VALUES (%s, %s, %s)",
+                (
+                    device_id, label,
+                    connection_store.hash_key(token),
+                ),
+            )
+        row = self.get_demo_device(device_id)
+        assert row is not None
+        return row, token
+
+    def get_demo_device(self, device_id: str) -> Optional[Dict[str, Any]]:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, label, watching, created_at, last_seen_at "
+                "FROM demo_devices WHERE id = %s",
+                (device_id,),
+            )
+            found = cur.fetchone()
+            return _row_to_dict(cur, found) if found else None
+
+    def get_demo_device_by_hash(
+        self, token_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, label, watching, created_at, last_seen_at "
+                "FROM demo_devices WHERE token_hash = %s",
+                (token_hash,),
+            )
+            found = cur.fetchone()
+            return _row_to_dict(cur, found) if found else None
+
+    def touch_demo_device(self, device_id: str) -> None:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE demo_devices SET last_seen_at = now() "
+                "WHERE id = %s",
+                (device_id,),
+            )
+
+    def set_demo_device_watch(
+        self, device_id: str, systems: list
+    ) -> Optional[Dict[str, Any]]:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE demo_devices "
+                "SET watching = %s::jsonb, last_seen_at = now() "
+                "WHERE id = %s",
+                (json.dumps(list(systems)), device_id),
+            )
+            if cur.rowcount == 0:
+                return None
+        return self.get_demo_device(device_id)
+
+    def list_demo_devices(self) -> List[Dict[str, Any]]:
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, label, watching, created_at, last_seen_at "
+                "FROM demo_devices ORDER BY created_at",
+            )
+            return [_row_to_dict(cur, row) for row in cur.fetchall()]
 
     def create_pairing_code(
         self, org_id: str, user_id: str, label: str, ttl_s: int = 600
@@ -1821,6 +1919,72 @@ class FileBackend(BaseStore):
         if token_id in tokens:
             tokens[token_id]["last_used_at"] = time.time()
             self._save("device_tokens", tokens, private=True)
+
+    # -- demo devices: per-device demo sessions, no org ----------------------
+    def create_demo_device(self, label: str) -> tuple:
+        from core.connections import store as connection_store
+
+        devices = self._load("demo_devices", {})
+        token = f"ta_demo_{secrets.token_urlsafe(24)}"
+        device_id = f"demo_{uuid4().hex[:12]}"
+        devices[device_id] = {
+            "id": device_id,
+            "label": label,
+            "token_hash": connection_store.hash_key(token),
+            "watching": [],
+            "created_at": time.time(),
+            "last_seen_at": None,
+        }
+        self._save("demo_devices", devices, private=True)
+        row = self.get_demo_device(device_id)
+        assert row is not None
+        return row, token
+
+    def get_demo_device(
+        self, device_id: str
+    ) -> Optional[Dict[str, Any]]:
+        devices = self._load("demo_devices", {})
+        row = devices.get(device_id)
+        if row is None:
+            return None
+        return {k: row.get(k) for k in (
+            "id", "label", "watching", "created_at", "last_seen_at",
+        )}
+
+    def get_demo_device_by_hash(
+        self, token_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        devices = self._load("demo_devices", {})
+        for device_id, row in devices.items():
+            if row.get("token_hash") == token_hash:
+                return self.get_demo_device(device_id)
+        return None
+
+    def touch_demo_device(self, device_id: str) -> None:
+        devices = self._load("demo_devices", {})
+        if device_id in devices:
+            devices[device_id]["last_seen_at"] = time.time()
+            self._save("demo_devices", devices, private=True)
+
+    def set_demo_device_watch(
+        self, device_id: str, systems: list
+    ) -> Optional[Dict[str, Any]]:
+        devices = self._load("demo_devices", {})
+        if device_id not in devices:
+            return None
+        devices[device_id]["watching"] = list(systems)
+        devices[device_id]["last_seen_at"] = time.time()
+        self._save("demo_devices", devices, private=True)
+        return self.get_demo_device(device_id)
+
+    def list_demo_devices(self) -> List[Dict[str, Any]]:
+        devices = self._load("demo_devices", {})
+        rows = [
+            self.get_demo_device(device_id) for device_id in devices
+        ]
+        rows = [row for row in rows if row is not None]
+        rows.sort(key=lambda row: row.get("created_at") or 0.0)
+        return rows
 
     def create_pairing_code(
         self, org_id: str, user_id: str, label: str, ttl_s: int = 600

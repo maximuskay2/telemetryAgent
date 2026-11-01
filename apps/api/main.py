@@ -1827,11 +1827,12 @@ class DecisionIn(BaseModel):
 
 
 def _require_action_auth(request: Request, run_id: str) -> None:
-    """Decision auth: mobile token self-hosted, user role hosted (C-J2).
+    """Decision auth: mobile token self-hosted, identity hosted (C-J2).
 
-    Hosted demo-channel runs (no org tag) stay public per §8.3; org-tagged
-    runs need member+ of that org. Unknown runs fall through to the
-    existing 404 below (no existence oracle either way).
+    Hosted demo-channel runs (no org tag) need a demo device session
+    or a sign-in; org-tagged runs need member+ of that org. Unknown
+    runs fall through to the existing 404 below (no existence oracle
+    either way).
     """
     if not os.environ.get("DATABASE_URL", "").strip():
         _require_mobile_token(request)
@@ -2484,6 +2485,96 @@ async def demo_bootstrap() -> dict:
     return {
         "shop": shop.model_dump(mode="json"),
         "freezer": freezer.model_dump(mode="json"),
+    }
+
+
+class DemoDeviceIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+
+
+class DemoWatchIn(BaseModel):
+    systems: list[str] = Field(default_factory=list, max_length=50)
+
+
+@app.post("/api/demo/devices")
+async def demo_register_device(payload: DemoDeviceIn) -> dict:
+    """Pair a demo device: a label in, a one-time token out. No account."""
+    from core.commerce import repo as repo_module
+
+    label = payload.label.strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label required")
+    row, token = await asyncio.to_thread(
+        repo_module.get_store().create_demo_device, label
+    )
+    return {
+        "device_id": row["id"],
+        "device_token": token,
+        "watching": row.get("watching", []),
+    }
+
+
+@app.put("/api/demo/devices/watch")
+async def demo_device_watch(
+    payload: DemoWatchIn, request: Request
+) -> dict:
+    """Declare which demo systems this device watches (Bearer token)."""
+    from core.commerce import auth as auth_module
+    from core.commerce import repo as repo_module
+    from core.connections import store as connection_store
+
+    store = repo_module.get_store()
+    ctx = getattr(request.state, "auth", None) or auth_module.AuthContext()
+    device_id = ctx.device_id
+    if not device_id:
+        # Self-hosted skips the auth middleware: resolve the token here.
+        scheme, _, value = request.headers.get(
+            "authorization", ""
+        ).partition(" ")
+        bare = value.strip()
+        if scheme.lower() == "bearer" and bare.startswith("ta_demo_"):
+            found = await asyncio.to_thread(
+                store.get_demo_device_by_hash,
+                connection_store.hash_key(bare),
+            )
+            if found is not None:
+                device_id = found["id"]
+    if not device_id:
+        raise HTTPException(
+            status_code=401, detail="demo device token required"
+        )
+    systems = [
+        system.strip()
+        for system in (payload.systems or [])
+        if isinstance(system, str) and system.strip()
+    ][:50]
+    row = await asyncio.to_thread(
+        store.set_demo_device_watch, device_id, systems
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="unknown demo device")
+    return {"device_id": row["id"], "watching": row.get("watching", [])}
+
+
+@app.get("/api/demo/devices")
+async def demo_list_devices() -> dict:
+    """Which demo devices exist and what each watches (demo is public)."""
+    from core.commerce import repo as repo_module
+
+    rows = await asyncio.to_thread(
+        repo_module.get_store().list_demo_devices
+    )
+    return {
+        "devices": [
+            {
+                "device_id": row.get("id", ""),
+                "label": row.get("label", ""),
+                "watching": row.get("watching", []),
+                "created_at": row.get("created_at", 0.0),
+                "last_seen_at": row.get("last_seen_at"),
+            }
+            for row in rows
+        ]
     }
 
 
