@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
+import { useSession } from "../lib/session";
 import { ReviewSection } from "./ReviewTable";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -67,15 +68,6 @@ const STEP_LABELS: Record<Step, string> = {
 
 const inputCls =
   "w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-sm text-text outline-none placeholder:text-text-faint focus:border-brand";
-
-async function api(path: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(`${apiUrl}${path}`, init);
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `API returned ${response.status}`);
-  }
-  return response.json() as Promise<unknown>;
-}
 
 function Field({
   label,
@@ -169,6 +161,24 @@ export default function SetupPage() {
   // review form
   const [confirmedBy, setConfirmedBy] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
+  const { getSessionAuth } = useSession();
+
+  async function api(path: string, init?: RequestInit): Promise<unknown> {
+    const { token, orgId } = getSessionAuth();
+    const response = await fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(orgId ? { "X-Org-Id": orgId } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `API returned ${response.status}`);
+    }
+    return response.json() as Promise<unknown>;
+  }
 
   async function refreshSystems() {
     try {

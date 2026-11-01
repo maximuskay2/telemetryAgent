@@ -7,7 +7,12 @@ import AccountChrome from "../commerce/AccountChrome";
 import RequireAuth from "../commerce/RequireAuth";
 import { useSession } from "../lib/session";
 import { Card } from "../ui";
-import { checkAccessCode, getAccessCode, getConnectDoor } from "./api";
+import {
+  checkAccessCode,
+  getAccessCode,
+  getConnectDoor,
+  setConnectAuthProvider,
+} from "./api";
 import ConnectionsPanel from "./ConnectionsPanel";
 import { ErrorLine, Field, StepNav, inputCls } from "./ui";
 import Wizard from "./Wizard";
@@ -67,9 +72,13 @@ function AccessCodeForm({ onOpen }: { onOpen: () => void }) {
 }
 
 function ConnectDoor({ children }: { children: ReactNode }) {
-  const { status } = useSession();
+  const { status, getSessionAuth } = useSession();
   const [door, setDoor] = useState<Door>("loading");
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setConnectAuthProvider(getSessionAuth);
+  }, [getSessionAuth]);
 
   useEffect(() => {
     let cancelled = false;

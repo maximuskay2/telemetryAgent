@@ -11,6 +11,15 @@ import type {
 
 const CODE_KEY = "ta_connect_code";
 
+type SessionAuth = { token: string | null; orgId: string | null };
+
+let authProvider: () => SessionAuth = () => ({ token: null, orgId: null });
+
+/** The /connect page sets this from the session; production routes 401 without it. */
+export function setConnectAuthProvider(provider: () => SessionAuth): void {
+  authProvider = provider;
+}
+
 /** Thrown on 401 so the page can ask for the access code again. */
 export class AccessCodeError extends Error {}
 
@@ -26,10 +35,13 @@ export function setAccessCode(code: string): void {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const code = getAccessCode();
+  const { token, orgId } = authProvider();
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(orgId ? { "X-Org-Id": orgId } : {}),
       ...(code ? { "X-Connect-Code": code } : {}),
       ...(init?.headers ?? {}),
     },

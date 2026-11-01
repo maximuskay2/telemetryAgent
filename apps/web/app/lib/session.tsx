@@ -43,6 +43,8 @@ export type SessionState = {
   signOut: () => void;
   switchOrg: (orgId: string) => void;
   api: CommerceApi;
+  /** Current session JWT + active org for non-CommerceClient calls. */
+  getSessionAuth: () => { token: string | null; orgId: string | null };
 };
 
 const SessionContext = createContext<SessionState | null>(null);
@@ -221,6 +223,7 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
     signOut,
     switchOrg: orgState.switchOrg,
     api,
+    getSessionAuth: () => ({ token: null, orgId: null }),
   };
   return (
     <SessionContext.Provider value={value}>
@@ -295,6 +298,12 @@ function TokenSessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const activeOrgId = orgState.activeOrg?.id ?? null;
+  const getSessionAuth = useCallback(
+    () => ({ token, orgId: activeOrgId }),
+    [token, activeOrgId],
+  );
+
   const value: SessionState = {
     status,
     devMode: false,
@@ -308,6 +317,7 @@ function TokenSessionProvider({ children }: { children: ReactNode }) {
     signOut,
     switchOrg: orgState.switchOrg,
     api,
+    getSessionAuth,
   };
   return (
     <SessionContext.Provider value={value}>
@@ -430,6 +440,12 @@ function ClerkSessionProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clerkSignOut]);
 
+  const activeOrgId = orgState.activeOrg?.id ?? null;
+  const getSessionAuth = useCallback(
+    () => ({ token, orgId: activeOrgId }),
+    [token, activeOrgId],
+  );
+
   const value: SessionState = {
     status,
     devMode: false,
@@ -443,6 +459,7 @@ function ClerkSessionProvider({ children }: { children: ReactNode }) {
     signOut,
     switchOrg: orgState.switchOrg,
     api,
+    getSessionAuth,
   };
   return (
     <SessionContext.Provider value={value}>
