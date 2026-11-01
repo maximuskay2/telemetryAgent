@@ -17,7 +17,12 @@ else PY=python3; fi
 fail=0
 
 echo "=== check 1/4: python tests ==="
-if "$PY" -m unittest discover -s tests; then
+# Suite rule: DATABASE_URL must be EMPTY (not unset — main.py's
+# load_dotenv repopulates an unset var from .env, flipping the suite to
+# the shared dev database with no isolation). The file store runs the
+# suite; postgres-backed tests self-provision via TEST_DATABASE_URL and
+# skip when unreachable.
+if DATABASE_URL= "$PY" -m unittest discover -s tests; then
   echo "PASS: python tests"
 else
   echo "FAIL: python tests"; fail=1

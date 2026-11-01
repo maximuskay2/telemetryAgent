@@ -6,7 +6,8 @@ import { MissionProvider } from "./mission/state";
 import TopBar from "./mission/TopBar";
 
 // S10: Mission Control is the home page. The old dashboard lives on at
-// /classic until the final video is recorded, then it goes away.
+// /classic (kept while the demo video in docs/demo-video-script.md still
+// references it).
 // J4: first-time visitors land on /welcome instead (D6).
 export default function Home() {
   return (

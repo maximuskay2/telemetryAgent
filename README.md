@@ -31,9 +31,10 @@ What is in this repository today:
 - **Connect a real system.** `/connect`: log forwarder (`ta_live_*` key) or Sentry, GitHub repo check, Railway or a signed webhook, device key, teach normal, pair the phone, then Start watching.
 - **Phone** (`apps/mobile/`, Flutter): full-screen alarm, veto countdown, run reports, QR pairing, foreground service, plus "PR ready / Roll back now" and "Choose a fix" cards.
 - **Equipment protocol.** `hardware/sim_device.py` posts readings and acks commands against the API (this is what the tests run). `hardware/wokwi/` is the same firmware as an ESP32 sketch plus circuit for [wokwi.com](https://wokwi.com) — paste it there and press play; that click-through is still a manual step.
-- **Checks.** `./scripts/check.sh`: 620+ Python tests, the simulation smoke test, the web build, and 56 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
+- **Checks.** `./scripts/check.sh`: 1130 Python tests, the simulation-route smoke test, the web build + 137 web tests, and `flutter analyze` + 99 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
+- **Signed-in hub.** `/dashboard`: provisioned systems, unified setup drafts (guided + manual resume where they stopped), recent runs, and every destination. Mission Control opens once a system is armed; signed-in users see only their own systems, never the demo tiles. `/keys` lists every secret by `****last4` hint and rotates minted keys.
 
-Hosted accounts and billing are specified, not shipped here: [commercial-roadmap.md](./commercial-roadmap.md). Auto-fix ships for Python, JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP ([languages-roadmap.md](./languages-roadmap.md) is the design record).
+Hosted accounts, members, devices, and usage shipped (Clerk session, org isolation); billing is still specified, not shipped: [commercial-roadmap.md](./commercial-roadmap.md). Auto-fix ships for Python, JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP ([languages-roadmap.md](./languages-roadmap.md) is the design record).
 
 ## Two doors, one agent
 
@@ -85,10 +86,13 @@ every auto-action waits out a **20-second phone veto** first.
 
 ## Interfaces
 
-- **Web dashboard:** Mission Control at `/` — shop topology, freezer state,
-  incident list with gate cards and detail drawer, agent trace and veto ring.
-  Onboarding at `/welcome`, `/start`, `/start/setup`; the pre-redesign
-  dashboard stays at `/classic`.
+- **Web dashboard:** Mission Control at `/` — topology, incident list with
+  gate cards and detail drawer, agent trace and veto ring. Signed-in users
+  see only their provisioned systems; Mission Control opens once a system
+  is armed, with draft selection before it until then. Onboarding at
+  `/welcome`, `/start`, `/start/setup`; the signed-in hub at `/dashboard`
+  (systems, drafts, runs, keys); the pre-redesign dashboard stays at
+  `/classic`.
 - **Setup wizard:** `/setup` — upload spec docs, review the extracted profile,
   learn a baseline, set policy, arm. Extraction quotes every value, flags
   conflicts instead of guessing, and never lets documents set policy or hard
@@ -114,16 +118,18 @@ Flutter app in `apps/mobile/`. It is the thing that rings when the agent is abou
 cd apps/mobile && flutter pub get && flutter run
 ```
 
-The phone and the API have to be on the same Wi-Fi. Start the API with `--host 0.0.0.0`. In the app, scan the dashboard QR (Mission Control → Pair), then type `MOBILE_API_TOKEN` from `.env` (leave it blank if that variable is empty). On the Android emulator the API is `http://10.0.2.2:8001`. On a hosted API (Railway), set `API_PUBLIC_URL` to the public API domain so the QR carries a reachable URL. Settings → Test alarm plays a fake 20-second window without calling the server.
+The phone and the API have to be on the same Wi-Fi. Start the API with `--host 0.0.0.0`. In the app, connect by scanning the dashboard QR, claiming a pairing code from the web's Devices page, pasting a device token, or tapping Try the demo for a no-account demo session. On the Android emulator the API is `http://10.0.2.2:8001`. On a hosted API (Railway), set `API_PUBLIC_URL` to the public API domain so the QR carries a reachable URL. Settings → Test alarm plays a fake 20-second window without calling the server. A release APK is served from the web app at `/downloads/telemetry-agent.apk` (QR on `/start/phone`).
 
 ## Production route (how a real customer uses it)
 
-`/welcome` → **Connect your production** → the `/connect` wizard: name the
-system →
-logs (one-liner forwarder with a `ta_live_*` key, Sentry webhook, or curl;
-live "✓ first log") → repo + Test → hosting (Railway or signed webhook) +
-test ping → device key + firmware snippet → teach normal → permissions +
-uptime promise → pair phone → Start watching.
+`/welcome` → **Connect your production** → sign in → `/dashboard` → the
+`/connect` wizard: System → Logs (one-liner forwarder with a `ta_live_*`
+key, Sentry webhook, or curl; live "✓ first log") → Repo + Test → Teach
+(upload a manual for auto-extract, or type limits by hand) → Hosting
+(webhook-first guide, skippable) → Promise (uptime pledge) → Pair phone
+(QR, pairing code, or no-account demo) → Start watching. Unfinished
+setups wait as resumable drafts — `/connect` shows them first, and
+manual `/setup` runs resume at their exact step.
 
 Behind it (all on `main`, `check.sh` green):
 
@@ -212,6 +218,9 @@ cp .env.example .env   # then fill in the keys below
 | `GITHUB_TOKEN` | Opening pull requests (demo + connected repos) |
 | `FIREWORKS_API_KEY`, `FIREWORKS_PATCH_MODEL` | Optional backup generation provider |
 | `MOBILE_API_TOKEN` | `X-Mobile-Token` for phone approve/pause (empty = open, dev) |
+| `DATABASE_URL` | Postgres for hosted accounts/systems (unset = file store, self-hosted) |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk accounts (unset = mock/test session) |
+| `NEXT_PUBLIC_API_URL` | API origin the web app calls |
 | `PRODUCTION_CONNECT_ENABLED` | `0` hides the `/connect` door (default `1`) |
 | `TA_FIXTURE_KEYS` | `1` accepts the `ta_live_fixture` key (tests only) |
 | `RAILWAY_TOKEN` | Railway rollback/restart adapter |
@@ -222,15 +231,16 @@ send sensitive log content to remote services.
 
 Checks: `./scripts/check.sh` runs the Python suite, the simulation-route
 smoke test (spins the API on a spare port, arms the demo shop, runs two
-live agent runs), the web build, and `flutter analyze` + `flutter test`.
-620+ Python tests, 56 Flutter tests, all externals mocked (GitHub, Railway,
-Sentry, Modal) with live Docker + webhook coverage.
+live agent runs), the web build + web tests, and `flutter analyze` +
+`flutter test`. 1130 Python tests, 137 web tests, 99 Flutter tests, all
+externals mocked (GitHub, Railway, Sentry, Modal) with live Docker +
+webhook coverage.
 
 ## Repository layout
 
 ```text
 apps/api/          FastAPI hub: runs, sim, setup, gate, actions, WS (+ routes/production.py, routes/devices.py)
-apps/web/app/      Next.js: Mission Control, welcome/start journey, setup, shop, /connect wizard
+apps/web/app/      Next.js: Mission Control, welcome/start journey, setup, /connect wizard, /dashboard hub, /keys
 apps/mobile/       Flutter on-call app + action center
 core/              schemas, infer, agent loop, verify (Modal/Docker/repo sandbox), actions, watch, setup, simulate
 core/connections/  production connections + ta_live_* keys + GitHub checks
@@ -279,10 +289,10 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
   (adapters in `core/repo_fix/lang/`, per-language `test_lang_*` suites).
 - 🚧 Still manual: compile `hardware/wokwi/` on [wokwi.com](https://wokwi.com)
   and hold the door button; push `examples/proof-app/` to its own repo;
-  joint proof run ×2; the 3-minute video. FCM push was descoped (no
-  Firebase project in the event window — the app uses live WebSocket
-  alerts + a foreground service).
-- 📋 Specified, not in this tree yet: hosted accounts and billing
+  joint proof run ×2; record the 3-minute video ([script](./docs/demo-video-script.md)).
+  FCM push was descoped (no Firebase project in the event window — the
+  app uses live WebSocket alerts + a foreground service).
+- 📋 Specified, not in this tree yet: billing
   ([commercial-roadmap.md](./commercial-roadmap.md)).
 
 ## Contributors

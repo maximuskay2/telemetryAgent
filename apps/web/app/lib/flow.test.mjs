@@ -18,6 +18,33 @@ describe("gated product flow", () => {
     assert.ok(!cta.includes('href="/connect"') || cta.includes('status === "signed-in"'));
   });
 
+  it("judged path works fully signed out", () => {
+    // /welcome → /start → /start/setup → /start/phone → /?tour=1 →
+    // WrapUp → /incidents/:id must never need an account (Clerk dev
+    // limits must not be able to break the judged demo).
+    for (const file of [
+      "welcome/page.tsx",
+      "start/page.tsx",
+      "start/setup/page.tsx",
+      "start/phone/page.tsx",
+      "mission/Tour.tsx",
+      "mission/WrapUp.tsx",
+      "mission/FirstVisitGate.tsx",
+      "incidents/[id]/page.tsx",
+    ]) {
+      const src = read(file);
+      for (const token of [
+        "useSession",
+        "getSessionAuth",
+        "sessionAuthHeaders",
+        "RequireAuth",
+        "signInHref",
+      ]) {
+        assert.ok(!src.includes(token), `${file} must not use ${token}`);
+      }
+    }
+  });
+
   it("welcome has no skip-to-Mission-Control shortcut", () => {
     const welcome = read("welcome/page.tsx");
     assert.ok(!welcome.includes("Skip to Mission Control"));
