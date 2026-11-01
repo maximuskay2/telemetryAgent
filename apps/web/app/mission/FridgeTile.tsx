@@ -252,7 +252,7 @@ export default function FridgeTile({ systemId }: { systemId: string | null }) {
             type="button"
             aria-expanded={menu === "faults"}
             onClick={() => setMenu(menu === "faults" ? null : "faults")}
-            className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
+            className="rounded-md border border-crit/50 bg-crit/10 px-2.5 py-1.5 text-xs font-medium text-crit outline-none hover:bg-crit/20 focus-visible:ring-2 focus-visible:ring-crit"
           >
             Faults {menu === "faults" ? "▾" : "▸"}
           </button>
@@ -281,7 +281,11 @@ export default function FridgeTile({ systemId }: { systemId: string | null }) {
                 else fridgeControl("action", { action: opt.value });
                 setMenu(null);
               }}
-              className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
+              className={
+                menu === "faults"
+                  ? "rounded-md border border-crit/50 bg-crit/10 px-2.5 py-1.5 text-xs font-medium text-crit outline-none hover:bg-crit/20 focus-visible:ring-2 focus-visible:ring-crit"
+                  : "rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
+              }
             >
               {opt.label}
             </button>

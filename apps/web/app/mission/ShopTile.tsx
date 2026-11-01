@@ -109,7 +109,8 @@ export default function ShopTile({ systemId }: { systemId: string | null }) {
           <button
             type="button"
             onClick={startTraffic}
-            className="shrink-0 rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-text hover:border-text-faint"
+            title="Flood the shop until it breaks — this induces errors"
+            className="shrink-0 rounded-md border border-crit/50 bg-crit/10 px-2.5 py-1.5 text-xs font-medium text-crit outline-none hover:bg-crit/20 focus-visible:ring-2 focus-visible:ring-crit"
           >
             Start traffic
           </button>

@@ -130,7 +130,7 @@ export default function NewIncidentSheet({ onClose }: { onClose: () => void }) {
               injectSoftware(logText, target);
               onClose();
             }}
-            className="ml-auto rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-on-brand hover:brightness-110"
+            className="ml-auto rounded-md bg-danger px-3 py-1.5 text-xs font-semibold text-on-brand outline-none hover:bg-danger/90 focus-visible:ring-2 focus-visible:ring-danger"
           >
             Run →
           </button>
@@ -176,7 +176,7 @@ export default function NewIncidentSheet({ onClose }: { onClose: () => void }) {
               injectAppliance(applianceType, fault);
               onClose();
             }}
-            className="ml-auto rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-on-brand hover:brightness-110"
+            className="ml-auto rounded-md bg-danger px-3 py-1.5 text-xs font-semibold text-on-brand outline-none hover:bg-danger/90 focus-visible:ring-2 focus-visible:ring-danger"
           >
             Inject →
           </button>
