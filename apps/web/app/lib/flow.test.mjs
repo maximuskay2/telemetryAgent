@@ -111,6 +111,17 @@ describe("gated product flow", () => {
     );
   });
 
+  it("connect keeps unfinished runs as resumable drafts", () => {
+    const wizard = read("connect/Wizard.tsx");
+    assert.ok(wizard.includes("saveDraft(data, index)"), "persists progress");
+    assert.ok(
+      wizard.includes("clearDraft(data.systemId)"),
+      "clears on finish",
+    );
+    assert.ok(wizard.includes("Continue setup"), "offers resume");
+    assert.ok(wizard.includes("DraftPicker"), "picks a draft");
+  });
+
   it("connect hosting step guides webhooks and can be skipped", () => {
     const steps = read("connect/ConnSteps.tsx");
     assert.ok(steps.includes("X-Telemetry-Signature"), "signing contract");

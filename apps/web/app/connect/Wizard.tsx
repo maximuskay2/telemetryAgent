@@ -13,10 +13,18 @@ import {
   putProfile,
   type SetupProfile,
 } from "../lib/setupApi";
-import { Card } from "../ui";
+import { Button, Card } from "../ui";
 import ApkQr from "../welcome/ApkQr";
 import { createSystem, pairingUrl } from "./api";
 import { StepDevice, StepHosting, StepLogs, StepRepo } from "./ConnSteps";
+import {
+  clearDraft,
+  draftStepTitle,
+  loadDrafts,
+  saveDraft,
+  type DraftMap,
+  type WizardDraft,
+} from "./draft";
 import {
   ErrorLine,
   Field,
@@ -507,14 +515,107 @@ const SOFTWARE_TITLES = [
 
 const APPLIANCE_TITLES = ["System", "Device", "Teach", "Promise", "Pair", "Start"];
 
+function DraftPicker({
+  drafts,
+  onResume,
+  onDiscard,
+  onNew,
+}: {
+  drafts: DraftMap;
+  onResume: (draft: WizardDraft) => void;
+  onDiscard: (systemId: string) => void;
+  onNew: () => void;
+}) {
+  const entries = Object.values(drafts).sort((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    <Card title="Continue setup">
+      <div className="space-y-3">
+        <p className="text-[13px] text-text-muted">
+          Unfinished connections stay as drafts. Pick one up where it
+          stopped, or start fresh.
+        </p>
+        <ul className="space-y-2">
+          {entries.map((draft) => {
+            const titles =
+              draft.data.kind === "appliance"
+                ? APPLIANCE_TITLES
+                : SOFTWARE_TITLES;
+            return (
+              <li
+                key={draft.data.systemId}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface-2 px-3 py-2"
+              >
+                <span className="text-sm font-medium text-text">
+                  {draft.data.name}
+                </span>
+                <span className="font-mono text-xs text-text-faint">
+                  {draft.data.systemId}
+                </span>
+                <span className="text-xs text-text-muted">
+                  · {draft.data.kind} · step {draft.index + 1} ·{" "}
+                  {draftStepTitle(draft, titles)}
+                </span>
+                <span className="inline-flex gap-2">
+                  <Button tone="primary" onClick={() => onResume(draft)}>
+                    Continue
+                  </Button>
+                  <Button
+                    tone="ghost"
+                    onClick={() => onDiscard(draft.data.systemId)}
+                  >
+                    Discard
+                  </Button>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <Button tone="ghost" onClick={onNew}>
+          + Start a new system
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 export default function Wizard() {
   const [index, setIndex] = useState(0);
   const [data, setData] = useState<WizardData | null>(null);
+  const [drafts, setDrafts] = useState<DraftMap>(() => loadDrafts());
+  const [picking, setPicking] = useState(true);
   const kind = data?.kind ?? "software";
   const titles = kind === "software" ? SOFTWARE_TITLES : APPLIANCE_TITLES;
   const num = index + 1;
   const back = () => setIndex((i) => Math.max(0, i - 1));
   const next = () => setIndex((i) => Math.min(titles.length - 1, i + 1));
+
+  useEffect(() => {
+    if (!data) return;
+    const doneAt =
+      (data.kind === "appliance" ? APPLIANCE_TITLES : SOFTWARE_TITLES)
+        .length - 1;
+    if (index >= doneAt) {
+      clearDraft(data.systemId);
+      setDrafts(loadDrafts());
+    } else {
+      saveDraft(data, index);
+    }
+  }, [data, index]);
+
+  function resumeDraft(draft: WizardDraft) {
+    const resumeTitles =
+      draft.data.kind === "appliance" ? APPLIANCE_TITLES : SOFTWARE_TITLES;
+    setData({ ...draft.data, kind: draft.data.kind as Kind });
+    setIndex(
+      Math.min(Math.max(draft.index, 0), resumeTitles.length - 1),
+    );
+    setPicking(false);
+  }
+
+  function discardDraft(systemId: string) {
+    clearDraft(systemId);
+    setDrafts(loadDrafts());
+  }
 
   function grants(): string[] {
     const list: string[] = [];
@@ -547,21 +648,29 @@ export default function Wizard() {
           </li>
         ))}
       </ol>
-      {index === 0 && (
-        <StepName
-          num={num}
-          onCreated={(systemId, createdKind, name) => {
-            setData({
-              systemId,
-              kind: createdKind,
-              name,
-              repoPerms: null,
-              hostingKind: null,
-            });
-            next();
-          }}
-        />
-      )}
+      {index === 0 &&
+        (data == null && picking && Object.keys(drafts).length > 0 ? (
+          <DraftPicker
+            drafts={drafts}
+            onResume={resumeDraft}
+            onDiscard={discardDraft}
+            onNew={() => setPicking(false)}
+          />
+        ) : (
+          <StepName
+            num={num}
+            onCreated={(systemId, createdKind, name) => {
+              setData({
+                systemId,
+                kind: createdKind,
+                name,
+                repoPerms: null,
+                hostingKind: null,
+              });
+              next();
+            }}
+          />
+        ))}
       {data != null && kind === "software" && index === 1 && (
         <StepLogs
           num={num}
