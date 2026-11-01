@@ -147,6 +147,27 @@ async def check_connect_code(request: Request) -> dict:
 #: Kinds whose secret the customer pastes (no generated key).
 PASTED_SECRET_KINDS = ("github", "railway", "webhook")
 
+#: Config field identifying "the same" pasted-secret connection.
+_IDENTITY_FIELD = {"github": "repo", "railway": "service_id", "webhook": "url"}
+
+
+def _connection_identity(kind: str, config) -> Optional[str]:
+    """Dedupe key for a pasted-secret connection; None always creates new.
+
+    Generated-key kinds (logs/sentry/device) mint a fresh key per create,
+    so they never dedupe. GitHub repos match case-insensitively.
+    """
+    if kind not in PASTED_SECRET_KINDS:
+        return None
+    field = _IDENTITY_FIELD.get(kind)
+    if not field:
+        return None
+    values = config if isinstance(config, dict) else {}
+    value = str(values.get(field, "") or "").strip()
+    if not value:
+        return None
+    return value.lower() if kind == "github" else value
+
 
 @router.post("/api/connections", response_model=ConnectionCreated)
 async def create_connection(
@@ -168,6 +189,18 @@ async def create_connection(
         raise HTTPException(
             status_code=400, detail=f"kind {payload.kind} needs a secret"
         )
+    identity = _connection_identity(payload.kind, payload.config)
+    if identity is not None:
+        for existing in connection_store.list_connections(payload.system_id):
+            if existing.kind != payload.kind:
+                continue
+            if _connection_identity(payload.kind, existing.config) != identity:
+                continue
+            updated = connection_store.update_connection(
+                existing.id, dict(payload.config or {}), payload.secret
+            )
+            if updated is not None:
+                return ConnectionCreated(connection=updated, key=None)
     connection, key = connection_store.create_connection(
         payload.system_id, payload.kind, payload.config, payload.secret
     )
@@ -193,6 +226,25 @@ async def _create_connection_hosted(
         raise HTTPException(
             status_code=400, detail=f"kind {payload.kind} needs a secret"
         )
+    identity = _connection_identity(payload.kind, payload.config)
+    if identity is not None:
+        rows = await asyncio.to_thread(
+            store.list_connections, org_id, payload.system_id
+        )
+        for row in rows:
+            if row.get("kind") != payload.kind:
+                continue
+            if _connection_identity(payload.kind, row.get("config")) != identity:
+                continue
+            updated = await asyncio.to_thread(
+                store.update_connection_secret,
+                org_id,
+                str(row.get("id", "")),
+                dict(payload.config or {}),
+                payload.secret,
+            )
+            if updated is not None:
+                return ConnectionCreated(connection=updated, key=None)
     connection, key = await asyncio.to_thread(
         store.create_connection,
         org_id,

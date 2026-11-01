@@ -1117,6 +1117,38 @@ class PostgresBackend(BaseStore):
             )
             return cur.rowcount > 0
 
+    def update_connection_secret(
+        self, org_id: str, connection_id: str, config: Dict[str, Any],
+        secret: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Replace config + sealed secret in place (idempotent retry)."""
+        import json as json_module
+
+        from core.commerce import crypto as crypto_module
+        from core.connections import store as connection_store
+
+        secret_enc = ""
+        hint = ""
+        if secret:
+            secret_enc = crypto_module.seal(
+                self.org_data_key(org_id), secret
+            )
+            hint = connection_store.secret_hint(secret)
+        with self._txn() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE connections SET config = %s::jsonb,"
+                " secret_enc = %s, secret_hint = %s,"
+                " status = 'waiting', detail = ''"
+                " WHERE id = %s AND org_id = %s",
+                (
+                    json_module.dumps(config), secret_enc, hint,
+                    connection_id, org_id,
+                ),
+            )
+            if cur.rowcount == 0:
+                return None
+        return self.get_connection(org_id, connection_id)
+
     def import_connection(
         self, org_id: str, record: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:

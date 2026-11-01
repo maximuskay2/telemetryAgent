@@ -128,6 +128,23 @@ def get_record(connection_id: str) -> Optional[dict]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def update_connection(
+    connection_id: str, config: dict, secret: Optional[str]
+) -> Optional[Connection]:
+    """Replace config + secret in place (idempotent retry); test state resets."""
+    record = get_record(connection_id)
+    if record is None:
+        return None
+    record["config"] = dict(config)
+    if secret:
+        record["secret"] = secret
+        record["secret_hint"] = secret_hint(secret)
+    record["status"] = "waiting"
+    record["detail"] = ""
+    _write_private(connection_path(connection_id), record)
+    return _record_to_connection(record)
+
+
 def get_connection(connection_id: str) -> Optional[Connection]:
     record = get_record(connection_id)
     if record is None:

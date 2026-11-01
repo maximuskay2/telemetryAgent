@@ -275,3 +275,112 @@ class ConnectDoorTests(unittest.TestCase):
                     ).status_code,
                     200,
                 )
+
+
+class ConnectionIdentityTests(unittest.TestCase):
+    def test_identities(self) -> None:
+        from apps.api.routes.production import _connection_identity
+
+        self.assertEqual(
+            _connection_identity("github", {"repo": "Acme/Api"}), "acme/api"
+        )
+        self.assertEqual(
+            _connection_identity("railway", {"service_id": "svc-1"}), "svc-1"
+        )
+        self.assertEqual(
+            _connection_identity("webhook", {"url": "https://x/hook"}),
+            "https://x/hook",
+        )
+
+    def test_no_identity_means_always_create(self) -> None:
+        from apps.api.routes.production import _connection_identity
+
+        self.assertIsNone(_connection_identity("logs", {}))
+        self.assertIsNone(_connection_identity("sentry", {}))
+        self.assertIsNone(_connection_identity("device", {}))
+        self.assertIsNone(_connection_identity("github", {}))
+        self.assertIsNone(_connection_identity("github", {"repo": "  "}))
+        self.assertIsNone(_connection_identity("github", None))
+
+
+class ConnectionRetryTests(unittest.TestCase):
+    def test_retry_same_repo_updates_in_place(self) -> None:
+        tmp = _tmp_data()
+        _save_system(tmp)
+        with patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            os.environ.pop("DATABASE_URL", None)
+            with TestClient(app) as client:
+                first = client.post(
+                    "/api/connections",
+                    json={
+                        "system_id": "acme",
+                        "kind": "github",
+                        "config": {"repo": "acme/api"},
+                        "secret": "ghp_1111",
+                    },
+                )
+                self.assertEqual(first.status_code, 200)
+                retry = client.post(
+                    "/api/connections",
+                    json={
+                        "system_id": "acme",
+                        "kind": "github",
+                        "config": {"repo": "Acme/Api"},
+                        "secret": "ghp_2222",
+                    },
+                )
+                self.assertEqual(retry.status_code, 200)
+                self.assertEqual(
+                    retry.json()["connection"]["id"],
+                    first.json()["connection"]["id"],
+                )
+                listed = client.get(
+                    "/api/connections", params={"system_id": "acme"}
+                )
+                self.assertEqual(listed.status_code, 200)
+                self.assertEqual(len(listed.json()["connections"]), 1)
+                self.assertEqual(
+                    listed.json()["connections"][0]["secret_hint"], "****2222"
+                )
+
+    def test_different_repo_creates_new_row(self) -> None:
+        tmp = _tmp_data()
+        _save_system(tmp)
+        with patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            os.environ.pop("DATABASE_URL", None)
+            with TestClient(app) as client:
+                for repo in ("acme/api", "acme/other"):
+                    response = client.post(
+                        "/api/connections",
+                        json={
+                            "system_id": "acme",
+                            "kind": "github",
+                            "config": {"repo": repo},
+                            "secret": "ghp_x",
+                        },
+                    )
+                    self.assertEqual(response.status_code, 200)
+                listed = client.get(
+                    "/api/connections", params={"system_id": "acme"}
+                )
+                self.assertEqual(len(listed.json()["connections"]), 2)
+
+    def test_generated_keys_never_dedupe(self) -> None:
+        tmp = _tmp_data()
+        _save_system(tmp)
+        with patch.dict(os.environ, {"TA_DATA_DIR": tmp}):
+            os.environ.pop("DATABASE_URL", None)
+            with TestClient(app) as client:
+                ids = set()
+                for _ in range(2):
+                    response = client.post(
+                        "/api/connections",
+                        json={
+                            "system_id": "acme",
+                            "kind": "logs",
+                            "config": {},
+                        },
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    ids.add(response.json()["connection"]["id"])
+                self.assertEqual(len(ids), 2)

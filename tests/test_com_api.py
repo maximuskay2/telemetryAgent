@@ -529,6 +529,55 @@ class CommerceRoutesTests(unittest.TestCase):
         ):
             self.assertIn(key, admin.json())
 
+    def test_retry_same_repo_reuses_connection(self) -> None:
+        from cryptography.fernet import Fernet
+
+        org = self._org()
+        headers = self._headers("u1", "a@x.co", org["id"])
+        created_system = self.client.post(
+            "/api/systems",
+            json={"name": "Acme", "kind": "software"},
+            headers=headers,
+        )
+        self.assertEqual(
+            created_system.status_code, 200, created_system.text
+        )
+        system_id = created_system.json()["system_id"]
+        payload = {
+            "system_id": system_id,
+            "kind": "github",
+            "config": {"repo": "acme/api"},
+        }
+        with mock.patch.dict(
+            os.environ,
+            {"COMMERCE_MASTER_KEY": Fernet.generate_key().decode()},
+        ):
+            first = self.client.post(
+                "/api/connections",
+                json={**payload, "secret": "ghp_1111"},
+                headers=headers,
+            )
+            self.assertEqual(first.status_code, 200, first.text)
+            retry = self.client.post(
+                "/api/connections",
+                json={**payload, "secret": "ghp_2222"},
+                headers=headers,
+            )
+            self.assertEqual(retry.status_code, 200, retry.text)
+            self.assertEqual(
+                retry.json()["connection"]["id"],
+                first.json()["connection"]["id"],
+            )
+            listed = self.client.get(
+                "/api/connections",
+                params={"system_id": system_id},
+                headers=headers,
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            rows = listed.json()["connections"]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["secret_hint"], "****2222")
+
 
 class SelfHostedTests(unittest.TestCase):
     def test_commerce_routes_need_sign_in_without_database(self) -> None:
