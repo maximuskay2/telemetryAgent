@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import Logo from "../../components/Logo";
 import ThemeToggle from "../../components/ThemeToggle";
 import { apiUrl, responseDetail } from "../../lib/api";
+import { pairingVariants, type PairTarget } from "../../lib/pairing";
 import { Card } from "../../ui";
 import ApkQr from "../../welcome/ApkQr";
 
@@ -14,6 +15,9 @@ export default function PhoneSetupPage() {
   const [pairApi, setPairApi] = useState<string | null>(null);
   const [pairFailed, setPairFailed] = useState("");
   const [copied, setCopied] = useState(false);
+  const [target, setTarget] = useState<PairTarget>("phone");
+  const variants = pairApi ? pairingVariants(pairApi) : [];
+  const selected = variants.find((v) => v.target === target) ?? variants[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -40,9 +44,9 @@ export default function PhoneSetupPage() {
   }, []);
 
   async function copyApiUrl() {
-    if (!pairApi) return;
+    if (!selected) return;
     try {
-      await navigator.clipboard.writeText(pairApi);
+      await navigator.clipboard.writeText(selected.url);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -108,21 +112,56 @@ export default function PhoneSetupPage() {
               later.
             </p>
           )}
-          {pairApi && (
+          {selected && (
             <div className="flex flex-col gap-3">
+              {variants.length > 1 && (
+                <div
+                  className="flex flex-wrap gap-2"
+                  role="group"
+                  aria-label="Which device is the app on?"
+                >
+                  {variants.map((v) => (
+                    <button
+                      key={v.target}
+                      type="button"
+                      onClick={() => {
+                        setTarget(v.target);
+                        setCopied(false);
+                      }}
+                      aria-pressed={v.target === selected.target}
+                      title={v.hint}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                        v.target === selected.target
+                          ? "border-brand bg-brand/10 text-text"
+                          : "border-border text-text-muted hover:text-text"
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-4">
                 <span className="rounded-md bg-white p-2">
                   <QRCodeSVG
-                    value={JSON.stringify({ api: pairApi })}
+                    value={JSON.stringify({ api: selected.url })}
                     size={120}
                     aria-label="QR code: connect the app to this demo"
                   />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-text-faint">API URL</p>
-                  <p className="mt-1 font-mono text-xs break-all text-text">
-                    {pairApi}
+                  <p className="text-xs text-text-faint">
+                    API URL · {selected.hint}
                   </p>
+                  <p className="mt-1 font-mono text-xs break-all text-text">
+                    {selected.url}
+                  </p>
+                  {selected.unreachable && (
+                    <p className="mt-1 text-xs text-crit" role="alert">
+                      Only reachable on the API machine itself — switch
+                      entry above.
+                    </p>
+                  )}
                   <button
                     type="button"
                     onClick={() => void copyApiUrl()}

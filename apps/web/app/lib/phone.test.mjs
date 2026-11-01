@@ -36,6 +36,12 @@ describe("setup phone step", () => {
     assert.ok(phone.includes("Mobile token"), "token guidance");
   });
 
+  it("phone page offers per-device pairing URLs", () => {
+    const phone = read("start/phone/page.tsx");
+    assert.ok(phone.includes("pairingVariants"));
+    assert.ok(phone.includes("Which device is the app on?"));
+  });
+
   it("phone page continues into the demo", () => {
     const phone = read("start/phone/page.tsx");
     assert.ok(phone.includes('href="/?tour=1"'));

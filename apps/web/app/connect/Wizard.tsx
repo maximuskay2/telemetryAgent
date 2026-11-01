@@ -18,6 +18,7 @@ import {
 import { Button, Card } from "../ui";
 import ApkQr from "../welcome/ApkQr";
 import { createSystem, listSystems, pairingUrl } from "./api";
+import { pairingVariants, type PairTarget } from "../lib/pairing";
 import { StepDevice, StepHosting, StepLogs, StepRepo } from "./ConnSteps";
 import {
   APPLIANCE_STEP_TITLES,
@@ -524,6 +525,9 @@ function StepPair({
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [target, setTarget] = useState<PairTarget>("phone");
+  const variants = url ? pairingVariants(url) : [];
+  const selected = variants.find((v) => v.target === target) ?? variants[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -566,12 +570,43 @@ function StepPair({
         <p className="text-[13px] text-text-muted">
           Install it first — then pair below.
         </p>
-        {url ? (
+        {selected ? (
           <>
-            <QRCodeSVG value={JSON.stringify({ api: url })} size={160} />
-            <p className="font-mono text-xs break-all text-text-muted">{url}</p>
+            {variants.length > 1 && (
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Which device is the app on?"
+              >
+                {variants.map((v) => (
+                  <button
+                    key={v.target}
+                    type="button"
+                    onClick={() => setTarget(v.target)}
+                    aria-pressed={v.target === selected.target}
+                    title={v.hint}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                      v.target === selected.target
+                        ? "border-brand bg-brand/10 text-text"
+                        : "border-border text-text-muted hover:text-text"
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <QRCodeSVG
+              value={JSON.stringify({ api: selected.url })}
+              size={160}
+            />
+            <p className="font-mono text-xs break-all text-text-muted">
+              {selected.url}
+            </p>
             <p className="text-[13px] text-text-muted">
-              Same Wi-Fi, then type the mobile token from .env into the app.
+              {selected.unreachable
+                ? "Only reachable on the API machine itself — switch entry above."
+                : "Same Wi-Fi, then type the mobile token from .env into the app."}
             </p>
           </>
         ) : (
