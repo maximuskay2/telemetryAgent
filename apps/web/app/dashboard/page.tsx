@@ -340,6 +340,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-2">
               <QuickLink href="/" label="Mission Control" />
               <QuickLink href="/connect" label="Connect" />
+              <QuickLink href="/keys" label="Keys" />
               <QuickLink href="/members" label="Members" />
               <QuickLink href="/devices" label="Devices" />
               <QuickLink href="/usage" label="Usage" />

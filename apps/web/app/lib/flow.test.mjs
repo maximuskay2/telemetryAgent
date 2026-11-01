@@ -60,6 +60,7 @@ describe("gated product flow", () => {
     for (const page of [
       "connect/page.tsx",
       "dashboard/page.tsx",
+      "keys/page.tsx",
       "members/page.tsx",
       "devices/page.tsx",
       "usage/page.tsx",

@@ -11,6 +11,7 @@ import { OrgSwitcher } from "./components";
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/connect", label: "Connect" },
+  { href: "/keys", label: "Keys" },
   { href: "/members", label: "Members" },
   { href: "/devices", label: "Devices" },
   { href: "/usage", label: "Usage" },
