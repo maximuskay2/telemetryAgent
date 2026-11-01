@@ -413,44 +413,55 @@ def fill_profile_from_text(
     return raw
 
 
-def default_model_fn(system: str, user: str) -> dict:
-    """Production model call: Muse Spark with a JSON response.
+def _has_key(name: str) -> bool:
+    import os
 
-    Walks the configured id, the pinned fallbacks, then the live
-    catalog, skipping 404s — the same resilience every other Meta
-    caller has. A single hardcoded id 502s extraction whenever the
-    configured id stops resolving.
+    return bool((os.environ.get(name) or "").strip())
+
+
+def default_model_fn(system: str, user: str) -> dict:
+    """Production model call: JSON extraction with provider failover.
+
+    Meta first (configured id, pinned fallbacks, live catalog), then
+    Baseten, then Fireworks — a blind provider no longer 502s the
+    upload. Unconfigured providers are skipped, never attempted.
     """
     import json as jsonlib
 
-    from core.infer import meta_client
+    from core.infer import baseten_client, fireworks_client, meta_client
     from core.infer.errors import translate
+
+    def _record(exc: Exception, provider: str) -> RuntimeError:
+        if isinstance(exc, RuntimeError):
+            return exc
+        return translate(exc, provider=provider, action="extraction")
 
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    last: Exception | None = None
-    for model in meta_client._models(
-        meta_client.diagnosis_model(), meta_client._DIAGNOSIS_FALLBACKS
-    ):
+    last: RuntimeError | None = None
+    if meta_client._candidate_keys():
+        for model in meta_client._models(
+            meta_client.diagnosis_model(), meta_client._DIAGNOSIS_FALLBACKS
+        ):
+            try:
+                response = meta_client._client().chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+                return jsonlib.loads(response.choices[0].message.content)
+            except Exception as exc:  # noqa: BLE001 - provider SDK errors
+                last = _record(exc, "Meta Model API")
+    if _has_key("BASETEN_API_KEY"):
         try:
-            response = meta_client._client().chat.completions.create(
-                model=model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
-            return jsonlib.loads(response.choices[0].message.content)
-        except RuntimeError:
-            raise
+            return jsonlib.loads(baseten_client.generate(system, user))
         except Exception as exc:  # noqa: BLE001 - provider SDK errors
-            last = exc
-            if getattr(exc, "status_code", None) != 404:
-                raise translate(
-                    exc, provider="Meta Model API", action="extraction"
-                ) from exc
-    raise translate(
-        last or RuntimeError("no model id left to try"),
-        provider="Meta Model API",
-        action="extraction",
-    ) from last
+            last = _record(exc, "Baseten")
+    if _has_key("FIREWORKS_API_KEY") and fireworks_client.patch_model():
+        try:
+            return jsonlib.loads(fireworks_client.generate(system, user))
+        except Exception as exc:  # noqa: BLE001 - provider SDK errors
+            last = _record(exc, "Fireworks")
+    raise last or RuntimeError("Set MODEL_API_KEY to use the Meta Model API.")

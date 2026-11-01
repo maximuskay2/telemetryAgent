@@ -284,6 +284,8 @@ class DefaultModelFnTests(unittest.TestCase):
         fake, calls = self._fake_client(fail_first_n=1)
         with patch.object(meta_client, "_client", return_value=fake), patch.object(
             meta_client, "_listed_models", return_value=[]
+        ), patch.object(
+            meta_client, "_candidate_keys", return_value=["k"]
         ):
             out = extract_module.default_model_fn("sys", "user")
         self.assertEqual(out, {"a": 1})
@@ -318,18 +320,70 @@ class DefaultModelFnTests(unittest.TestCase):
             meta_client._listed_cache = old
 
     def test_reports_when_no_model_id_left(self) -> None:
+        import os
+
         import core.infer.meta_client as meta_client
         from core.setup import extract as extract_module
 
         fake, calls = self._fake_client(fail_first_n=99)
         with patch.object(meta_client, "_client", return_value=fake), patch.object(
             meta_client, "_listed_models", return_value=[]
+        ), patch.object(
+            meta_client, "_candidate_keys", return_value=["k"]
+        ), patch.dict(
+            os.environ, {"MODEL_API_KEY": "k"}
         ):
+            for name in ("BASETEN_API_KEY", "FIREWORKS_API_KEY"):
+                os.environ.pop(name, None)
             with self.assertRaisesRegex(
                 RuntimeError, "could not find the model"
             ):
                 extract_module.default_model_fn("sys", "user")
         self.assertGreater(len(calls), 1)
+
+    def test_falls_over_to_baseten(self) -> None:
+        import os
+        from unittest.mock import Mock
+
+        import core.infer.baseten_client as baseten_client
+        import core.infer.meta_client as meta_client
+        from core.setup import extract as extract_module
+
+        fake, calls = self._fake_client(fail_first_n=99)
+        gen = Mock(return_value='{"a": 2}')
+        with patch.object(meta_client, "_client", return_value=fake), patch.object(
+            meta_client, "_listed_models", return_value=[]
+        ), patch.object(
+            meta_client, "_candidate_keys", return_value=["k"]
+        ), patch.object(
+            baseten_client, "generate", gen
+        ), patch.dict(
+            os.environ, {"MODEL_API_KEY": "k", "BASETEN_API_KEY": "k2"}
+        ):
+            os.environ.pop("FIREWORKS_API_KEY", None)
+            out = extract_module.default_model_fn("sys", "user")
+        self.assertEqual(out, {"a": 2})
+        self.assertGreater(len(calls), 0)
+        gen.assert_called_once_with("sys", "user")
+
+    def test_no_providers_configured(self) -> None:
+        import os
+
+        import core.infer.meta_client as meta_client
+        from core.setup import extract as extract_module
+
+        with patch.object(
+            meta_client, "_candidate_keys", return_value=[]
+        ), patch.dict(os.environ, {}):
+            for name in (
+                "MODEL_API_KEY",
+                "META_MODEL_API_KEY",
+                "BASETEN_API_KEY",
+                "FIREWORKS_API_KEY",
+            ):
+                os.environ.pop(name, None)
+            with self.assertRaisesRegex(RuntimeError, "Set MODEL_API_KEY"):
+                extract_module.default_model_fn("sys", "user")
 
 
 class SystemsApiTests(unittest.TestCase):
