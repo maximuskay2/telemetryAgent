@@ -144,7 +144,7 @@ export default function PhoneSetupPage() {
               <div className="flex flex-wrap items-center gap-4">
                 <span className="rounded-md bg-white p-2">
                   <QRCodeSVG
-                    value={JSON.stringify({ api: selected.url })}
+                    value={JSON.stringify({ api: selected.url, demo: true })}
                     size={120}
                     aria-label="QR code: connect the app to this demo"
                   />

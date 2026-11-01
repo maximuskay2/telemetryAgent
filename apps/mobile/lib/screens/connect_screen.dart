@@ -5,6 +5,14 @@ import '../models/connection.dart';
 import '../providers.dart';
 import 'scan_screen.dart';
 
+/// Token guidance under the token field: which token each setup needs
+/// and exactly where to get it.
+const tokenHelpLines = [
+  'Demo: leave blank - the demo QR and "Try the demo" register this phone automatically.',
+  "Own self-hosted server: copy MOBILE_API_TOKEN from the API machine's .env (blank works only if it is unset there).",
+  "Own production server: don't type here - claim a pairing code from Your devices below.",
+];
+
 /// First-run pairing: API URL + token, by hand or by dashboard QR.
 class ConnectScreen extends ConsumerStatefulWidget {
   const ConnectScreen({super.key});
@@ -72,10 +80,20 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
           TextField(
             controller: _token,
             decoration: const InputDecoration(
-              labelText: 'Mobile token (blank when unset)',
+              labelText: 'Mobile token (own self-hosted server)',
             ),
             obscureText: true,
             autocorrect: false,
+          ),
+          const SizedBox(height: 8),
+          ...tokenHelpLines.map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '• $line',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -102,9 +120,33 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
                       MaterialPageRoute(
                           builder: (_) => const ScanScreen()),
                     );
-                    if (scanned != null && mounted) {
-                      setState(() => _url.text = scanned);
+                    if (scanned == null || !mounted) return;
+                    final url = parsePairingCode(scanned);
+                    if (url == null || !mounted) return;
+                    if (isDemoPairingCode(scanned)) {
+                      // Demo QR: register a demo device session at once —
+                      // bare-URL pairing leaves decisions failing with 401.
+                      setState(() {
+                        _busy = true;
+                        _error = null;
+                        _url.text = url;
+                      });
+                      final problem = await ref
+                          .read(connectionProvider.notifier)
+                          .demoAndConnect(
+                            apiUrl: url,
+                            deviceName: _device.text.trim().isEmpty
+                                ? 'phone'
+                                : _device.text.trim(),
+                          );
+                      if (!mounted) return;
+                      setState(() {
+                        _busy = false;
+                        _error = problem;
+                      });
+                      return;
                     }
+                    setState(() => _url.text = url);
                   },
             icon: const Icon(Icons.qr_code_scanner),
             label: const Text('Scan dashboard QR'),

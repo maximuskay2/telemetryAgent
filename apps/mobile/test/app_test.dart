@@ -8,6 +8,7 @@ import 'package:telemetry_agent/models/connection.dart';
 import 'package:telemetry_agent/models/pending_action.dart';
 import 'package:telemetry_agent/models/run_report.dart';
 import 'package:telemetry_agent/models/sim_event.dart';
+import 'package:telemetry_agent/screens/connect_screen.dart';
 import 'package:telemetry_agent/screens/scan_screen.dart';
 import 'package:telemetry_agent/services/api.dart';
 import 'package:telemetry_agent/services/socket.dart';
@@ -203,9 +204,32 @@ void main() {
     test('accepts raw URLs and dashboard JSON', () {
       expect(parsePairingCode('http://a:8001'), 'http://a:8001');
       expect(parsePairingCode('{"api": "http://a:8001"}'), 'http://a:8001');
+      expect(
+        parsePairingCode('{"api": "http://a:8001", "demo": true}'),
+        'http://a:8001',
+      );
       expect(parsePairingCode('hello'), isNull);
       expect(parsePairingCode(null), isNull);
       expect(parsePairingCode('{"nope": 1}'), isNull);
+    });
+
+    test('token help tells every setup where its token comes from', () {
+      final help = tokenHelpLines.join('\n');
+      expect(help, contains('MOBILE_API_TOKEN'));
+      expect(help, contains('.env'));
+      expect(help, contains('Try the demo'));
+      expect(help, contains('pairing code'));
+    });
+
+    test('demo flag decides scan-and-register vs fill-URL', () {
+      expect(
+        isDemoPairingCode('{"api": "http://a:8001", "demo": true}'),
+        isTrue,
+      );
+      expect(isDemoPairingCode('{"api": "http://a:8001"}'), isFalse);
+      expect(isDemoPairingCode('http://a:8001'), isFalse);
+      expect(isDemoPairingCode(null), isFalse);
+      expect(isDemoPairingCode('hello'), isFalse);
     });
   });
 

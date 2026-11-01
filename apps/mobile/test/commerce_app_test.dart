@@ -248,16 +248,25 @@ void main() {
     });
 
     testWidgets('connect screen offers code claim', (tester) async {
+      // Tall screen: the token guidance pushes later fields down the list.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
       final store = PairingStorage(storage: FakeSecureStorage());
       await tester.pumpWidget(ProviderScope(
         overrides: [storageProvider.overrideWithValue(store)],
         child: const MaterialApp(home: ConnectScreen()),
       ));
       await tester.pumpAndSettle();
+      // ...with guidance on where each setup's token comes from.
+      expect(find.textContaining('MOBILE_API_TOKEN'), findsOneWidget);
       expect(find.text('Pairing code (123-456)'), findsOneWidget);
       expect(find.text('Claim code & connect'), findsOneWidget);
       // Legacy self-hosted pairing stays alongside.
-      expect(find.text('Mobile token (blank when unset)'), findsOneWidget);
+      expect(
+        find.text('Mobile token (own self-hosted server)'),
+        findsOneWidget,
+      );
     });
   });
 }

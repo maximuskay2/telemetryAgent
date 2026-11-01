@@ -36,6 +36,14 @@ describe("setup phone step", () => {
     assert.ok(phone.includes("Mobile token"), "token guidance");
   });
 
+  it("demo pairing QR registers a device session on scan", () => {
+    const phone = read("start/phone/page.tsx");
+    assert.ok(
+      phone.includes('demo: true'),
+      "demo QR carries the demo flag so the app demo-registers",
+    );
+  });
+
   it("phone page offers per-device pairing URLs", () => {
     const phone = read("start/phone/page.tsx");
     assert.ok(phone.includes("pairingVariants"));
