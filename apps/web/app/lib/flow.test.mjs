@@ -158,6 +158,26 @@ describe("gated product flow", () => {
     assert.ok(wizard.includes("DraftPicker"), "picks a draft");
   });
 
+  it("connect entry shows drafts first, not the create flow", () => {
+    const wizard = read("connect/Wizard.tsx");
+    assert.ok(
+      wizard.includes("data == null && picking"),
+      "picker gates on entry state",
+    );
+    assert.ok(
+      wizard.includes("!showPicker && ("),
+      "stepper hides while picking a draft",
+    );
+    assert.ok(
+      wizard.indexOf("<DraftPicker") < wizard.indexOf("<StepName"),
+      "drafts render before the create form",
+    );
+    assert.ok(
+      wizard.includes("+ Start a new system"),
+      "picker offers create-new as the explicit choice",
+    );
+  });
+
   it("connect hosting step guides webhooks and can be skipped", () => {
     const steps = read("connect/ConnSteps.tsx");
     assert.ok(steps.includes("X-Telemetry-Signature"), "signing contract");

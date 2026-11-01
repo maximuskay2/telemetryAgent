@@ -632,26 +632,33 @@ export default function Wizard() {
     return list;
   }
 
+  // Entry with unfinished runs: the drafts ARE the first screen — no
+  // create-flow stepper above them. Continue a draft or start new.
+  const showPicker =
+    data == null && picking && Object.keys(drafts).length > 0;
+
   return (
     <div className="space-y-4">
-      <ol className="flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-xs">
-        {titles.map((title, i) => (
-          <li
-            key={title}
-            className={
-              i === index
-                ? "font-semibold text-text"
-                : i < index
-                  ? "text-text-muted"
-                  : "text-text-faint"
-            }
-          >
-            {i + 1}. {title}
-          </li>
-        ))}
-      </ol>
+      {!showPicker && (
+        <ol className="flex list-none flex-wrap gap-x-3 gap-y-1 p-0 text-xs">
+          {titles.map((title, i) => (
+            <li
+              key={title}
+              className={
+                i === index
+                  ? "font-semibold text-text"
+                  : i < index
+                    ? "text-text-muted"
+                    : "text-text-faint"
+              }
+            >
+              {i + 1}. {title}
+            </li>
+          ))}
+        </ol>
+      )}
       {index === 0 &&
-        (data == null && picking && Object.keys(drafts).length > 0 ? (
+        (showPicker ? (
           <DraftPicker
             drafts={drafts}
             onResume={resumeDraft}
