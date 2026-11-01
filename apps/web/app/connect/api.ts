@@ -153,6 +153,7 @@ export type AccountSystem = {
   name: string;
   kind: string;
   status: string;
+  demo: boolean;
 };
 
 /** The account's systems (session auth): unfinished ones are resumable. */
@@ -163,6 +164,7 @@ export async function listSystems(): Promise<AccountSystem[]> {
       name?: unknown;
       kind?: unknown;
       status?: unknown;
+      environment?: unknown;
     }[];
   }>("/api/systems");
   return (body.systems ?? [])
@@ -174,6 +176,7 @@ export async function listSystems(): Promise<AccountSystem[]> {
         name: string;
         kind: string;
         status: string;
+        environment?: unknown;
       } =>
         typeof s.system_id === "string" &&
         typeof s.name === "string" &&
@@ -185,6 +188,10 @@ export async function listSystems(): Promise<AccountSystem[]> {
       name: s.name,
       kind: s.kind,
       status: s.status,
+      demo:
+        typeof s.environment === "object" &&
+        s.environment !== null &&
+        (s.environment as Record<string, unknown>).demo === "true",
     }));
 }
 

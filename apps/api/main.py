@@ -278,7 +278,9 @@ def shop_base_url() -> str:
     if explicit and not (on_railway and local_leftover):
         return explicit
     port = os.environ.get("PORT")
-    if port:
+    if port and _embed_shop():
+        # /shop-api only exists when the shop is mounted in-process; a
+        # stray local PORT must never reroute shop calls to a dead port.
         return f"http://127.0.0.1:{port}/shop-api"
     return f"http://localhost:{os.environ.get('SHOP_PORT', '8002')}"
 
@@ -2073,11 +2075,20 @@ async def create_system(request: Request, payload: SystemCreateIn) -> dict:
 @app.get("/api/systems")
 async def list_systems(request: Request) -> dict:
     """All systems with their setup status (wizard + Systems chip)."""
-    return {
-        "systems": [
-            profile.model_dump(mode="json")
-            for profile in await _profiles_list(_read_org(request))
+    org_id = _read_org(request)
+    profiles = await _profiles_list(org_id)
+    if _hosted() and not org_id:
+        # Signed-out on a hosted API: demo systems only. The file store
+        # can hold other owners' setups — listing them leaks their
+        # existence, and they are undeletable anyway (org-scoped
+        # mutations look in Postgres, not here).
+        profiles = [
+            profile
+            for profile in profiles
+            if (profile.environment or {}).get("demo") == "true"
         ]
+    return {
+        "systems": [profile.model_dump(mode="json") for profile in profiles]
     }
 
 

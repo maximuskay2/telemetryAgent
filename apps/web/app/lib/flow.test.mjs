@@ -127,7 +127,14 @@ describe("gated product flow", () => {
     assert.ok(systems.includes("X-Org-Id"), "org-scoped list");
     const left = read("mission/LeftPane.tsx");
     assert.ok(left.includes("ProdTile"), "renders production tiles");
-    assert.ok(left.includes("DEMO_SYSTEM_IDS"), "demo tiles stay demo-only");
+    assert.ok(
+      left.includes("isDemoSystem"),
+      "demo tiles match the demo tag, never hardcoded ids",
+    );
+    assert.ok(
+      !left.includes("autoparts-shop") && !left.includes("coldchain-1"),
+      "no hardcoded demo ids (bootstrap generates them)",
+    );
     const tile = read("mission/ProdTile.tsx");
     assert.ok(tile.includes("/connect?system="), "links connections");
     assert.ok(tile.includes("/setup?system="), "links setup");

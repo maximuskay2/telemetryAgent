@@ -162,10 +162,17 @@ export default function SetupPage() {
   const socketRef = useRef<WebSocket | null>(null);
   const { getSessionAuth, status: sessionStatus } = useSession();
 
-  async function api(path: string, init?: RequestInit): Promise<unknown> {
+  async function api(
+    path: string,
+    init?: RequestInit,
+    opts?: { demo?: boolean },
+  ): Promise<unknown> {
     const { token, orgId } = getSessionAuth();
     const method = init?.method ?? "GET";
-    if (!token && method !== "GET" && profile?.environment?.demo !== "true") {
+    // The demo exception follows the TARGET system: list rows pass their
+    // own flag, everything else falls back to the loaded profile.
+    const demoTarget = opts?.demo ?? profile?.environment?.demo === "true";
+    if (!token && method !== "GET" && !demoTarget) {
       // Never fire a mutation with no credentials: the 401 teaches
       // nothing — say what to do instead. Demo systems stay public.
       throw new Error("Sign in to change production systems.");
@@ -569,6 +576,7 @@ export default function SetupPage() {
                         const body = (await api(
                           `/api/systems/${s.system_id}/disarm`,
                           { method: "POST" },
+                          { demo: s.environment?.demo === "true" },
                         )) as Profile;
                         if (body.system_id === systemId) setProfile(body);
                         await refreshSystems();
@@ -595,9 +603,11 @@ export default function SetupPage() {
                       return;
                     }
                     run(async () => {
-                      await api(`/api/systems/${s.system_id}`, {
-                        method: "DELETE",
-                      });
+                      await api(
+                        `/api/systems/${s.system_id}`,
+                        { method: "DELETE" },
+                        { demo: s.environment?.demo === "true" },
+                      );
                       if (s.system_id === systemId) {
                         setSystemId("");
                         setProfile(null);

@@ -773,6 +773,90 @@ class DemoStaysOpenWhenHostedTests(unittest.TestCase):
                         profile.json()["profile"]["status"], "armed"
                     )
 
+    def test_system_list_hides_file_neighbours_when_hosted(self) -> None:
+        """Hosted + signed out: demo systems only, never file neighbours.
+
+        The file store can hold other owners' setups; listing them to a
+        signed-out browser leaks their existence, and they are
+        undeletable anyway (mutations are org-scoped).
+        """
+        import tempfile
+
+        from core.schemas.profile import SystemProfile
+        from core.setup import store as setup_store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                "os.environ",
+                {
+                    "TA_DATA_DIR": tmp,
+                    "DATABASE_URL": "postgresql://hosted.example/telemetry",
+                },
+            ), patch("core.commerce.db.ensure_schema"):
+                setup_store.save_profile(
+                    SystemProfile(
+                        system_id="demo-shop-x",
+                        name="Demo",
+                        kind="software",
+                        environment={"demo": "true"},
+                    )
+                )
+                setup_store.save_profile(
+                    SystemProfile(
+                        system_id="neighbour-x",
+                        name="Neighbour",
+                        kind="software",
+                    )
+                )
+                with TestClient(app) as client:
+                    listing = client.get("/api/systems")
+                    self.assertEqual(listing.status_code, 200)
+                    ids = {
+                        item["system_id"]
+                        for item in listing.json()["systems"]
+                    }
+                    self.assertEqual(ids, {"demo-shop-x"})
+
+
+class ShopUrlTests(unittest.TestCase):
+    def test_stray_port_ignored_without_embedded_shop(self) -> None:
+        """A stray local PORT must not reroute the shop to /shop-api.
+
+        /shop-api only exists when the shop is mounted in-process; a
+        leftover PORT=8000 in .env otherwise points every shop call
+        (break, load, deploy) at a dead address.
+        """
+        from apps.api import main as api_main
+
+        with patch.dict("os.environ", {"PORT": "8000"}, clear=True):
+            self.assertEqual(
+                api_main.shop_base_url(), "http://localhost:8002"
+            )
+
+    def test_port_routes_to_mounted_shop_on_railway(self) -> None:
+        from apps.api import main as api_main
+
+        with patch.dict(
+            "os.environ",
+            {"PORT": "8000", "RAILWAY_ENVIRONMENT": "production"},
+            clear=True,
+        ):
+            self.assertEqual(
+                api_main.shop_base_url(), "http://127.0.0.1:8000/shop-api"
+            )
+
+    def test_explicit_shop_url_still_wins(self) -> None:
+        from apps.api import main as api_main
+
+        with patch.dict(
+            "os.environ",
+            {"PORT": "8000", "SHOP_URL": "https://shop.example"},
+            clear=True,
+        ):
+            self.assertEqual(
+                api_main.shop_base_url(), "https://shop.example"
+            )
+
 
 class DemoDocumentsTests(unittest.TestCase):
     def test_failed_extraction_falls_back_to_saved_reading(self) -> None:

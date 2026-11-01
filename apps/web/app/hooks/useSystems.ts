@@ -12,8 +12,14 @@ type RawSystems = {
     name?: unknown;
     status?: unknown;
     kind?: unknown;
+    environment?: unknown;
   }[];
 };
+
+function isDemo(environment: unknown): boolean {
+  if (typeof environment !== "object" || environment === null) return false;
+  return (environment as Record<string, unknown>).demo === "true";
+}
 
 function toSummaries(body: RawSystems): SystemSummary[] {
   return (body.systems ?? [])
@@ -25,6 +31,7 @@ function toSummaries(body: RawSystems): SystemSummary[] {
         name: string;
         status: string;
         kind?: unknown;
+        environment?: unknown;
       } =>
         typeof s.system_id === "string" &&
         typeof s.name === "string" &&
@@ -35,6 +42,7 @@ function toSummaries(body: RawSystems): SystemSummary[] {
       name: s.name,
       status: s.status,
       kind: typeof s.kind === "string" ? s.kind : "",
+      demo: isDemo(s.environment),
     }));
 }
 

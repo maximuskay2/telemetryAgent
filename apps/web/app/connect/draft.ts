@@ -113,15 +113,12 @@ export type ServerSystem = {
   name: string;
   kind: string;
   status: string;
+  demo: boolean;
 };
 
 export type ResumeEntry =
   | { origin: "draft"; draft: WizardDraft }
   | { origin: "server"; system: ServerSystem };
-
-/** Demo systems never resume through the production wizard (mirrors
- * mission/LeftPane DEMO_SYSTEM_IDS; self-hosted lists them too). */
-const DEMO_SYSTEM_IDS = new Set(["autoparts-shop", "coldchain-1"]);
 
 /**
  * One resume list from local drafts + the account's server systems.
@@ -151,7 +148,8 @@ export function mergeResumeEntries(
     entries.push({ origin: "draft", draft });
   }
   for (const system of systems) {
-    if (DEMO_SYSTEM_IDS.has(system.system_id)) continue;
+    // Demo systems never resume through the production wizard.
+    if (system.demo) continue;
     if (system.status === "armed") continue;
     if (kept.has(system.system_id)) continue;
     entries.push({ origin: "server", system });

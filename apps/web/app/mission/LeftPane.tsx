@@ -8,8 +8,10 @@ import ProdTile from "./ProdTile";
 import ShopTile from "./ShopTile";
 import { useMission } from "./state";
 
-/** The two shipped demo systems; everything else is a production tile. */
-export const DEMO_SYSTEM_IDS = new Set(["autoparts-shop", "coldchain-1"]);
+/** Demo-tagged walkthrough systems (bootstrap generates their ids). */
+function isDemoSystem(system: { demo: boolean }): boolean {
+  return system.demo;
+}
 
 /**
  * Topology + state rail: connected production systems on top, then the
@@ -27,15 +29,11 @@ export default function LeftPane() {
       new URLSearchParams(window.location.search).get("tour") === "1",
   );
   const showDemo = status !== "signed-in" || tour;
-  const prod = systems.filter((s) => !DEMO_SYSTEM_IDS.has(s.system_id));
+  const prod = systems.filter((s) => !isDemoSystem(s));
   const shop =
-    systems.find(
-      (s) => s.kind === "software" && DEMO_SYSTEM_IDS.has(s.system_id),
-    ) ?? null;
+    systems.find((s) => s.kind === "software" && isDemoSystem(s)) ?? null;
   const fridge =
-    systems.find(
-      (s) => s.kind === "appliance" && DEMO_SYSTEM_IDS.has(s.system_id),
-    ) ?? null;
+    systems.find((s) => s.kind === "appliance" && isDemoSystem(s)) ?? null;
   const shopArmed = shop !== null && shop.status === "armed";
   const fridgeArmed = fridge !== null && fridge.status === "armed";
 

@@ -74,6 +74,8 @@ export type SystemSummary = {
   name: string;
   status: string;
   kind: string;
+  /** True for the demo-tagged walkthrough systems (any generated id). */
+  demo: boolean;
 };
 
 export type OrderStatus = "ok" | "waiting" | "failed";

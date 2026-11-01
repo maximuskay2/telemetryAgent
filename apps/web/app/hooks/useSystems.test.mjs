@@ -27,4 +27,10 @@ describe("useSystems", () => {
     assert.ok(hook.includes("lastKnown.current.length > 0"));
     assert.ok(hook.includes("hadToken"));
   });
+
+  it("carries the demo tag so tiles match any generated id", () => {
+    const hook = read("hooks/useSystems.ts");
+    assert.ok(hook.includes("demo: isDemo(s.environment)"));
+    assert.ok(hook.includes('=== "true"'));
+  });
 });

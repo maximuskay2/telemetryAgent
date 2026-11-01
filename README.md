@@ -31,7 +31,7 @@ What is in this repository today:
 - **Connect a real system.** `/connect`: log forwarder (`ta_live_*` key) or Sentry, GitHub repo check, Railway or a signed webhook, device key, teach normal, pair the phone, then Start watching.
 - **Phone** (`apps/mobile/`, Flutter): full-screen alarm, veto countdown, run reports, QR pairing, foreground service, plus "PR ready / Roll back now" and "Choose a fix" cards.
 - **Equipment protocol.** `hardware/sim_device.py` posts readings and acks commands against the API (this is what the tests run). `hardware/wokwi/` is the same firmware as an ESP32 sketch plus circuit for [wokwi.com](https://wokwi.com) — paste it there and press play; that click-through is still a manual step.
-- **Checks.** `./scripts/check.sh`: 1130 Python tests, the simulation-route smoke test, the web build + 137 web tests, and `flutter analyze` + 99 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
+- **Checks.** `./scripts/check.sh`: 1134 Python tests, the simulation-route smoke test, the web build + 147 web tests, and `flutter analyze` + 101 Flutter tests. GitHub, Railway, Sentry, and Modal are mocked; Docker and webhooks have live coverage.
 - **Signed-in hub.** `/dashboard`: provisioned systems, unified setup drafts (guided + manual resume where they stopped), recent runs, and every destination. Mission Control opens once a system is armed; signed-in users see only their own systems, never the demo tiles. `/keys` lists every secret by `****last4` hint and rotates minted keys.
 
 Hosted accounts, members, devices, and usage shipped (Clerk session, org isolation); billing is still specified, not shipped: [commercial-roadmap.md](./commercial-roadmap.md). Auto-fix ships for Python, JavaScript/TypeScript, Java, Kotlin, Go, Rust, and PHP ([languages-roadmap.md](./languages-roadmap.md) is the design record).
@@ -232,7 +232,7 @@ send sensitive log content to remote services.
 Checks: `./scripts/check.sh` runs the Python suite, the simulation-route
 smoke test (spins the API on a spare port, arms the demo shop, runs two
 live agent runs), the web build + web tests, and `flutter analyze` +
-`flutter test`. 1130 Python tests, 137 web tests, 99 Flutter tests, all
+`flutter test`. 1134 Python tests, 147 web tests, 101 Flutter tests, all
 externals mocked (GitHub, Railway, Sentry, Modal) with live Docker +
 webhook coverage.
 

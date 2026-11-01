@@ -105,11 +105,12 @@ describe("resume entries", () => {
       updatedAt: 1,
     },
   };
-  const server = (id, status) => ({
+  const server = (id, status, demo = false) => ({
     system_id: id,
     name: id,
     kind: "software",
     status,
+    demo,
   });
 
   it("keeps local drafts on their exact step", () => {
@@ -133,10 +134,18 @@ describe("resume entries", () => {
   it("drops armed, vanished, and demo systems", () => {
     const entries = draft.mergeResumeEntries(DRAFTS, [
       server("acme-1", "armed"),
-      server("coldchain-1", "draft"),
-      server("autoparts-shop", "draft"),
+      server("cold-chain-freezer-0bdf", "draft", true),
+      server("autoparts-lagos-1a2b", "draft", true),
     ]);
     assert.deepEqual(entries, []);
+  });
+
+  it("keeps own systems with generated IDs (ID alone never decides)", () => {
+    const entries = draft.mergeResumeEntries({}, [
+      server("maximus-16bf", "draft"),
+    ]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].origin, "server");
   });
 
   it("keeps every local draft when the server is unreachable", () => {

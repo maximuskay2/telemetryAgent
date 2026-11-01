@@ -47,7 +47,19 @@ describe("session refresh", () => {
   it("never fires unsigned mutations from setup, demo excepted", () => {
     const setup = read("setup/page.tsx");
     assert.ok(setup.includes("Sign in to change production systems."));
-    assert.ok(setup.includes('environment?.demo !== "true"'));
+    assert.ok(setup.includes("!demoTarget"));
     assert.ok(setup.includes("refreshSessionAuth()"));
+  });
+
+  it("judges the demo exception by the target row, not the loaded form", () => {
+    const setup = read("setup/page.tsx");
+    assert.ok(
+      setup.includes("opts?.demo ?? profile?.environment?.demo"),
+      "guard takes the target flag with the loaded profile as fallback",
+    );
+    assert.ok(
+      setup.includes('{ demo: s.environment?.demo === "true" }'),
+      "list actions pass their own row flag",
+    );
   });
 });
