@@ -5,6 +5,7 @@ import { apiUrl } from "../lib/api";
 import { Card, ErrorState } from "../ui";
 import IncidentsPane from "./IncidentsPane";
 import LeftPane from "./LeftPane";
+import SetupSelect from "./SetupSelect";
 import { useMission } from "./state";
 import Toasts from "./Toasts";
 import Tour, { type TourSummary } from "./Tour";
@@ -39,6 +40,7 @@ function Pane({
 export default function MissionPanes() {
   const {
     connection,
+    systems,
     systemsLoaded,
     focusMode,
     setFocusMode,
@@ -79,6 +81,12 @@ export default function MissionPanes() {
         </Card>
       </main>
     );
+  }
+
+  // Nothing armed and watching: draft selection comes before Mission
+  // Control — guided and manual setups resume from here.
+  if (systemsLoaded && !systems.some((s) => s.status === "armed")) {
+    return <SetupSelect />;
   }
 
   return (

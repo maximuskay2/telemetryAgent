@@ -80,6 +80,27 @@ export function clearDraft(
   writeDrafts(drafts, store);
 }
 
+/** Wizard step names, shared by the picker and the mission gate. */
+export const SOFTWARE_STEP_TITLES = [
+  "System",
+  "Logs",
+  "Repo",
+  "Teach",
+  "Hosting",
+  "Promise",
+  "Pair",
+  "Start",
+];
+
+export const APPLIANCE_STEP_TITLES = [
+  "System",
+  "Device",
+  "Teach",
+  "Promise",
+  "Pair",
+  "Start",
+];
+
 export function draftStepTitle(
   draft: WizardDraft,
   titles: string[],

@@ -128,10 +128,11 @@ describe("gated product flow", () => {
   });
 
   it("connect runs hosting last among setup steps, before the promise", () => {
-    const wizard = read("connect/Wizard.tsx");
-    const titles = wizard.slice(
-      wizard.indexOf("SOFTWARE_TITLES"),
-      wizard.indexOf("APPLIANCE_TITLES"),
+    // Canonical step lists live in connect/draft.ts (wizard + gate share).
+    const draft = read("connect/draft.ts");
+    const titles = draft.slice(
+      draft.indexOf("SOFTWARE_STEP_TITLES"),
+      draft.indexOf("APPLIANCE_STEP_TITLES"),
     );
     const order = ["System", "Logs", "Repo", "Teach", "Hosting", "Promise"];
     const positions = order.map((title) => titles.indexOf(`"${title}"`));

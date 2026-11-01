@@ -3,6 +3,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -18,10 +19,12 @@ import ApkQr from "../welcome/ApkQr";
 import { createSystem, pairingUrl } from "./api";
 import { StepDevice, StepHosting, StepLogs, StepRepo } from "./ConnSteps";
 import {
+  APPLIANCE_STEP_TITLES,
   clearDraft,
   draftStepTitle,
   loadDrafts,
   saveDraft,
+  SOFTWARE_STEP_TITLES,
   type DraftMap,
   type WizardDraft,
 } from "./draft";
@@ -502,18 +505,8 @@ function StepDone({ data }: { data: WizardData }) {
   );
 }
 
-const SOFTWARE_TITLES = [
-  "System",
-  "Logs",
-  "Repo",
-  "Teach",
-  "Hosting",
-  "Promise",
-  "Pair",
-  "Start",
-];
-
-const APPLIANCE_TITLES = ["System", "Device", "Teach", "Promise", "Pair", "Start"];
+const SOFTWARE_TITLES = SOFTWARE_STEP_TITLES;
+const APPLIANCE_TITLES = APPLIANCE_STEP_TITLES;
 
 function DraftPicker({
   drafts,
@@ -611,6 +604,15 @@ export default function Wizard() {
     );
     setPicking(false);
   }
+
+  // Deep resume from the mission gate (?resume=<systemId>).
+  const resumeParam = useSearchParams().get("resume");
+  useEffect(() => {
+    if (!resumeParam) return;
+    const found = loadDrafts()[resumeParam];
+    if (found) resumeDraft(found);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeParam]);
 
   function discardDraft(systemId: string) {
     clearDraft(systemId);

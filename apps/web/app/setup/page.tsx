@@ -5,6 +5,12 @@ import ThemeToggle from "../components/ThemeToggle";
 import { Button, Card } from "../ui";
 import { useSession } from "../lib/session";
 import { ReviewSection, SECTION_HINTS } from "./ReviewTable";
+import {
+  clearSetupDraft,
+  loadSetupDrafts,
+  saveSetupDraft,
+  STEP_LABELS,
+} from "./draft";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -57,14 +63,6 @@ type FeedbackItem = {
 
 type Step = "connect" | "teach" | "review" | "learn" | "policy" | "arm";
 const STEPS: Step[] = ["connect", "teach", "review", "learn", "policy", "arm"];
-const STEP_LABELS: Record<Step, string> = {
-  connect: "Meet the business",
-  teach: "Read the manuals",
-  review: "Check what it learned",
-  learn: "Watch normal",
-  policy: "Permissions",
-  arm: "Start watching",
-};
 
 const inputCls =
   "w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-sm text-text outline-none placeholder:text-text-faint focus:border-brand";
@@ -208,9 +206,26 @@ export default function SetupPage() {
     if (id) {
       setSystemId(id);
       loadProfile(id).catch((err: Error) => setError(err.message));
-      setStep("review");
+      const draft = loadSetupDrafts()[id];
+      const resume = draft?.data.step as Step | undefined;
+      setStep(resume && STEPS.includes(resume) ? resume : "review");
     }
   }, []);
+
+  // Unfinished manual setups stay resumable drafts; arming clears them.
+  useEffect(() => {
+    if (!systemId) return;
+    if (profile?.status === "armed") {
+      clearSetupDraft(systemId);
+      return;
+    }
+    saveSetupDraft({
+      systemId,
+      step,
+      name: profile?.name || name || systemId,
+      kind: profile?.kind || kind,
+    });
+  }, [systemId, step, profile, name, kind]);
 
   useEffect(() => {
     const { token, orgId } = getSessionAuth();
