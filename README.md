@@ -287,15 +287,18 @@ docs/              PRD, DOCUMENTATION, production-backend, proof-run
 
 ## Contributors
 
-Built by **Akingbade Kayode** (Maximusinfotech Services) with Muse Code
-contributors:
+Built by **Akingbade Kayode** (Maximusinfotech Services), the only human
+on the project. James, John, Jude and Janet are **not people**: they are
+Muse Code AI agents, each launched in its own terminal with its own role,
+branch, and status file in [`status/`](./status/). Akingbade assigned the
+work, reviewed it, and merged it to `main`.
 
-| Contributor | Area |
+| Agent (Muse Code) | Area |
 | :--- | :--- |
 | James | Backend core — commerce store, auth, language contracts, Java/Kotlin/Go |
 | John | Web / app / look — Clerk session, members, devices, Meta-style UI |
 | Jude | Usage + free allowance, Rust/PHP adapters, pulse-to-check logo |
-| Janet | Tester — in-repo reports |
+| Janet | Tester — in-repo reports ([`status/test-janet.md`](./status/test-janet.md)) |
 
 ## License
 
