@@ -250,6 +250,61 @@ class FillTests(unittest.TestCase):
             extract.fill_profile_from_text("g.md", "text", lambda s, u: [1])
 
 
+class DefaultModelFnTests(unittest.TestCase):
+    def _fake_client(self, fail_first_n=0):
+        from types import SimpleNamespace
+
+        calls: list[str] = []
+
+        class _NotFound(Exception):
+            status_code = 404
+
+        class _Completions:
+            def create(self, **kwargs):
+                calls.append(kwargs["model"])
+                if len(calls) <= fail_first_n:
+                    raise _NotFound("model_not_found")
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"a": 1}')
+                        )
+                    ]
+                )
+
+        fake = SimpleNamespace(
+            chat=SimpleNamespace(completions=_Completions())
+        )
+        return fake, calls
+
+    def test_skips_404_model_ids(self) -> None:
+        import core.infer.meta_client as meta_client
+        from core.setup import extract as extract_module
+
+        fake, calls = self._fake_client(fail_first_n=1)
+        with patch.object(meta_client, "_client", return_value=fake), patch.object(
+            meta_client, "_listed_models", return_value=[]
+        ):
+            out = extract_module.default_model_fn("sys", "user")
+        self.assertEqual(out, {"a": 1})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], meta_client.diagnosis_model())
+
+    def test_reports_when_no_model_id_left(self) -> None:
+        import core.infer.meta_client as meta_client
+        from core.setup import extract as extract_module
+
+        fake, calls = self._fake_client(fail_first_n=99)
+        with patch.object(meta_client, "_client", return_value=fake), patch.object(
+            meta_client, "_listed_models", return_value=[]
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "could not find the model"
+            ):
+                extract_module.default_model_fn("sys", "user")
+        self.assertGreater(len(calls), 1)
+
+
 class SystemsApiTests(unittest.TestCase):
     def test_create_and_upload_with_stub_model(self) -> None:
         quote = (

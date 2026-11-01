@@ -414,17 +414,43 @@ def fill_profile_from_text(
 
 
 def default_model_fn(system: str, user: str) -> dict:
-    """Production model call: Muse Spark with a JSON-schema response."""
+    """Production model call: Muse Spark with a JSON response.
+
+    Walks the configured id, the pinned fallbacks, then the live
+    catalog, skipping 404s — the same resilience every other Meta
+    caller has. A single hardcoded id 502s extraction whenever the
+    configured id stops resolving.
+    """
     import json as jsonlib
 
     from core.infer import meta_client
+    from core.infer.errors import translate
 
-    response = meta_client._client().chat.completions.create(
-        model=meta_client.DIAGNOSIS_MODEL,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        response_format={"type": "json_object"},
-    )
-    return jsonlib.loads(response.choices[0].message.content)
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    last: Exception | None = None
+    for model in meta_client._models(
+        meta_client.diagnosis_model(), meta_client._DIAGNOSIS_FALLBACKS
+    ):
+        try:
+            response = meta_client._client().chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+            )
+            return jsonlib.loads(response.choices[0].message.content)
+        except RuntimeError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - provider SDK errors
+            last = exc
+            if getattr(exc, "status_code", None) != 404:
+                raise translate(
+                    exc, provider="Meta Model API", action="extraction"
+                ) from exc
+    raise translate(
+        last or RuntimeError("no model id left to try"),
+        provider="Meta Model API",
+        action="extraction",
+    ) from last
